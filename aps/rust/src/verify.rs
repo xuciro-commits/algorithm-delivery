@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use crate::datetime::parse_iso8601;
 use crate::errors::{codes, Issue, Violation};
 use crate::json::Json;
-use crate::model::{Ctx, RawProblem, RawInterval};
+use crate::model::{Ctx, RawInterval, RawProblem};
 
 /// 方案中的一道工序分配。
 #[derive(Debug, Clone, PartialEq)]
@@ -62,9 +62,7 @@ pub fn parse_solution(json: &Json) -> (Option<RawSolution>, Vec<Issue>) {
 }
 
 fn parse_solution_inner(c: &mut Ctx, json: &Json) -> Option<RawSolution> {
-    if c.expect_obj(json, "$").is_none() {
-        return None;
-    }
+    c.expect_obj(json, "$")?;
     c.check_keys(
         json,
         "$",
@@ -139,11 +137,7 @@ fn parse_solution_inner(c: &mut Ctx, json: &Json) -> Option<RawSolution> {
             "CANCELLED",
         ];
         if !ALLOWED.contains(&s.as_str()) {
-            c.error(
-                "INVALID_ENUM",
-                "$.status",
-                format!("未知状态 '{}'", s),
-            );
+            c.error("INVALID_ENUM", "$.status", format!("未知状态 '{s}'"));
         }
     }
     let verified = match json.get("verified") {
@@ -169,7 +163,7 @@ fn parse_solution_inner(c: &mut Ctx, json: &Json) -> Option<RawSolution> {
     match c.req_arr(json, "operations", "$", 0) {
         Some(items) => {
             for (i, item) in items.iter().enumerate() {
-                let path = format!("$.operations[{}]", i);
+                let path = format!("$.operations[{i}]");
                 match parse_solution_op(c, item, &path) {
                     Some(op) => operations.push(op),
                     None => ops_ok = false,
@@ -179,13 +173,10 @@ fn parse_solution_inner(c: &mut Ctx, json: &Json) -> Option<RawSolution> {
         None => ops_ok = false,
     }
 
-    match (
-        schema_version,
-        snapshot_id,
-        status,
-        optimality_proven,
-    ) {
-        (Some(schema_version), Some(snapshot_id), Some(status), Some(optimality_proven)) if ops_ok => {
+    match (schema_version, snapshot_id, status, optimality_proven) {
+        (Some(schema_version), Some(snapshot_id), Some(status), Some(optimality_proven))
+            if ops_ok =>
+        {
             Some(RawSolution {
                 schema_version,
                 id,
@@ -211,9 +202,7 @@ fn parse_solution_inner(c: &mut Ctx, json: &Json) -> Option<RawSolution> {
 }
 
 fn parse_solution_op(c: &mut Ctx, item: &Json, path: &str) -> Option<SolutionOp> {
-    if c.expect_obj(item, path).is_none() {
-        return None;
-    }
+    c.expect_obj(item, path)?;
     c.check_keys(
         item,
         path,
@@ -234,7 +223,15 @@ fn parse_solution_op(c: &mut Ctx, item: &Json, path: &str) -> Option<SolutionOp>
     let tool_ids = c.str_list(item, "tool_ids", path, 0, false);
     let start = c.req_time(item, "start_at", path);
     let end = c.req_time(item, "end_at", path);
-    match (order_id, operation_id, machine_id, worker_id, tool_ids, start, end) {
+    match (
+        order_id,
+        operation_id,
+        machine_id,
+        worker_id,
+        tool_ids,
+        start,
+        end,
+    ) {
         (
             Some(order_id),
             Some(operation_id),
@@ -299,13 +296,19 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
     let h = problem.meta.horizon_end_min - problem.meta.horizon_start_min;
 
     // ---- 索引（独立于求解器的 trace 结构）----
-    let machine_by_id: BTreeMap<&str, &crate::model::RawMachine> =
-        problem.machines.iter().map(|m| (m.id.as_str(), m)).collect();
+    let machine_by_id: BTreeMap<&str, &crate::model::RawMachine> = problem
+        .machines
+        .iter()
+        .map(|m| (m.id.as_str(), m))
+        .collect();
     let worker_by_id: BTreeMap<&str, &crate::model::RawWorker> =
         problem.workers.iter().map(|w| (w.id.as_str(), w)).collect();
     let tool_ids: Vec<&str> = problem.tools.iter().map(|t| t.id.as_str()).collect();
-    let mat_by_id: BTreeMap<&str, &crate::model::RawMaterial> =
-        problem.materials.iter().map(|m| (m.id.as_str(), m)).collect();
+    let mat_by_id: BTreeMap<&str, &crate::model::RawMaterial> = problem
+        .materials
+        .iter()
+        .map(|m| (m.id.as_str(), m))
+        .collect();
     let mut op_by_id: BTreeMap<&str, (&crate::model::RawOrder, &crate::model::RawOperation)> =
         BTreeMap::new();
     for order in problem.orders.iter() {
@@ -327,12 +330,17 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
 
     for op in solution.operations.iter() {
         if let Some(first) = seen.get(op.operation_id.as_str()) {
-            out.push(Violation::new(
-                codes::DUPLICATE_OPERATION,
-                "CONTRACT",
-                format!("工序 '{}' 在方案中出现多次（首次下标 {}）", op.operation_id, first),
-            )
-            .with_op(op.order_id.clone(), op.operation_id.clone()));
+            out.push(
+                Violation::new(
+                    codes::DUPLICATE_OPERATION,
+                    "CONTRACT",
+                    format!(
+                        "工序 '{}' 在方案中出现多次（首次下标 {}）",
+                        op.operation_id, first
+                    ),
+                )
+                .with_op(op.order_id.clone(), op.operation_id.clone()),
+            );
             continue;
         }
         seen.insert(op.operation_id.as_str(), rows.len());
@@ -521,10 +529,7 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                 )
                 .with_op(order.id.clone(), op.operation_id.clone())
                 .with_time(op.start_at.clone())
-                .with_expected_actual(
-                    format!("≥ {}", order.release_at),
-                    op.start_at.clone(),
-                ),
+                .with_expected_actual(format!("≥ {}", order.release_at), op.start_at.clone()),
             );
         }
 
@@ -613,10 +618,7 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                         Violation::new(
                             codes::H05_WORKER_QUALIFICATION,
                             "H05",
-                            format!(
-                                "人员 '{}' 缺少工序所需资格 {:?}",
-                                op.worker_id, missing
-                            ),
+                            format!("人员 '{}' 缺少工序所需资格 {:?}", op.worker_id, missing),
                         )
                         .with_op(order.id.clone(), op.operation_id.clone())
                         .with_resource(op.worker_id.clone())
@@ -653,16 +655,10 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                 Violation::new(
                     codes::H06_TOOL_ASSIGNMENT,
                     "H06",
-                    format!(
-                        "工序 '{}' 的工装分配与需求不一致",
-                        op.operation_id
-                    ),
+                    format!("工序 '{}' 的工装分配与需求不一致", op.operation_id),
                 )
                 .with_op(order.id.clone(), op.operation_id.clone())
-                .with_expected_actual(
-                    format!("{:?}", expect_tools),
-                    format!("{:?}", actual_tools),
-                ),
+                .with_expected_actual(format!("{expect_tools:?}"), format!("{actual_tools:?}")),
             );
         }
         for t in op.tool_ids.iter() {
@@ -671,7 +667,7 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                     Violation::new(
                         codes::H06_UNKNOWN_TOOL,
                         "H06",
-                        format!("方案引用了不存在的工装 '{}'", t),
+                        format!("方案引用了不存在的工装 '{t}'"),
                     )
                     .with_op(order.id.clone(), op.operation_id.clone())
                     .with_resource(t.clone()),
@@ -686,7 +682,10 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                     Violation::new(
                         codes::H02_MISSING_PREDECESSOR,
                         "H02",
-                        format!("工序 '{}' 的前置工序 '{}' 未排入方案", op.operation_id, pred),
+                        format!(
+                            "工序 '{}' 的前置工序 '{}' 未排入方案",
+                            op.operation_id, pred
+                        ),
                     )
                     .with_op(order.id.clone(), op.operation_id.clone()),
                 ),
@@ -762,10 +761,12 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
         let mut by_tool: BTreeMap<&str, Vec<(i64, i64, &str, &str)>> = BTreeMap::new();
         for r in rows.iter() {
             for t in r.op.tool_ids.iter() {
-                by_tool
-                    .entry(t.as_str())
-                    .or_default()
-                    .push((r.start, r.end, r.op.operation_id.as_str(), r.op.order_id.as_str()));
+                by_tool.entry(t.as_str()).or_default().push((
+                    r.start,
+                    r.end,
+                    r.op.operation_id.as_str(),
+                    r.op.order_id.as_str(),
+                ));
             }
         }
         for (tool, mut list) in by_tool {
@@ -778,15 +779,14 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                             "H06",
                             format!(
                                 "工装 '{}' 被工序 '{}' 与 '{}' 同时占用",
-                                tool, list[i - 1].2, list[i].2
+                                tool,
+                                list[i - 1].2,
+                                list[i].2
                             ),
                         )
                         .with_op(list[i].3.to_string(), list[i].2.to_string())
                         .with_resource(tool.to_string())
-                        .with_detail(
-                            "conflict_with",
-                            Json::str(list[i - 1].2.to_string()),
-                        ),
+                        .with_detail("conflict_with", Json::str(list[i - 1].2.to_string())),
                     );
                 }
             }
@@ -833,11 +833,8 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                             op_id.unwrap_or("").to_string(),
                         )
                         .with_resource(mat.id.clone())
-                        .with_time(crate::datetime::format_iso8601(
-                            t,
-                            problem.meta.offset_min,
-                        ))
-                        .with_expected_actual("余额 ≥ 0", format!("余额 {}", stock)),
+                        .with_time(crate::datetime::format_iso8601(t, problem.meta.offset_min))
+                        .with_expected_actual("余额 ≥ 0", format!("余额 {stock}")),
                     );
                     break; // 每物料只报告首个透支点，避免噪声
                 }
@@ -854,7 +851,7 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
                     Violation::new(
                         codes::H07_UNKNOWN_MATERIAL,
                         "H07",
-                        format!("问题引用了不存在的物料 '{}'", mid),
+                        format!("问题引用了不存在的物料 '{mid}'"),
                     )
                     .with_op(row.order.id.clone(), row.op.operation_id.clone())
                     .with_resource(mid.clone()),
@@ -913,7 +910,7 @@ fn check_calendar(
                         resource_id,
                         b.reason
                             .as_ref()
-                            .map(|r| format!("（原因：{}）", r))
+                            .map(|r| format!("（原因：{r}）"))
                             .unwrap_or_default()
                     ),
                 )
@@ -954,7 +951,11 @@ fn overlap_scan(
                         constraint,
                         format!(
                             "{} '{}' 被工序 '{}' 与 '{}' 同时占用（重叠至 {}）",
-                            kind_cn, res, list[i - 1].2, list[i].2, list[i - 1].1
+                            kind_cn,
+                            res,
+                            list[i - 1].2,
+                            list[i].2,
+                            list[i - 1].1
                         ),
                     )
                     .with_op(list[i].3.to_string(), list[i].2.to_string())

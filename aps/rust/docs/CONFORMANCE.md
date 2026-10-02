@@ -60,7 +60,8 @@
 | 契约符合性（PlanProblem/PlanSolution/SolverCapabilities） | `scripts/check_contracts.py`（零依赖 JSON Schema 子集校验，30 项） | ✅ 30/30 |
 | 依赖清单 / 许可证 / SBOM | `docs/DEPENDENCIES.md`（零第三方 crate；`cargo tree` 仅本 crate） | ✅ |
 | 容器与部署 / 升级回退 | `docs/DEPENDENCIES.md` §5–6（Dockerfile 片段、升级/回退流程） | ✅ |
-| CI 自动化（SRS §8 M4） | `.github/workflows/aps-rust.yml`（依赖审计→测试→S01–S08→契约→WASM 冒烟→产物） | ✅ |
+| CI 自动化（SRS §8 M4） | `.github/workflows/aps-rust.yml`（依赖审计 → rustfmt/clippy 质量门 → 测试 → S01–S08 → 契约 → WASM 冒烟 → 产物） | ✅ 已在 PR #2 上全绿 |
+| 代码质量门 | `cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings`（均阻塞 CI） | ✅ 0 警告 |
 | 可终止性（时间预算 + 取消回执） | 集成测试 `cancellation_returns_promptly_with_incumbent_and_warning`；CLI `--cancel-after-ms` | ✅ |
 | 可复现 CLI（`--json` 契约输出、退出码语义） | `src/main.rs`（validate/solve/verify/compare/explain/benchmark/bench/accept/capabilities） | ✅ |
 

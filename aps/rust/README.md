@@ -45,6 +45,7 @@ cargo run --release --manifest-path rust/Cargo.toml -- \
 ## 质量门（本地可复现，CI 同款）
 
 ```bash
+cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings   # 质量门
 cargo test --release                                   # 57 单元 + 11 集成测试
 cargo test --release --test acceptance_suite -- --ignored   # S01–S08（约 6 s）
 python3 scripts/check_contracts.py                     # 契约符合性（30 项，零依赖）

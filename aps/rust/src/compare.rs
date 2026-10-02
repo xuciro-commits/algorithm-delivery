@@ -77,7 +77,10 @@ pub fn summarize(problem: &RawProblem, solution: &RawSolution) -> Summary {
     let mut weighted = 0i64;
     let mut late = 0usize;
     for order in problem.orders.iter() {
-        let fin = completion.get(order.id.as_str()).copied().unwrap_or(i64::MIN);
+        let fin = completion
+            .get(order.id.as_str())
+            .copied()
+            .unwrap_or(i64::MIN);
         if fin == i64::MIN {
             continue;
         }

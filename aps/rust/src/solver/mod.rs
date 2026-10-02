@@ -317,8 +317,16 @@ mod tests {
             max_iterations: 50, // 固定迭代次数 → 与墙钟无关，保证可复现
             ..Default::default()
         };
-        let a = search(&c, &cfg, &Budget::new(cfg.time_limit_ms, Default::default()));
-        let b = search(&c, &cfg, &Budget::new(cfg.time_limit_ms, Default::default()));
+        let a = search(
+            &c,
+            &cfg,
+            &Budget::new(cfg.time_limit_ms, Default::default()),
+        );
+        let b = search(
+            &c,
+            &cfg,
+            &Budget::new(cfg.time_limit_ms, Default::default()),
+        );
         assert_eq!(a.objective(), b.objective());
         let sa = a.best.unwrap().0;
         let sb = b.best.unwrap().0;

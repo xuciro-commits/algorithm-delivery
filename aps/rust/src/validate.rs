@@ -56,8 +56,8 @@ fn check_unique(issues: &mut Vec<Issue>, ids: &[String], path_prefix: &str) {
         if let Some(first) = seen.get(id.as_str()) {
             issues.push(Issue::error(
                 "DUPLICATE_ID",
-                format!("{}[{}]", path_prefix, i),
-                format!("ID '{}' 与下标 {} 处重复", id, first),
+                format!("{path_prefix}[{i}]"),
+                format!("ID '{id}' 与下标 {first} 处重复"),
             ));
         } else {
             seen.insert(id.as_str(), i);
@@ -113,10 +113,9 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                 {
                     issues.push(Issue::warning(
                         "WINDOW_NOT_ALIGNED",
-                        format!("$.machines[{}].{}[{}]", i, kind, j),
+                        format!("$.machines[{i}].{kind}[{j}]"),
                         format!(
-                            "机器日历窗口未对齐 {} 分钟分辨率，编译时按可用方向外扩取整（不放大可用时间）",
-                            res
+                            "机器日历窗口未对齐 {res} 分钟分辨率，编译时按可用方向外扩取整（不放大可用时间）"
                         ),
                     ));
                 }
@@ -131,8 +130,8 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                 {
                     issues.push(Issue::warning(
                         "WINDOW_NOT_ALIGNED",
-                        format!("$.workers[{}].{}[{}]", i, kind, j),
-                        format!("人员日历窗口未对齐 {} 分钟分辨率，编译时按可用方向外扩取整", res),
+                        format!("$.workers[{i}].{kind}[{j}]"),
+                        format!("人员日历窗口未对齐 {res} 分钟分辨率，编译时按可用方向外扩取整"),
                     ));
                 }
             }
@@ -142,19 +141,19 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
     // ---- 引用完整性 + 工序级语义 ----
     for (oi, order) in p.orders.iter().enumerate() {
         for (pi, op) in order.operations.iter().enumerate() {
-            let path = format!("$.orders[{}].operations[{}]", oi, pi);
+            let path = format!("$.orders[{oi}].operations[{pi}]");
             for (ai, alt) in op.alternatives.iter().enumerate() {
                 if !index.machines.contains_key(&alt.machine_id) {
                     issues.push(Issue::error(
                         "UNKNOWN_REFERENCE",
-                        format!("{}.alternatives[{}].machine_id", path, ai),
+                        format!("{path}.alternatives[{ai}].machine_id"),
                         format!("备选机器 '{}' 不存在", alt.machine_id),
                     ));
                 }
                 if alt.duration_min % res != 0 {
                     issues.push(Issue::error(
                         "DURATION_NOT_ALIGNED",
-                        format!("{}.alternatives[{}].duration_min", path, ai),
+                        format!("{path}.alternatives[{ai}].duration_min"),
                         format!(
                             "duration_min={} 未对齐 resolution_min={}（所有持续时间必须对齐）",
                             alt.duration_min, res
@@ -164,7 +163,7 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                 if alt.duration_min > p.meta.horizon_len_min() {
                     issues.push(Issue::error(
                         "RANGE_VIOLATION",
-                        format!("{}.alternatives[{}].duration_min", path, ai),
+                        format!("{path}.alternatives[{ai}].duration_min"),
                         "工序时长超过规划时域长度，不可能排入 horizon",
                     ));
                 }
@@ -173,7 +172,7 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                     if !machine.capabilities.iter().any(|c| c == &op.skill) {
                         issues.push(Issue::error(
                             "CAPABILITY_MISMATCH",
-                            format!("{}.alternatives[{}].machine_id", path, ai),
+                            format!("{path}.alternatives[{ai}].machine_id"),
                             format!(
                                 "机器 '{}' 能力集 {:?} 不含本工序所需能力 '{}'（H03）",
                                 alt.machine_id, machine.capabilities, op.skill
@@ -186,8 +185,8 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                 if !index.tools.contains_key(tool) {
                     issues.push(Issue::error(
                         "UNKNOWN_REFERENCE",
-                        format!("{}.tools[{}]", path, ti),
-                        format!("工装 '{}' 不存在", tool),
+                        format!("{path}.tools[{ti}]"),
+                        format!("工装 '{tool}' 不存在"),
                     ));
                 }
             }
@@ -195,8 +194,8 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                 if !index.materials.contains_key(mat) {
                     issues.push(Issue::error(
                         "UNKNOWN_REFERENCE",
-                        format!("{}.materials.{}", path, mat),
-                        format!("物料 '{}' 不存在", mat),
+                        format!("{path}.materials.{mat}"),
+                        format!("物料 '{mat}' 不存在"),
                     ));
                 }
             }
@@ -204,8 +203,8 @@ pub fn validate(p: &RawProblem) -> Vec<Issue> {
                 if !index.operations.contains_key(pred) {
                     issues.push(Issue::error(
                         "UNKNOWN_REFERENCE",
-                        format!("{}.predecessors[{}]", path, di),
-                        format!("前置工序 '{}' 不存在", pred),
+                        format!("{path}.predecessors[{di}]"),
+                        format!("前置工序 '{pred}' 不存在"),
                     ));
                 }
             }
@@ -292,10 +291,11 @@ mod tests {
     use crate::json;
 
     fn load(rel: &str) -> crate::model::RawProblem {
-        let text = std::fs::read_to_string(format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), rel)).unwrap();
+        let text =
+            std::fs::read_to_string(format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), rel)).unwrap();
         let j = json::parse(&text).unwrap();
         let (p, issues) = crate::model::parse_problem(&j);
-        assert!(p.is_some(), "解析失败: {:?}", issues);
+        assert!(p.is_some(), "解析失败: {issues:?}");
         p.unwrap()
     }
 
@@ -307,7 +307,7 @@ mod tests {
             .iter()
             .filter(|i| i.severity == crate::errors::Severity::Error)
             .collect();
-        assert!(errors.is_empty(), "基线样本不应有语义错误: {:?}", errors);
+        assert!(errors.is_empty(), "基线样本不应有语义错误: {errors:?}");
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
                 .into_iter()
                 .filter(|i| i.severity == crate::errors::Severity::Error)
                 .collect();
-            assert!(errors.is_empty(), "{} 应为合法模型: {:?}", f, errors);
+            assert!(errors.is_empty(), "{f} 应为合法模型: {errors:?}");
         }
     }
 
@@ -348,8 +348,8 @@ mod tests {
         let p = p.expect("模型结构本身合法");
         let issues = validate(&p);
         let codes: Vec<&str> = issues.iter().map(|i| i.code.as_str()).collect();
-        assert!(codes.contains(&"PRECEDENCE_CYCLE"), "{:?}", issues);
-        assert!(codes.contains(&"UNKNOWN_REFERENCE"), "{:?}", issues);
+        assert!(codes.contains(&"PRECEDENCE_CYCLE"), "{issues:?}");
+        assert!(codes.contains(&"UNKNOWN_REFERENCE"), "{issues:?}");
         let cycle = find_cycle(&p).unwrap();
         assert_eq!(cycle.len(), 2);
     }

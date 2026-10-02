@@ -57,14 +57,14 @@ mod cli {
             "bench" => cmd_bench(rest),
             "accept" => cmd_accept(rest),
             other => {
-                eprintln!("未知子命令 '{}'（用 --help 查看用法）", other);
+                eprintln!("未知子命令 '{other}'（用 --help 查看用法）");
                 return ExitCode::from(EXIT_USAGE);
             }
         };
         match result {
             Ok(code) => ExitCode::from(code),
             Err(msg) => {
-                eprintln!("错误：{}", msg);
+                eprintln!("错误：{msg}");
                 ExitCode::from(EXIT_USAGE)
             }
         }
@@ -113,7 +113,7 @@ mod cli {
             while i < args.len() {
                 let a = &args[i];
                 if !a.starts_with("--") {
-                    return Err(format!("意外的参数 '{}'", a));
+                    return Err(format!("意外的参数 '{a}'"));
                 }
                 let name = a.trim_start_matches("--").to_string();
                 // 支持 --flag=value 与 --flag value 两种写法
@@ -146,7 +146,7 @@ mod cli {
 
         fn require(&self, name: &str) -> Result<&str, String> {
             self.get(name)
-                .ok_or_else(|| format!("缺少必需参数 --{}", name))
+                .ok_or_else(|| format!("缺少必需参数 --{name}"))
         }
 
         fn has(&self, name: &str) -> bool {
@@ -163,11 +163,11 @@ mod cli {
     }
 
     fn read(path: &str) -> Result<String, String> {
-        std::fs::read_to_string(path).map_err(|e| format!("读取 {} 失败：{}", path, e))
+        std::fs::read_to_string(path).map_err(|e| format!("读取 {path} 失败：{e}"))
     }
 
     fn write(path: &str, content: &str) -> Result<(), String> {
-        std::fs::write(path, content).map_err(|e| format!("写入 {} 失败：{}", path, e))
+        std::fs::write(path, content).map_err(|e| format!("写入 {path} 失败：{e}"))
     }
 
     fn print_json(j: &Json) {
@@ -178,7 +178,7 @@ mod cli {
     fn cmd_capabilities(args: &[String]) -> Result<u8, String> {
         let a = Args::parse(args)?;
         let profile = match a.get("profile") {
-            Some(p) => Profile::parse(p).ok_or_else(|| format!("未知档位 '{}'", p))?,
+            Some(p) => Profile::parse(p).ok_or_else(|| format!("未知档位 '{p}'"))?,
             None => Profile::Native,
         };
         let caps = capabilities::capabilities_for(profile);
@@ -194,7 +194,7 @@ mod cli {
                 caps.can_prove_optimal, caps.can_prove_infeasible, caps.supports_cancel
             );
             for n in caps.notes.iter() {
-                println!("· {}", n);
+                println!("· {n}");
             }
         }
         Ok(EXIT_OK)
@@ -210,10 +210,7 @@ mod cli {
                 let issue = Json::obj(vec![
                     ("code", Json::str("JSON_SYNTAX")),
                     ("severity", Json::str("error")),
-                    (
-                        "path",
-                        Json::str(format!("line {}:{}", e.line, e.column)),
-                    ),
+                    ("path", Json::str(format!("line {}:{}", e.line, e.column))),
                     ("message", Json::str(e.message.clone())),
                 ]);
                 if a.has("json") {
@@ -222,7 +219,7 @@ mod cli {
                         ("issues", Json::Arr(vec![issue])),
                     ]));
                 } else {
-                    eprintln!("✗ JSON 解析失败：{}", e);
+                    eprintln!("✗ JSON 解析失败：{e}");
                 }
                 return Ok(EXIT_MODEL_INVALID);
             }
@@ -249,9 +246,7 @@ mod cli {
                     Json::obj(vec![
                         (
                             "orders",
-                            Json::int(
-                                problem.as_ref().map(|p| p.orders.len()).unwrap_or(0) as i64
-                            ),
+                            Json::int(problem.as_ref().map(|p| p.orders.len()).unwrap_or(0) as i64),
                         ),
                         (
                             "operations",
@@ -259,22 +254,13 @@ mod cli {
                                 problem
                                     .as_ref()
                                     .map(|p| {
-                                        p.orders
-                                            .iter()
-                                            .map(|o| o.operations.len())
-                                            .sum::<usize>()
+                                        p.orders.iter().map(|o| o.operations.len()).sum::<usize>()
                                     })
                                     .unwrap_or(0) as i64,
                             ),
                         ),
-                        (
-                            "errors",
-                            Json::int(errors.len() as i64),
-                        ),
-                        (
-                            "warnings",
-                            Json::int((all.len() - errors.len()) as i64),
-                        ),
+                        ("errors", Json::int(errors.len() as i64)),
+                        ("warnings", Json::int((all.len() - errors.len()) as i64)),
                     ]),
                 ),
             ]));
@@ -294,10 +280,7 @@ mod cli {
         } else {
             println!("✗ 模型非法：{} 条错误", errors.len());
             for i in all.iter() {
-                println!(
-                    "  [{}] {} {}",
-                    i.code, i.path, i.message
-                );
+                println!("  [{}] {} {}", i.code, i.path, i.message);
             }
         }
         Ok(if valid { EXIT_OK } else { EXIT_MODEL_INVALID })
@@ -317,31 +300,37 @@ mod cli {
             opts.seed = defaults.seed;
         }
         if let Some(p) = a.get("profile") {
-            opts.profile = Profile::parse(p).ok_or_else(|| format!("未知档位 '{}'", p))?;
+            opts.profile = Profile::parse(p).ok_or_else(|| format!("未知档位 '{p}'"))?;
         }
         if let Some(s) = a.get("strategy") {
-            opts.strategy = Strategy::parse(s).ok_or_else(|| format!("未知策略 '{}'", s))?;
+            opts.strategy = Strategy::parse(s).ok_or_else(|| format!("未知策略 '{s}'"))?;
         }
         if let Some(t) = a.get("time-limit-ms") {
-            opts.time_limit_ms = t.parse().map_err(|_| "time-limit-ms 必须是整数".to_string())?;
+            opts.time_limit_ms = t
+                .parse()
+                .map_err(|_| "time-limit-ms 必须是整数".to_string())?;
         }
         if let Some(s) = a.get("seed") {
             opts.seed = s.parse().map_err(|_| "seed 必须是非负整数".to_string())?;
         }
         if let Some(r) = a.get("rule") {
-            opts.rule = Rule::parse(r).ok_or_else(|| format!("未知规则 '{}'", r))?;
+            opts.rule = Rule::parse(r).ok_or_else(|| format!("未知规则 '{r}'"))?;
         }
         if a.has("no-repair") {
             opts.repair = false;
         }
         if let Some(n) = a.get("max-iterations") {
-            opts.max_iterations = n.parse().map_err(|_| "max-iterations 必须是整数".to_string())?;
+            opts.max_iterations = n
+                .parse()
+                .map_err(|_| "max-iterations 必须是整数".to_string())?;
         }
 
         let cancel = CancelToken::new();
         // 取消演示：--cancel-after-ms 触发协作式取消（用于验收“可终止”）
         if let Some(ms) = a.get("cancel-after-ms") {
-            let ms: u64 = ms.parse().map_err(|_| "cancel-after-ms 必须是整数".to_string())?;
+            let ms: u64 = ms
+                .parse()
+                .map_err(|_| "cancel-after-ms 必须是整数".to_string())?;
             let token = cancel.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(ms));
@@ -362,7 +351,7 @@ mod cli {
         } else {
             print!("{}", engine::format_report(&outcome));
             if let Some(out_path) = a.get("out") {
-                println!("方案已写入: {}", out_path);
+                println!("方案已写入: {out_path}");
             }
         }
         Ok(match outcome.status {
@@ -385,7 +374,10 @@ mod cli {
                 if a.has("json") {
                     print_json(&Json::obj(vec![
                         ("valid", Json::Bool(violations.is_empty())),
-                        ("violations", Json::Arr(violations.iter().map(|v| v.to_json()).collect())),
+                        (
+                            "violations",
+                            Json::Arr(violations.iter().map(|v| v.to_json()).collect()),
+                        ),
                         ("count", Json::int(violations.len() as i64)),
                     ]));
                 } else if violations.is_empty() {
@@ -399,13 +391,15 @@ mod cli {
                             v.message,
                             v.operation_id
                                 .as_ref()
-                                .map(|o| format!("（工序 {}）", o))
+                                .map(|o| format!("（工序 {o}）"))
                                 .unwrap_or_default(),
                             v.resource_id
                                 .as_ref()
-                                .map(|r| format!("（资源 {}）", r))
+                                .map(|r| format!("（资源 {r}）"))
                                 .unwrap_or_default(),
-                            v.at.as_ref().map(|t| format!("（{}）", t)).unwrap_or_default(),
+                            v.at.as_ref()
+                                .map(|t| format!("（{t}）"))
+                                .unwrap_or_default(),
                         );
                     }
                 }
@@ -445,7 +439,7 @@ mod cli {
                 &aps_engine::json::parse(&text).map_err(|e| e.to_string())?,
             )
             .0
-            .ok_or_else(|| format!("候选方案 {} 不符合契约", path))?;
+            .ok_or_else(|| format!("候选方案 {path} 不符合契约"))?;
             candidates.push(sol);
         }
         if candidates.is_empty() {
@@ -471,7 +465,9 @@ mod cli {
                     }
                 }
             }
-            println!("口径: 机器/人员利用率 = Σ占用分钟 / Σ可用窗口分钟（available 合并后扣除 blocked）");
+            println!(
+                "口径: 机器/人员利用率 = Σ占用分钟 / Σ可用窗口分钟（available 合并后扣除 blocked）"
+            );
         }
         Ok(EXIT_OK)
     }
@@ -486,7 +482,9 @@ mod cli {
                 j.get("weighted_tardiness_minutes")
                     .and_then(|x| x.as_i64())
                     .unwrap_or(0),
-                j.get("makespan_minutes").and_then(|x| x.as_i64()).unwrap_or(0),
+                j.get("makespan_minutes")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0),
                 j.get("machine_utilization")
                     .and_then(|x| x.as_f64())
                     .unwrap_or(0.0)
@@ -529,7 +527,9 @@ mod cli {
                                     .iter()
                                     .map(|x| format!(
                                         "{}[{}~{}]",
-                                        x.get("operation_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                                        x.get("operation_id")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("?"),
                                         x.get("start").and_then(|v| v.as_str()).unwrap_or(""),
                                         x.get("end").and_then(|v| v.as_str()).unwrap_or("")
                                     ))
@@ -559,9 +559,9 @@ mod cli {
         match a.get("out") {
             Some(path) => {
                 write(path, &text)?;
-                println!("已写入 {}（{} 工序）", path, ops);
+                println!("已写入 {path}（{ops} 工序）");
             }
-            None => println!("{}", text),
+            None => println!("{text}"),
         }
         Ok(EXIT_OK)
     }
@@ -570,10 +570,7 @@ mod cli {
     fn cmd_bench(args: &[String]) -> Result<u8, String> {
         let a = Args::parse(args)?;
         let text = read(a.require("problem")?)?;
-        let runs: usize = a
-            .get("runs")
-            .map(|v| v.parse().unwrap_or(3))
-            .unwrap_or(3);
+        let runs: usize = a.get("runs").map(|v| v.parse().unwrap_or(3)).unwrap_or(3);
         let mut opts = SolveOptions::from_objective(
             aps_engine::json::parse(&text)
                 .ok()
@@ -581,7 +578,9 @@ mod cli {
                 .as_ref(),
         );
         if let Some(t) = a.get("time-limit-ms") {
-            opts.time_limit_ms = t.parse().map_err(|_| "time-limit-ms 必须是整数".to_string())?;
+            opts.time_limit_ms = t
+                .parse()
+                .map_err(|_| "time-limit-ms 必须是整数".to_string())?;
         }
         if let Some(s) = a.get("seed") {
             opts.seed = s.parse().map_err(|_| "seed 必须是整数".to_string())?;
@@ -613,8 +612,7 @@ mod cli {
                         .map(|v| {
                             let lb = out.search.lower_bound;
                             let gap = lb.and_then(|b| {
-                                if opts.strategy == Strategy::Makespan
-                                    || v.weighted_tardiness == 0
+                                if opts.strategy == Strategy::Makespan || v.weighted_tardiness == 0
                                 {
                                     Some(if b > 0 {
                                         (v.makespan - b) as f64 / b as f64
@@ -649,15 +647,9 @@ mod cli {
         let report = Json::obj(vec![
             ("runs", Json::int(runs as i64)),
             ("operations", Json::int(ops as i64)),
-            (
-                "time_limit_ms",
-                Json::int(opts.time_limit_ms),
-            ),
+            ("time_limit_ms", Json::int(opts.time_limit_ms)),
             ("seed", Json::int(opts.seed as i64)),
-            (
-                "profile",
-                Json::str(opts.profile.name()),
-            ),
+            ("profile", Json::str(opts.profile.name())),
             ("compile", stats(&compile)),
             ("solve", stats(&solve)),
             ("total", stats(&total)),
@@ -671,7 +663,10 @@ mod cli {
         if a.has("json") {
             print_json(&report);
         } else {
-            println!("规模: {} 工序 / 运行 {} 次 / 时限 {} ms / seed {}", ops, runs, opts.time_limit_ms, opts.seed);
+            println!(
+                "规模: {} 工序 / 运行 {} 次 / 时限 {} ms / seed {}",
+                ops, runs, opts.time_limit_ms, opts.seed
+            );
             for (name, s) in [
                 ("编译 compile", report.get("compile").unwrap()),
                 ("求解 solve", report.get("solve").unwrap()),
@@ -700,8 +695,12 @@ mod cli {
             .get("dir")
             .map(PathBuf::from)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let dir = acceptance::locate_aps_dir(&start)
-            .ok_or_else(|| format!("在 {} 附近找不到包含 mock/baseline.json 的交付目录", start.display()))?;
+        let dir = acceptance::locate_aps_dir(&start).ok_or_else(|| {
+            format!(
+                "在 {} 附近找不到包含 mock/baseline.json 的交付目录",
+                start.display()
+            )
+        })?;
         let report = acceptance::run(&dir);
         if a.has("json") {
             print_json(&report.to_json());
@@ -712,10 +711,14 @@ mod cli {
                     "[{}] {} — {}",
                     case.id,
                     case.name,
-                    if case.passed { "通过 ✓" } else { "失败 ✗" }
+                    if case.passed {
+                        "通过 ✓"
+                    } else {
+                        "失败 ✗"
+                    }
                 );
                 for d in case.details.iter() {
-                    println!("    {}", d);
+                    println!("    {d}");
                 }
             }
             println!(

@@ -303,6 +303,10 @@ aps accept --json > /tmp/accept.json
 ## 6. 复现与回归
 
 ```bash
+# 质量门：格式 + 静态检查（与 CI 一致；受限环境工具链也能用，见 toolchain/setup_rust.sh）
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+
 # 单元 + 集成测试（57 单元 + 11 集成，约 25 秒）
 cargo test --release
 

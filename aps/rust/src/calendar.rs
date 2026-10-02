@@ -146,12 +146,7 @@ pub fn build_windows(
 
 /// 在 `windows` 内、避开 `busy`（按起点升序、两两不重叠）、不早于 `est` 找到最早的可容纳
 /// `dur` 分钟的连续空档。返回起点（整数分钟）。
-pub fn earliest_slot(
-    windows: &[Interval],
-    busy: &[(i64, i64)],
-    dur: i64,
-    est: i64,
-) -> Option<i64> {
+pub fn earliest_slot(windows: &[Interval], busy: &[(i64, i64)], dur: i64, est: i64) -> Option<i64> {
     debug_assert!(dur > 0);
     for w in windows {
         if w.e - w.s < dur {
@@ -225,7 +220,14 @@ mod tests {
         ];
         let blocked = vec![iv("2026-10-05T09:00:00-07:00", "2026-10-05T10:00:00-07:00")];
         let w = build_windows(&avail, &blocked, t0, 4 * 1440, 15);
-        assert_eq!(w, vec![Interval::new(0, 60), Interval::new(120, 240), Interval::new(300, 540)]);
+        assert_eq!(
+            w,
+            vec![
+                Interval::new(0, 60),
+                Interval::new(120, 240),
+                Interval::new(300, 540)
+            ]
+        );
 
         // 未对齐窗口：可用时间只会缩小（08:07 → 09:53 变成 08:15 → 09:45）
         let odd = vec![iv("2026-10-05T08:07:00-07:00", "2026-10-05T09:53:00-07:00")];
@@ -240,7 +242,14 @@ mod tests {
             4 * 1440,
             15,
         );
-        assert_eq!(w3, vec![Interval::new(0, 60), Interval::new(120, 240), Interval::new(300, 540)]);
+        assert_eq!(
+            w3,
+            vec![
+                Interval::new(0, 60),
+                Interval::new(120, 240),
+                Interval::new(300, 540)
+            ]
+        );
     }
 
     #[test]

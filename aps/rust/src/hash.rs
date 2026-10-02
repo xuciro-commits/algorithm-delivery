@@ -36,7 +36,12 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut w = [0u32; 64];
     for chunk in padded.chunks_exact(64) {
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[4 * i],
+                chunk[4 * i + 1],
+                chunk[4 * i + 2],
+                chunk[4 * i + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -90,7 +95,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
     let d = sha256(data);
     let mut s = String::with_capacity(64);
     for b in d.iter() {
-        s.push_str(&format!("{:02x}", b));
+        s.push_str(&format!("{b:02x}"));
     }
     s
 }

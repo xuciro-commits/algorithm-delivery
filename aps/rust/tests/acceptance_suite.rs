@@ -23,7 +23,7 @@ fn s01_to_s08_all_pass() {
             if case.passed { "通过" } else { "失败" }
         );
         for d in case.details.iter() {
-            println!("    {}", d);
+            println!("    {d}");
         }
     }
     assert_eq!(

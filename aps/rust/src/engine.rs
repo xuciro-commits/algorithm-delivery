@@ -204,7 +204,11 @@ fn invalid_json_outcome(e: &crate::json::JsonError, opts: &SolveOptions) -> Solv
 }
 
 /// 主入口：对已解析的 JSON 求解。
-pub fn solve_problem_json(problem: &Json, opts: &SolveOptions, cancel: &CancelToken) -> SolveOutcome {
+pub fn solve_problem_json(
+    problem: &Json,
+    opts: &SolveOptions,
+    cancel: &CancelToken,
+) -> SolveOutcome {
     let t_start = clock::now_ms();
     alloc::reset_peak();
     let caps = capabilities::capabilities_for(opts.profile);
@@ -239,7 +243,9 @@ pub fn solve_problem_json(problem: &Json, opts: &SolveOptions, cancel: &CancelTo
                 objective: None,
                 problem_hash: None,
                 search: SearchSummary::default(),
-                notes: vec!["模型不符合 PlanProblem v1 契约，详见 issues/violations 的字段定位".into()],
+                notes: vec![
+                    "模型不符合 PlanProblem v1 契约，详见 issues/violations 的字段定位".into(),
+                ],
             };
         }
     };
@@ -575,8 +581,7 @@ pub fn solve_problem_json(problem: &Json, opts: &SolveOptions, cancel: &CancelTo
     ));
     if let Some(lb) = solver_lower_bound {
         notes.push(format!(
-            "makespan 有效下界 {} 分钟（弱下界：仅放松机器/人员/工装/物料竞争与时长选择，含 blocked 空档）",
-            lb
+            "makespan 有效下界 {lb} 分钟（弱下界：仅放松机器/人员/工装/物料竞争与时长选择，含 blocked 空档）"
         ));
     }
     if status == Status::Optimal {
@@ -612,12 +617,7 @@ pub fn solve_problem_json(problem: &Json, opts: &SolveOptions, cancel: &CancelTo
             None
         }
     });
-    let solution = apply_optimality(
-        solution,
-        proven,
-        solver_lower_bound,
-        gap,
-    );
+    let solution = apply_optimality(solution, proven, solver_lower_bound, gap);
     let solution = set_verified(solution, verified);
 
     SolveOutcome {
@@ -662,7 +662,11 @@ pub fn verify_solution_json(
     let (solution, issues) = verify::parse_solution(&sj);
     let solution = solution.ok_or_else(|| {
         let mut v = issues.clone();
-        v.push(Issue::error("SOLUTION_INVALID", "$", "方案不符合 PlanSolution 契约"));
+        v.push(Issue::error(
+            "SOLUTION_INVALID",
+            "$",
+            "方案不符合 PlanSolution 契约",
+        ));
         v
     })?;
     let violations = verify::verify(&problem, &solution);
@@ -730,10 +734,7 @@ fn base_solution_json(
     metrics: &Metrics,
 ) -> Json {
     let (tenant_id, snapshot_id) = match problem {
-        Some(p) => (
-            Some(p.meta.tenant_id.clone()),
-            p.meta.snapshot_id.clone(),
-        ),
+        Some(p) => (Some(p.meta.tenant_id.clone()), p.meta.snapshot_id.clone()),
         None => (None, String::new()),
     };
     let id = opts.solution_id.clone().unwrap_or_else(|| {
@@ -742,7 +743,11 @@ fn base_solution_json(
             ENGINE_NAME,
             opts.seed,
             problem_hash
-                .map(|h| h.trim_start_matches("sha256:").chars().take(12).collect::<String>())
+                .map(|h| h
+                    .trim_start_matches("sha256:")
+                    .chars()
+                    .take(12)
+                    .collect::<String>())
                 .unwrap_or_else(|| "unknown".to_string())
         )
     });
@@ -796,7 +801,12 @@ fn base_solution_json(
 }
 
 /// 写入 `optimality_proven` 与目标块中的 `best_bound` / `relative_gap`。
-fn apply_optimality(mut solution: Json, proven: bool, bound: Option<i64>, gap: Option<f64>) -> Json {
+fn apply_optimality(
+    mut solution: Json,
+    proven: bool,
+    bound: Option<i64>,
+    gap: Option<f64>,
+) -> Json {
     if let Json::Obj(fields) = &mut solution {
         for (k, v) in fields.iter_mut() {
             match k.as_str() {
@@ -845,7 +855,7 @@ pub fn format_report(outcome: &SolveOutcome) -> String {
     let mut s = String::new();
     s.push_str(&format!("状态: {}\n", outcome.status.as_str()));
     if let Some(h) = &outcome.problem_hash {
-        s.push_str(&format!("problem_hash: {}\n", h));
+        s.push_str(&format!("problem_hash: {h}\n"));
     }
     if let Some(v) = &outcome.objective {
         s.push_str(&format!(
@@ -858,11 +868,11 @@ pub fn format_report(outcome: &SolveOutcome) -> String {
         "指标: 建模 {:.1} ms / 首解 {} / 求解 {:.1} ms / 校验 {} / 峰值内存 {} / 总计 {:.1} ms\n",
         m.compile_ms.unwrap_or(0.0),
         m.first_feasible_ms
-            .map(|v| format!("{:.1} ms", v))
+            .map(|v| format!("{v:.1} ms"))
             .unwrap_or_else(|| "unavailable".to_string()),
         m.solve_ms.unwrap_or(0.0),
         m.verify_ms
-            .map(|v| format!("{:.1} ms", v))
+            .map(|v| format!("{v:.1} ms"))
             .unwrap_or_else(|| "unavailable".to_string()),
         m.peak_memory_bytes
             .map(|v| format!("{:.1} MB", v as f64 / 1_048_576.0))
@@ -889,17 +899,22 @@ pub fn format_report(outcome: &SolveOutcome) -> String {
                 v.message,
                 v.operation_id
                     .as_ref()
-                    .map(|o| format!("（工序 {}）", o))
+                    .map(|o| format!("（工序 {o}）"))
                     .unwrap_or_default(),
-                v.at.as_ref().map(|t| format!("（{}）", t)).unwrap_or_default()
+                v.at.as_ref()
+                    .map(|t| format!("（{t}）"))
+                    .unwrap_or_default()
             ));
         }
         if outcome.violations.len() > 20 {
-            s.push_str(&format!("  … 其余 {} 条见 JSON\n", outcome.violations.len() - 20));
+            s.push_str(&format!(
+                "  … 其余 {} 条见 JSON\n",
+                outcome.violations.len() - 20
+            ));
         }
     }
     for n in outcome.notes.iter() {
-        s.push_str(&format!("说明: {}\n", n));
+        s.push_str(&format!("说明: {n}\n"));
     }
     s
 }

@@ -14,6 +14,7 @@
 |------|------|------|----------|--------|------|
 | Rust 标准库 (`std`, `core`, `alloc`) | 1.88.0（本交付验证版本） | 语言运行时 | 工具链自带 | MIT OR Apache-2.0 | 无（不修改分发） |
 | `rustc` / `cargo` | 1.88.0 | 构建工具（**不进入产物**） | 工具链 | MIT OR Apache-2.0 | 无 |
+| `rustfmt` / `clippy` | 1.8.0 / 0.1.88 | 开发期格式与静态检查（**不进入产物**） | 工具链组件 | MIT OR Apache-2.0 | 无 |
 | `@rustbin/*` 预编译包 | 1.88.0 | **仅受限网络环境**下的工具链获取渠道 | `toolchain/setup_rust.sh` | 同 rust 官方构建 | 仅作为安装渠道，不进入产物 |
 | 第三方 crate | — | — | **无** | — | — |
 | `wasm-bindgen` / `js-sys` | — | — | **无**（手写 C ABI） | — | — |
@@ -37,11 +38,16 @@ grep -c '^\[\[package\]\]' Cargo.lock        # → 1
 cargo metadata --format-version 1 --no-deps | python3 -c \
   'import json,sys; p=json.load(sys.stdin)["packages"][0]; print(p["name"], p["license"], len(p["dependencies"]))'
 
-# 4) 产物不含符号化的第三方代码（可选）
-nm -C target/release/aps 2>/dev/null | grep -c "::" || true
+# 4) 质量门（CI 同样执行）：格式与静态检查
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
 ```
 
-CI（`.github/workflows/aps-rust.yml`）会执行 1)–3)，并在日志中打印结果，作为 SBOM 的最小可审计证据。
+CI（`.github/workflows/aps-rust.yml`）会执行 1)–4) 并在日志中打印结果，作为 SBOM 与质量门的最小可审计证据。
+
+> 受限网络环境用 `toolchain/setup_rust.sh` 安装的工具链同样包含 rustfmt/clippy；
+> 由于该预编译 rustfmt 未启用 cargo-fmt 协议，脚本会放置一个**极简 `cargo-fmt` 替身**，
+> 使 `cargo fmt --all -- --check` 与 CI 行为一致（详见脚本内注释）。
 
 ## 4. 最小 SBOM（CycloneDX 风格，本 crate）
 
