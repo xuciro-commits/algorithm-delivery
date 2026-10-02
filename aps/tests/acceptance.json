@@ -1,0 +1,56 @@
+{
+  "schema_version": "aps-acceptance/1.0",
+  "cases": [
+    {
+      "id": "S01",
+      "fixture": "mock/baseline.json",
+      "must": "native solver returns valid complete solution, independent verifier reports zero violations"
+    },
+    {
+      "id": "S02",
+      "fixture": "mock/machine-breakdown.json",
+      "must": "no operation overlaps WELD-02 blocked range"
+    },
+    {
+      "id": "S03",
+      "fixture": "mock/material-delay.json",
+      "must": "event-ordered material ledger never negative"
+    },
+    {
+      "id": "S04",
+      "fixture": "mock/infeasible-no-welder.json",
+      "must": "complete native CP-SAT model proves INFEASIBLE; no silent constraint drops"
+    },
+    {
+      "id": "S05",
+      "fixture": "mock/baseline.json",
+      "must": "after separate simulated snapshot change, stale candidate publish fails with STALE_SNAPSHOT"
+    },
+    {
+      "id": "S06",
+      "fixture": "tests/baseline-feasible-witness.json",
+      "must": "mutate witness: each H02\u2013H07 violation is detected independently"
+    },
+    {
+      "id": "S07",
+      "fixture": "mock/baseline.json",
+      "must": "tenant B cannot read or publish tenant A problem or solution"
+    },
+    {
+      "id": "S08",
+      "fixture": "mock/baseline.json",
+      "must": "unsupported WASM constraint yields UNSUPPORTED_CONSTRAINT, never silently ignores constraints"
+    }
+  ],
+  "benchmark_seeds": [
+    42,
+    73,
+    2026
+  ],
+  "benchmark_operation_counts": [
+    24,
+    240,
+    2400
+  ],
+  "note": "performance targets established after reproducible baseline on contracted hardware"
+}

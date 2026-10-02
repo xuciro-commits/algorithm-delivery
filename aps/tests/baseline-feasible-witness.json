@@ -1,0 +1,232 @@
+{
+  "schema_version": "plan-solution/1.0",
+  "snapshot_id": "snapshot-baseline-v1",
+  "status": "FEASIBLE",
+  "optimality_proven": false,
+  "operations": [
+    {
+      "order_id": "ORD-001",
+      "operation_id": "ORD-001-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [
+        "DIE-SHARED-01"
+      ],
+      "start_at": "2026-10-05T08:00:00-07:00",
+      "end_at": "2026-10-05T08:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-001",
+      "operation_id": "ORD-001-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-05T08:30:00-07:00",
+      "end_at": "2026-10-05T09:15:00-07:00"
+    },
+    {
+      "order_id": "ORD-001",
+      "operation_id": "ORD-001-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-05T09:15:00-07:00",
+      "end_at": "2026-10-05T09:45:00-07:00"
+    },
+    {
+      "order_id": "ORD-002",
+      "operation_id": "ORD-002-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [
+        "DIE-SHARED-01"
+      ],
+      "start_at": "2026-10-05T09:45:00-07:00",
+      "end_at": "2026-10-05T10:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-002",
+      "operation_id": "ORD-002-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-05T10:30:00-07:00",
+      "end_at": "2026-10-05T11:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-002",
+      "operation_id": "ORD-002-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-05T13:00:00-07:00",
+      "end_at": "2026-10-05T13:45:00-07:00"
+    },
+    {
+      "order_id": "ORD-003",
+      "operation_id": "ORD-003-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [
+        "DIE-SHARED-01"
+      ],
+      "start_at": "2026-10-05T13:45:00-07:00",
+      "end_at": "2026-10-05T14:15:00-07:00"
+    },
+    {
+      "order_id": "ORD-003",
+      "operation_id": "ORD-003-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-05T14:15:00-07:00",
+      "end_at": "2026-10-05T15:00:00-07:00"
+    },
+    {
+      "order_id": "ORD-003",
+      "operation_id": "ORD-003-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-05T15:00:00-07:00",
+      "end_at": "2026-10-05T15:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-004",
+      "operation_id": "ORD-004-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [
+        "DIE-SHARED-01"
+      ],
+      "start_at": "2026-10-05T15:30:00-07:00",
+      "end_at": "2026-10-05T16:15:00-07:00"
+    },
+    {
+      "order_id": "ORD-004",
+      "operation_id": "ORD-004-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T08:00:00-07:00",
+      "end_at": "2026-10-06T09:00:00-07:00"
+    },
+    {
+      "order_id": "ORD-004",
+      "operation_id": "ORD-004-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T09:00:00-07:00",
+      "end_at": "2026-10-06T09:45:00-07:00"
+    },
+    {
+      "order_id": "ORD-005",
+      "operation_id": "ORD-005-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T09:45:00-07:00",
+      "end_at": "2026-10-06T10:15:00-07:00"
+    },
+    {
+      "order_id": "ORD-005",
+      "operation_id": "ORD-005-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T10:15:00-07:00",
+      "end_at": "2026-10-06T11:00:00-07:00"
+    },
+    {
+      "order_id": "ORD-005",
+      "operation_id": "ORD-005-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T11:00:00-07:00",
+      "end_at": "2026-10-06T11:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-006",
+      "operation_id": "ORD-006-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T13:00:00-07:00",
+      "end_at": "2026-10-06T13:45:00-07:00"
+    },
+    {
+      "order_id": "ORD-006",
+      "operation_id": "ORD-006-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T13:45:00-07:00",
+      "end_at": "2026-10-06T14:45:00-07:00"
+    },
+    {
+      "order_id": "ORD-006",
+      "operation_id": "ORD-006-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T14:45:00-07:00",
+      "end_at": "2026-10-06T15:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-007",
+      "operation_id": "ORD-007-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T15:30:00-07:00",
+      "end_at": "2026-10-06T16:00:00-07:00"
+    },
+    {
+      "order_id": "ORD-007",
+      "operation_id": "ORD-007-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-06T16:00:00-07:00",
+      "end_at": "2026-10-06T16:45:00-07:00"
+    },
+    {
+      "order_id": "ORD-007",
+      "operation_id": "ORD-007-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-07T08:00:00-07:00",
+      "end_at": "2026-10-07T08:30:00-07:00"
+    },
+    {
+      "order_id": "ORD-008",
+      "operation_id": "ORD-008-CUT",
+      "machine_id": "CUT-01",
+      "worker_id": "EMP-C01",
+      "tool_ids": [],
+      "start_at": "2026-10-07T08:30:00-07:00",
+      "end_at": "2026-10-07T09:15:00-07:00"
+    },
+    {
+      "order_id": "ORD-008",
+      "operation_id": "ORD-008-WELD",
+      "machine_id": "WELD-01",
+      "worker_id": "EMP-W01",
+      "tool_ids": [],
+      "start_at": "2026-10-07T09:15:00-07:00",
+      "end_at": "2026-10-07T10:15:00-07:00"
+    },
+    {
+      "order_id": "ORD-008",
+      "operation_id": "ORD-008-PAINT",
+      "machine_id": "PAINT-01",
+      "worker_id": "EMP-P01",
+      "tool_ids": [],
+      "start_at": "2026-10-07T10:15:00-07:00",
+      "end_at": "2026-10-07T11:00:00-07:00"
+    }
+  ]
+}
