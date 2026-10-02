@@ -41,8 +41,12 @@ rust/target/release/aps verify --problem mock/baseline.json --solution /tmp/plan
 ```
 
 - 使用手册（CLI、契约字段、状态语义、WASM ABI、FAQ）：[rust/docs/USAGE.md](rust/docs/USAGE.md)
+- 建模与约束逐条对照（H01–H08 数学 ↔ 代码 ↔ 测试、追溯设计）：[rust/docs/MODEL-MATH.md](rust/docs/MODEL-MATH.md)
+- 与 Go 平台层对接（API/状态机/幂等/错误码落点）：[rust/docs/INTEGRATION.md](rust/docs/INTEGRATION.md)
 - 性能实测与口径：[rust/docs/BENCHMARKS.md](rust/docs/BENCHMARKS.md)
 - SRS 需求 → 实现/测试对照：[rust/docs/CONFORMANCE.md](rust/docs/CONFORMANCE.md)
+- 依赖 / 许可证 / SBOM / 升级回退：[rust/docs/DEPENDENCIES.md](rust/docs/DEPENDENCIES.md)
 - 受限网络的工具链安装：[rust/toolchain/setup_rust.sh](rust/toolchain/setup_rust.sh)
+- 契约符合性检查（零依赖）：`python3 rust/scripts/check_contracts.py`
 
 开发依赖：Python 3.10+；`verify_mock.py` 可选安装 `jsonschema` 以额外校验 JSON Schema。无须安装 OR-Tools，即可检查 Mock、构造性可行排程和故意破坏的解。**这些脚本并未运行 OR-Tools，也未证明参考方案最优**。

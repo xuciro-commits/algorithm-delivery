@@ -351,6 +351,21 @@ pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
             }
         };
         let (order, spec) = entry;
+        // 契约级：方案里的 order_id 必须与工序真实归属的订单一致（参考检查器同样断言此点）
+        if op.order_id != order.id {
+            out.push(
+                Violation::new(
+                    codes::ORDER_ID_MISMATCH,
+                    "CONTRACT",
+                    format!(
+                        "工序 '{}' 所属订单不正确：问题中属于 '{}'，方案标记为 '{}'",
+                        op.operation_id, order.id, op.order_id
+                    ),
+                )
+                .with_op(order.id.clone(), op.operation_id.clone())
+                .with_expected_actual(order.id.clone(), op.order_id.clone()),
+            );
+        }
         let start = match op.start_min {
             Some(v) => v,
             None => {

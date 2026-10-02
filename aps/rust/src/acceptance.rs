@@ -933,6 +933,18 @@ pub fn mutations(problem_text: &str, witness: &Json, breakdown_text: &str) -> Ve
         }),
     ));
     out.push(mk(
+        "契约 订单归属错误",
+        codes::ORDER_ID_MISMATCH,
+        clone(&|m| {
+            if let Some(ops) = m.get_mut("operations").and_then(|v| v.as_arr_mut()) {
+                if let Some(first) = ops.first_mut() {
+                    // 把第一道工序的 order_id 改成另一个订单（工序本身仍存在）
+                    first.set("order_id", Json::str("ORD-002"));
+                }
+            }
+        }),
+    ));
+    out.push(mk(
         "H08 超出规划时域",
         codes::H08_OUT_OF_HORIZON,
         clone(&|m| {

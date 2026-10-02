@@ -274,6 +274,52 @@ fn optimal_is_not_fabricated_when_tardiness_cannot_be_proven() {
 }
 
 #[test]
+fn cancellation_returns_promptly_with_incumbent_and_warning() {
+    // SRS §7「可终止」：配置时间预算后可停止；取消必须及时返回，并明确标注 incumbent。
+    let text = read("mock/baseline.json");
+    let token = CancelToken::new();
+    let trigger = token.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        trigger.cancel();
+    });
+    let t0 = std::time::Instant::now();
+    let out = engine::solve_json(
+        &text,
+        &SolveOptions {
+            time_limit_ms: 30_000, // 预算远大于取消时刻：必须靠取消而不是超时结束
+            seed: 42,
+            ..Default::default()
+        },
+        &token,
+    );
+    let elapsed = t0.elapsed();
+    assert!(
+        elapsed.as_millis() < 5_000,
+        "取消后必须迅速返回，实际耗时 {:?}",
+        elapsed
+    );
+    assert_eq!(out.status, Status::Cancelled, "状态应为 CANCELLED，实际 {}", out.status.as_str());
+    assert!(
+        out.violations.iter().any(|v| v.code == "CANCELLED_WITH_INCUMBENT"
+            && v.severity == aps_engine::errors::Severity::Warning),
+        "必须带 CANCELLED_WITH_INCUMBENT 警告级标注：{:?}",
+        out.violations.iter().map(|v| &v.code).collect::<Vec<_>>()
+    );
+    // 取消前若已找到解，则作为 incumbent 返回且仍然合法（不因取消而变非法）
+    let sol = out.solution.expect("取消也要返回结构完整的方案 JSON");
+    let ops = sol.get("operations").unwrap().as_arr().unwrap();
+    let (_, _, violations) =
+        engine::verify_solution_json(&text, &out.solution_json).expect("输出符合契约");
+    assert!(
+        violations.iter().all(|v| v.severity != aps_engine::errors::Severity::Error),
+        "incumbent 不得含 error 级违约：{:?}",
+        violations
+    );
+    assert_eq!(ops.len(), 24, "取消时若已排完则应为完整 24 道工序");
+}
+
+#[test]
 fn aps_dir_locating_works_from_crate_root() {
     let dir = aps_engine::acceptance::locate_aps_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
         .expect("应能从 crate 目录定位 aps 交付目录");

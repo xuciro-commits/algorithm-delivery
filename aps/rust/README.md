@@ -39,8 +39,19 @@ cargo run --release --manifest-path rust/Cargo.toml -- \
 | `src/ledger.rs` | 物料账本事件重放（编译期与核验期使用的独立实现） |
 | `src/wasm_api.rs` | WASM 导出的 C ABI（`wasm32` 目标下编译） |
 | `tests/` | 端到端集成测试 + 完整验收套件（`--ignored`） |
-| `docs/` | `USAGE.md` 使用手册、`BENCHMARKS.md` 实测、`CONFORMANCE.md` 需求对照 |
-| `toolchain/`、`scripts/`、`web/` | 可复现工具链安装、构建脚本、WASM/Web Worker 胶水 |
+| `docs/` | `USAGE.md` 使用手册、`MODEL-MATH.md` 建模与约束对照、`INTEGRATION.md` 平台集成、`BENCHMARKS.md` 实测、`CONFORMANCE.md` 需求对照、`DEPENDENCIES.md` 依赖/许可证/SBOM |
+| `toolchain/`、`scripts/`、`web/` | 可复现工具链安装、构建/基准/契约检查脚本、WASM/Web Worker 胶水 |
+
+## 质量门（本地可复现，CI 同款）
+
+```bash
+cargo test --release                                   # 57 单元 + 11 集成测试
+cargo test --release --test acceptance_suite -- --ignored   # S01–S08（约 6 s）
+python3 scripts/check_contracts.py                     # 契约符合性（30 项，零依赖）
+bash scripts/build_wasm.sh                             # WASM + Node 冒烟
+```
+
+CI：`.github/workflows/aps-rust.yml`（依赖审计 → 测试 → 验收 → 契约检查 → WASM 冒烟 → 产物上传）。
 
 ## 命令速查
 
