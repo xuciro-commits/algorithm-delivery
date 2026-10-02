@@ -26,4 +26,23 @@ python3 tests/verify_mock.py
 python3 tests/generate_benchmark.py --operations 240 --out /tmp/aps-240.json
 ```
 
+## Rust 交付实现（算法核心）
+
+SRS §9 的 Rust 交付件位于 [`rust/`](rust/)：同一个零依赖 crate 产出 native CLI `aps` 与
+wasm32-unknown-unknown 模块（浏览器 Web Worker 直接调用），实现**模型编译/校验**、
+**启发式排程**、**独立方案核验**三件事。
+
+```bash
+cd rust
+cargo build --release && cargo test --release      # 单元 + 端到端集成测试
+cd .. && rust/target/release/aps accept            # S01–S08 一键验收
+rust/target/release/aps solve --problem mock/baseline.json --out /tmp/plan.json
+rust/target/release/aps verify --problem mock/baseline.json --solution /tmp/plan.json
+```
+
+- 使用手册（CLI、契约字段、状态语义、WASM ABI、FAQ）：[rust/docs/USAGE.md](rust/docs/USAGE.md)
+- 性能实测与口径：[rust/docs/BENCHMARKS.md](rust/docs/BENCHMARKS.md)
+- SRS 需求 → 实现/测试对照：[rust/docs/CONFORMANCE.md](rust/docs/CONFORMANCE.md)
+- 受限网络的工具链安装：[rust/toolchain/setup_rust.sh](rust/toolchain/setup_rust.sh)
+
 开发依赖：Python 3.10+；`verify_mock.py` 可选安装 `jsonschema` 以额外校验 JSON Schema。无须安装 OR-Tools，即可检查 Mock、构造性可行排程和故意破坏的解。**这些脚本并未运行 OR-Tools，也未证明参考方案最优**。
