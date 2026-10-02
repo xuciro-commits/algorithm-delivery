@@ -201,7 +201,11 @@ impl Schedule {
             return false;
         }
         for t in c.ops[op].tools.iter() {
-            if !fits(&[Interval::new(0, c.meta.horizon_len_min)], &self.tool_busy[*t], iv) {
+            if !fits(
+                &[Interval::new(0, c.meta.horizon_len_min)],
+                &self.tool_busy[*t],
+                iv,
+            ) {
                 return false;
             }
         }
@@ -304,7 +308,12 @@ impl Schedule {
                     }
                 }
                 if let Some(s) = found {
-                    let key = (s, duration, machine, worker_pref.get(w).copied().unwrap_or(u32::MAX));
+                    let key = (
+                        s,
+                        duration,
+                        machine,
+                        worker_pref.get(w).copied().unwrap_or(u32::MAX),
+                    );
                     let assign = Assign {
                         machine,
                         worker: w,
@@ -325,7 +334,9 @@ impl Schedule {
     /// 提前只会降低完工时间，因此目标值单调不变差。
     pub fn left_shift_all(&mut self, c: &Compiled, worker_pref: &[u32], budget: &Budget) -> bool {
         let mut improved = false;
-        let mut order: Vec<usize> = (0..c.ops.len()).filter(|i| self.assign[*i].is_some()).collect();
+        let mut order: Vec<usize> = (0..c.ops.len())
+            .filter(|i| self.assign[*i].is_some())
+            .collect();
         order.sort_by_key(|op| self.assign[*op].map(|a| (a.start, *op)).unwrap());
         for op in order {
             if budget.expired() {
@@ -376,7 +387,10 @@ pub struct Budget {
 }
 
 impl Budget {
-    pub fn new(time_limit_ms: i64, cancel: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Budget {
+    pub fn new(
+        time_limit_ms: i64,
+        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Budget {
         Budget {
             time_limit_ms,
             cancel,
@@ -492,7 +506,9 @@ mod tests {
         let c = load("mock/baseline.json");
         let mut s = Schedule::new(&c);
         let est = s.op_ready(&c, 0).unwrap();
-        let a = s.earliest_placement(&c, 0, est, &vec![0; c.workers.len()]).unwrap();
+        let a = s
+            .earliest_placement(&c, 0, est, &vec![0; c.workers.len()])
+            .unwrap();
         s.place(&c, 0, a);
         assert_eq!(s.scheduled_count, 1);
         assert!(s.assign[0].is_some());
@@ -542,7 +558,11 @@ mod tests {
             .ops
             .iter()
             .enumerate()
-            .filter(|(_, o)| o.materials.iter().any(|(mi, _)| c.materials[*mi].id == "M-PAINT"))
+            .filter(|(_, o)| {
+                o.materials
+                    .iter()
+                    .any(|(mi, _)| c.materials[*mi].id == "M-PAINT")
+            })
             .map(|(i, _)| i)
             .collect();
         assert_eq!(paint_ops.len(), 8);
@@ -564,7 +584,10 @@ mod tests {
         }
         assert_eq!(crate::schedule::ledger_violation(&c, &s), None);
         // 第 5 道在到货前领料 → 透支
-        assert!(!s.material_ok(&c, 2, 120, 2), "初始库存已耗尽，到货前不得领料");
+        assert!(
+            !s.material_ok(&c, 2, 120, 2),
+            "初始库存已耗尽，到货前不得领料"
+        );
         assert!(!s.material_ok(&c, 2, receipt_rel - 15, 2));
         // 到货后（同一时刻先入库再领料）→ 可行
         assert!(s.material_ok(&c, 2, receipt_rel, 2));

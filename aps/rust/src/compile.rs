@@ -10,8 +10,8 @@
 //! 注意：证书只覆盖上述"可证明"类型；其他无解情形必须由求解层诚实返回
 //! `NO_SOLUTION_FOUND` 或 `UNKNOWN`（见 `capabilities`）。
 
-use std::collections::BinaryHeap;
 use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 use crate::calendar::{self, Interval};
 use crate::errors::{Issue, Severity};
@@ -177,7 +177,10 @@ pub fn compile(p: &RawProblem, problem_hash: String) -> Compiled {
             if windows.is_empty() {
                 warnings.push(Issue::warning(
                     "MACHINE_NO_WINDOW",
-                    format!("$.machines[{}]", p.machines.iter().position(|x| x.id == m.id).unwrap_or(0)),
+                    format!(
+                        "$.machines[{}]",
+                        p.machines.iter().position(|x| x.id == m.id).unwrap_or(0)
+                    ),
                     format!("机器 '{}' 在时域内没有任何可用窗口", m.id),
                 ));
             }
@@ -252,14 +255,16 @@ pub fn compile(p: &RawProblem, problem_hash: String) -> Compiled {
             let preds: Vec<usize> = op
                 .predecessors
                 .iter()
-                .filter_map(|pid| index.operations.get(pid).map(|(oi2, pi2)| {
-                    // 全局工序下标
-                    let mut base = 0usize;
-                    for k in 0..*oi2 {
-                        base += p.orders[k].operations.len();
-                    }
-                    base + pi2
-                }))
+                .filter_map(|pid| {
+                    index.operations.get(pid).map(|(oi2, pi2)| {
+                        // 全局工序下标
+                        let mut base = 0usize;
+                        for k in 0..*oi2 {
+                            base += p.orders[k].operations.len();
+                        }
+                        base + pi2
+                    })
+                })
                 .collect();
             let idx = ops.len();
             ops.push(COp {
@@ -429,12 +434,14 @@ fn build_certificates(_p: &RawProblem, c: &Compiled) -> Vec<Certificate> {
                         Json::obj(vec![
                             ("machine_id", Json::str(m.id.clone())),
                             ("duration_min", Json::int(a.duration)),
-                            ("longest_window_min", Json::int(
-                                m.windows.iter().map(|w| w.len()).max().unwrap_or(0),
-                            )),
-                            ("capability_ok", Json::Bool(
-                                m.capabilities.iter().any(|cap| cap == &op.skill),
-                            )),
+                            (
+                                "longest_window_min",
+                                Json::int(m.windows.iter().map(|w| w.len()).max().unwrap_or(0)),
+                            ),
+                            (
+                                "capability_ok",
+                                Json::Bool(m.capabilities.iter().any(|cap| cap == &op.skill)),
+                            ),
                         ])
                     })
                     .collect();
@@ -453,8 +460,7 @@ fn build_certificates(_p: &RawProblem, c: &Compiled) -> Vec<Certificate> {
 
         let min_dur = op.min_dur.max(1);
         let has_worker = (0..c.workers.len()).any(|w| {
-            c.worker_eligible(oi, w)
-                && c.workers[w].windows.iter().any(|win| win.len() >= min_dur)
+            c.worker_eligible(oi, w) && c.workers[w].windows.iter().any(|win| win.len() >= min_dur)
         });
         if !has_worker {
             no_worker_count += 1;
@@ -485,10 +491,7 @@ fn build_certificates(_p: &RawProblem, c: &Compiled) -> Vec<Certificate> {
                     order_id: Some(c.orders[op.order].id.clone()),
                     operation_id: Some(op.id.clone()),
                     details: vec![
-                        (
-                            "required_skill".to_string(),
-                            Json::str(op.skill.clone()),
-                        ),
+                        ("required_skill".to_string(), Json::str(op.skill.clone())),
                         (
                             "required_qualifications".to_string(),
                             Json::strings(op.quals.iter().cloned()),
@@ -503,8 +506,7 @@ fn build_certificates(_p: &RawProblem, c: &Compiled) -> Vec<Certificate> {
         certs.push(Certificate {
             code: "CERTIFICATE_TRUNCATED",
             message: format!(
-                "同类证书数量较多已截断显示：无可用机器的工序 {} 个、无合格人员的工序 {} 个",
-                no_machine_count, no_worker_count
+                "同类证书数量较多已截断显示：无可用机器的工序 {no_machine_count} 个、无合格人员的工序 {no_worker_count} 个"
             ),
             order_id: None,
             operation_id: None,
@@ -611,10 +613,7 @@ pub fn certificates_to_json(certs: &[Certificate]) -> Vec<Json> {
                 ("message", Json::str(c.message.clone())),
                 ("order_id", Json::opt_str(c.order_id.clone())),
                 ("operation_id", Json::opt_str(c.operation_id.clone())),
-                (
-                    "details",
-                    Json::Obj(c.details.clone()),
-                ),
+                ("details", Json::Obj(c.details.clone())),
             ])
         })
         .collect()

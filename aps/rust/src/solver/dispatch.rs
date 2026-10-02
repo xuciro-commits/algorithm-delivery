@@ -12,12 +12,9 @@ use crate::schedule::Schedule;
 pub fn order_sequence(c: &Compiled, rule: Rule, rng: &mut Rng) -> Vec<usize> {
     let n = c.orders.len();
     let mut seq: Vec<usize> = (0..n).collect();
-    match rule {
-        Rule::Random => {
-            rng.shuffle(&mut seq);
-            return seq;
-        }
-        _ => {}
+    if rule == Rule::Random {
+        rng.shuffle(&mut seq);
+        return seq;
     }
     let work = |oi: usize| -> i64 {
         c.orders[oi]
@@ -32,11 +29,7 @@ pub fn order_sequence(c: &Compiled, rule: Rule, rng: &mut Rng) -> Vec<usize> {
             // 交期优先；同交期时高优先级在前
             Rule::PriorityEdd | Rule::Auto => (o.due, -o.priority, o.release),
             // 加权最短加工时间：优先期内“工作量/优先级”小者优先
-            Rule::Wspt => (
-                o.release,
-                work(oi) * 1000 / o.priority.max(1),
-                o.due,
-            ),
+            Rule::Wspt => (o.release, work(oi) * 1000 / o.priority.max(1), o.due),
             Rule::Spt => (work(oi), o.due, o.release),
             Rule::MinEnd => (o.release, work(oi), o.due),
             // 最小松弛：due - release - 关键链工作量
@@ -85,12 +78,7 @@ pub fn dispatch_with_sequence(c: &Compiled, sequence: &[usize]) -> Option<Schedu
 }
 
 /// 把一个订单的全部工序按全局拓扑序插入排程。
-fn schedule_order(
-    c: &Compiled,
-    s: &mut Schedule,
-    order: usize,
-    pref: &[u32],
-) -> Result<(), ()> {
+fn schedule_order(c: &Compiled, s: &mut Schedule, order: usize, pref: &[u32]) -> Result<(), ()> {
     for &op in c.topo.iter() {
         if c.ops[op].order != order {
             continue;
@@ -143,18 +131,12 @@ mod tests {
         let mut rng = Rng::new(7);
         let s = dispatch(&c, Rule::Auto, &mut rng).expect("故障场景仍应可排");
         // WELD-02 在 10-05 13:00-17:00 停机：该区间内不得有任何占用
-        let weld2 = c
-            .machines
-            .iter()
-            .position(|m| m.id == "WELD-02")
-            .unwrap();
+        let weld2 = c.machines.iter().position(|m| m.id == "WELD-02").unwrap();
         let blocked = (300i64, 540i64); // 13:00 - 17:00 相对 08:00
         for (bs, be) in s.mach_busy[weld2].iter() {
             assert!(
                 *be <= blocked.0 || *bs >= blocked.1,
-                "占用 [{}, {}) 落入 WELD-02 停机区间",
-                bs,
-                be
+                "占用 [{bs}, {be}) 落入 WELD-02 停机区间"
             );
         }
     }

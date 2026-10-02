@@ -26,7 +26,12 @@ impl Json {
         Json::Str(s.into())
     }
     pub fn obj(fields: Vec<(&str, Json)>) -> Json {
-        Json::Obj(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        Json::Obj(
+            fields
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
     }
     pub fn int(v: i64) -> Json {
         Json::Int(v)
@@ -68,10 +73,7 @@ impl Json {
     /// 对象可变取值（用于对抗测试中的“故意破坏”改造）。
     pub fn get_mut(&mut self, key: &str) -> Option<&mut Json> {
         match self {
-            Json::Obj(fields) => fields
-                .iter_mut()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v),
+            Json::Obj(fields) => fields.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
         }
     }
@@ -188,7 +190,7 @@ impl Json {
                     // 规范化模式：整数值浮点写成整数，保证跨语言摘要一致
                     out.push_str(&format!("{}", *f as i64));
                 } else {
-                    let text = format!("{}", f);
+                    let text = format!("{f}");
                     out.push_str(&text);
                     // 保留浮点类型（1.0 不得写成 1），保证解析回读类型一致
                     if !text.contains('.') && !text.contains('e') && !text.contains('E') {
@@ -336,7 +338,7 @@ pub fn parse(text: &str) -> Result<Json, JsonError> {
 /// 从字节解析（wasm ABI 入口使用，输入必须是 UTF-8）。
 pub fn parse_bytes(bytes: &[u8]) -> Result<Json, JsonError> {
     let s = std::str::from_utf8(bytes).map_err(|e| JsonError {
-        message: format!("输入不是合法 UTF-8：{}", e),
+        message: format!("输入不是合法 UTF-8：{e}"),
         line: 1,
         column: 1,
         offset: 0,
@@ -428,7 +430,7 @@ impl<'a> Parser<'a> {
             self.pos += lit.len();
             Ok(())
         } else {
-            Err(self.err(&format!("非法字面量，期望 '{}'", lit)))
+            Err(self.err(&format!("非法字面量，期望 '{lit}'")))
         }
     }
 
@@ -447,7 +449,7 @@ impl<'a> Parser<'a> {
                 _ => return Err(self.err("对象的键必须是字符串")),
             };
             if fields.iter().any(|(k, _)| k == &key) {
-                return Err(self.err(&format!("对象存在重复键 '{}'", key)));
+                return Err(self.err(&format!("对象存在重复键 '{key}'")));
             }
             self.skip_ws();
             self.expect(b':')?;
@@ -541,9 +543,7 @@ impl<'a> Parser<'a> {
                                             + (lo - 0xDC00) as u32;
                                         match char::from_u32(cp) {
                                             Some(c) => out.push(c),
-                                            None => {
-                                                return Err(self.err("非法 Unicode 码点"))
-                                            }
+                                            None => return Err(self.err("非法 Unicode 码点")),
                                         }
                                     } else {
                                         return Err(self.err("代理对缺少 \\u 低位转义"));
@@ -677,7 +677,10 @@ mod tests {
         assert_eq!(b[0].as_bool(), Some(true));
         assert_eq!(b[1], Json::Null);
         assert_eq!(b[2].as_str().unwrap(), "xé😀");
-        assert_eq!(v.get("c").unwrap().get("d").unwrap().as_f64(), Some(-2500.0));
+        assert_eq!(
+            v.get("c").unwrap().get("d").unwrap().as_f64(),
+            Some(-2500.0)
+        );
         // 紧凑-再解析幂等
         let again = parse(&v.to_compact()).unwrap();
         assert_eq!(again, v);

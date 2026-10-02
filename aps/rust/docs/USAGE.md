@@ -303,7 +303,11 @@ aps accept --json > /tmp/accept.json
 ## 6. 复现与回归
 
 ```bash
-# 单元 + 集成测试（约 25 秒）
+# 质量门：格式 + 静态检查（与 CI 一致；受限环境工具链也能用，见 toolchain/setup_rust.sh）
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+
+# 单元 + 集成测试（57 单元 + 11 集成，约 25 秒）
 cargo test --release
 
 # 完整 S01–S08 验收（等价于 aps accept，约 1 分钟）
@@ -313,6 +317,9 @@ cargo test --release --test acceptance_suite -- --ignored --nocapture
 python3 ../tests/generate_benchmark.py --operations 240 --out /tmp/py240.json
 aps benchmark --baseline ../mock/baseline.json --operations 240 --out /tmp/rs240.json
 python3 -c "import json;a=json.load(open('/tmp/py240.json'));b=json.load(open('/tmp/rs240.json'));print(json.dumps(a,sort_keys=True)==json.dumps(b,sort_keys=True))"
+
+# 契约符合性：引擎输出逐条对照 contracts/*.schema.json（零依赖，30 项检查）
+python3 scripts/check_contracts.py
 
 # 既有 Python 参考检查（乙方开发期参考，非生产 verifier）
 cd .. && python3 tests/verify_mock.py
@@ -405,11 +412,16 @@ aps/rust/
 │   ├── engine_integration.rs  # 端到端集成测试（快，随 cargo test 运行）
 │   └── acceptance_suite.rs    # S01–S08（#[ignore]，cargo test -- --ignored）
 ├── docs/
-│   ├── USAGE.md               # 本文
+│   ├── USAGE.md               # 本文（全功能使用）
+│   ├── MODEL-MATH.md          # 编译流水线 + H01–H08 数学↔代码↔测试对照
+│   ├── INTEGRATION.md         # 与 Go API / 平台层的对接与状态映射
 │   ├── BENCHMARKS.md          # 24/240/2400 实测与口径
-│   └── CONFORMANCE.md         # SRS 需求 → 代码/测试 对照表
+│   ├── CONFORMANCE.md         # SRS 需求 → 代码/测试 对照表
+│   └── DEPENDENCIES.md        # 依赖清单 / 许可证 / SBOM / 升级回退 / 容器
 ├── toolchain/setup_rust.sh    # 受限网络的工具链安装（可复现）
 ├── scripts/build_wasm.sh      # WASM 构建（可复现）
+├── scripts/smoke_wasm.mjs     # WASM 冒烟（Node）
+├── scripts/check_contracts.py # 契约符合性检查（零依赖）
 ├── scripts/run_benchmarks.sh  # 一键复现 24/240/2400 结果
 └── web/aps-worker.js          # Web Worker 胶水（C ABI）
 ```

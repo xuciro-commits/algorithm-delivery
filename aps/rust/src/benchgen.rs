@@ -12,8 +12,7 @@ use crate::json::Json;
 pub fn build_separable(baseline: &Json, operations: usize) -> Result<Json, String> {
     if operations == 0 || operations % 24 != 0 {
         return Err(format!(
-            "工序数必须是 24 的倍数（当前 {}），与 generate_benchmark.py 保持一致",
-            operations
+            "工序数必须是 24 的倍数（当前 {operations}），与 generate_benchmark.py 保持一致"
         ));
     }
     let cells = operations / 24;
@@ -21,7 +20,7 @@ pub fn build_separable(baseline: &Json, operations: usize) -> Result<Json, Strin
     if let Some(meta) = z.get_mut("meta") {
         meta.set(
             "snapshot_id",
-            Json::str(format!("benchmark-{}-separable-seed42", operations)),
+            Json::str(format!("benchmark-{operations}-separable-seed42")),
         );
     }
 
@@ -59,7 +58,7 @@ pub fn build_separable(baseline: &Json, operations: usize) -> Result<Json, Strin
 
     for idx in 0..cells {
         let prefix = format!("CELL{:03}", idx + 1);
-        let nid = |id: &str| -> String { format!("{}__{}", prefix, id) };
+        let nid = |id: &str| -> String { format!("{prefix}__{id}") };
 
         for m in base_machines.iter() {
             let mut m = m.clone();
@@ -103,10 +102,7 @@ pub fn build_separable(baseline: &Json, operations: usize) -> Result<Json, Strin
                     if let Some(id) = op.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()) {
                         op.set("id", Json::str(nid(&id)));
                     }
-                    if let Some(preds) = op
-                        .get_mut("predecessors")
-                        .and_then(|v| v.as_arr_mut())
-                    {
+                    if let Some(preds) = op.get_mut("predecessors").and_then(|v| v.as_arr_mut()) {
                         for p in preds.iter_mut() {
                             if let Some(pid) = p.as_str().map(|s| s.to_string()) {
                                 *p = Json::str(nid(&pid));
@@ -131,14 +127,10 @@ pub fn build_separable(baseline: &Json, operations: usize) -> Result<Json, Strin
                             }
                         }
                     }
-                    if let Some(mats) = op.get_mut("materials") {
-                        if let Json::Obj(fields) = mats {
-                            let renamed: Vec<(String, Json)> = fields
-                                .iter()
-                                .map(|(k, v)| (nid(k), v.clone()))
-                                .collect();
-                            *fields = renamed;
-                        }
+                    if let Some(Json::Obj(fields)) = op.get_mut("materials") {
+                        let renamed: Vec<(String, Json)> =
+                            fields.iter().map(|(k, v)| (nid(k), v.clone())).collect();
+                        *fields = renamed;
                     }
                 }
             }

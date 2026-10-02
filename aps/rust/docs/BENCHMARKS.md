@@ -70,7 +70,7 @@ PY
 
 | 项 | 值 |
 |----|----|
-| 产物 | `dist/aps_engine.wasm`，约 **576 KiB**（590234 字节，未做 wasm-opt） |
+| 产物 | `dist/aps_engine.wasm`，约 **577 KiB**（591346 字节，未做 wasm-opt） |
 | 规模上限 | 600 工序（超出返回 `UNSUPPORTED_CONSTRAINT` + `SCALE_EXCEEDED`） |
 | 24 工序首解 | 与 native 相同（同一份源码）；1 s 预算下总耗时 ≈ 1.03 s |
 | 峰值内存 | 0.22 MB @ 24 工序（无 WASM 线性内存预分配浪费） |

@@ -19,8 +19,7 @@ fn aps_dir() -> PathBuf {
 }
 
 fn read(rel: &str) -> String {
-    std::fs::read_to_string(aps_dir().join(rel))
-        .unwrap_or_else(|e| panic!("读取 {} 失败：{}", rel, e))
+    std::fs::read_to_string(aps_dir().join(rel)).unwrap_or_else(|e| panic!("读取 {rel} 失败：{e}"))
 }
 
 fn solve(rel: &str, time_limit_ms: i64) -> engine::SolveOutcome {
@@ -44,16 +43,15 @@ fn all_mock_fixtures_validate_against_contract() {
     ] {
         let j = json::parse(&read(f)).unwrap();
         let (problem, issues) = model::parse_problem(&j);
-        assert!(problem.is_some(), "{} 应能通过契约解析：{:?}", f, issues);
+        assert!(problem.is_some(), "{f} 应能通过契约解析：{issues:?}");
         let p = problem.unwrap();
         let vs = validate::validate(&p);
         assert!(
-            vs.iter().all(|v| v.severity != aps_engine::errors::Severity::Error),
-            "{} 存在模型错误：{:?}",
-            f,
-            vs
+            vs.iter()
+                .all(|v| v.severity != aps_engine::errors::Severity::Error),
+            "{f} 存在模型错误：{vs:?}"
         );
-        assert_eq!(j.canonical().len() > 100, true);
+        assert!(j.canonical().len() > 100);
     }
 }
 
@@ -61,18 +59,25 @@ fn all_mock_fixtures_validate_against_contract() {
 fn baseline_solve_is_verified_feasible_and_material_bound() {
     let out = solve("mock/baseline.json", 500);
     assert_eq!(out.status, Status::Feasible, "小规模实例应得到可行解");
-    assert!(!out.violations.iter().any(|v| v.severity == aps_engine::errors::Severity::Error));
+    assert!(!out
+        .violations
+        .iter()
+        .any(|v| v.severity == aps_engine::errors::Severity::Error));
     let json_text = out.solution_json.clone();
     // 独立复核：把求解器输出送回 verifier
     let (_, _, violations) = engine::verify_solution_json(&read("mock/baseline.json"), &json_text)
         .expect("输出必须符合 PlanSolution 契约");
-    assert!(violations.is_empty(), "求解器输出校验失败：{:?}", violations);
+    assert!(violations.is_empty(), "求解器输出校验失败：{violations:?}");
 
     // 物料绑定：M-PAINT 首批 8 只够 4 道喷涂，其余必须等 10-06 08:00 的到货
     let value = out.objective.expect("有解必有目标值");
     assert_eq!(value.weighted_tardiness, 0);
     // 基线下界（含到货）≈ 4×30 分钟 + 等待，实测 1560 分钟
-    assert!(value.makespan <= 1620, "makespan {} 明显劣于期", value.makespan);
+    assert!(
+        value.makespan <= 1620,
+        "makespan {} 明显劣于期",
+        value.makespan
+    );
     // 弱下界必须 ≤ 实际 makespan，且相对差距非负
     let lb = out.search.lower_bound.expect("有解时给出下界");
     assert!(lb <= value.makespan);
@@ -98,11 +103,7 @@ fn breakdown_plan_avoids_blocked_interval_and_reports_impact() {
         .find(|m| m.get("id").and_then(|v| v.as_str()) == Some("WELD-02"))
         .and_then(|m| m.get("blocked").cloned())
         .expect("WELD-02 应有停机区间");
-    assert_eq!(
-        blocked.as_arr().unwrap().len(),
-        1,
-        "夹具应包含一个停机区间"
-    );
+    assert_eq!(blocked.as_arr().unwrap().len(), 1, "夹具应包含一个停机区间");
 
     // 与基线对比：变更影响能被量化
     let baseline_text = read("tests/baseline-feasible-witness.json");
@@ -128,7 +129,8 @@ fn material_delay_plan_respects_ledger() {
     let out = solve("mock/material-delay.json", 500);
     assert!(matches!(out.status, Status::Feasible | Status::Optimal));
     let (_, _, violations) =
-        engine::verify_solution_json(&read("mock/material-delay.json"), &out.solution_json).unwrap();
+        engine::verify_solution_json(&read("mock/material-delay.json"), &out.solution_json)
+            .unwrap();
     assert!(violations.is_empty(), "到货延迟场景不得出现任何违约");
     // 到货延迟把喷涂推迟到 10-07 08:00 之后：makespan 必须不早于到货 + 尾批 4 道喷涂
     let value = out.objective.expect("有解必有目标值");
@@ -144,14 +146,20 @@ fn material_delay_plan_respects_ledger() {
 fn infeasible_fixture_is_proven_without_fabricated_schedule() {
     let out = solve("mock/infeasible-no-welder.json", 500);
     assert_eq!(out.status, Status::Infeasible);
-    assert!(out.violations.iter().any(|v| v.code == "NO_ELIGIBLE_WORKER"));
+    assert!(out
+        .violations
+        .iter()
+        .any(|v| v.code == "NO_ELIGIBLE_WORKER"));
     let sol = out.solution.unwrap();
     assert_eq!(
         sol.get("operations").unwrap().as_arr().unwrap().len(),
         0,
         "证明无解时不得输出伪造工序"
     );
-    assert_eq!(sol.get("status").and_then(|v| v.as_str()), Some("INFEASIBLE"));
+    assert_eq!(
+        sol.get("status").and_then(|v| v.as_str()),
+        Some("INFEASIBLE")
+    );
     assert_eq!(sol.get("optimality_proven"), Some(&json::Json::Bool(false)));
 }
 
@@ -187,7 +195,10 @@ fn explain_and_compare_are_consistent_with_the_witness() {
         engine::verify_solution_json(&problem_text, &witness).unwrap();
     assert!(violations.is_empty(), "参考见证必须零违约");
     let j = explain::explain_operation(&problem, &solution, "ORD-001-CUT");
-    assert_eq!(j.get("operation_id").and_then(|v| v.as_str()), Some("ORD-001-CUT"));
+    assert_eq!(
+        j.get("operation_id").and_then(|v| v.as_str()),
+        Some("ORD-001-CUT")
+    );
     assert!(j.get("machine").is_some());
     assert!(
         explain::operation_ok(&problem, &solution, "ORD-001-CUT"),
@@ -197,8 +208,16 @@ fn explain_and_compare_are_consistent_with_the_witness() {
     let report = compare::compare_json(&problem, &solution, &[solution.clone()]);
     let cand = report.get("candidates").unwrap().as_arr().unwrap()[0].clone();
     let delta = cand.get("delta_vs_baseline").unwrap();
-    assert_eq!(delta.get("changed_operations").and_then(|v| v.as_i64()), Some(0));
-    assert_eq!(delta.get("weighted_tardiness_minutes").and_then(|v| v.as_i64()), Some(0));
+    assert_eq!(
+        delta.get("changed_operations").and_then(|v| v.as_i64()),
+        Some(0)
+    );
+    assert_eq!(
+        delta
+            .get("weighted_tardiness_minutes")
+            .and_then(|v| v.as_i64()),
+        Some(0)
+    );
 }
 
 /// 只保留一个订单 / 一台机器 / 一名人员 / 一件工装，构造“单链”问题。
@@ -231,15 +250,26 @@ fn optimal_is_claimed_only_when_lower_bound_is_attained() {
         &CancelToken::new(),
     );
     // 单链 makespan = CUT 30 + WELD 45 + PAINT 30 = 105，且等于有效下界、零延期 → 可证明最优
-    assert_eq!(out.status, Status::Optimal, "应返回 OPTIMAL：{:?}", out.notes);
+    assert_eq!(
+        out.status,
+        Status::Optimal,
+        "应返回 OPTIMAL：{:?}",
+        out.notes
+    );
     let sol = out.solution.unwrap();
     assert_eq!(sol.get("optimality_proven"), Some(&json::Json::Bool(true)));
     let obj = sol.get("objective").unwrap();
-    assert_eq!(obj.get("makespan_minutes").and_then(|v| v.as_i64()), Some(105));
+    assert_eq!(
+        obj.get("makespan_minutes").and_then(|v| v.as_i64()),
+        Some(105)
+    );
     assert_eq!(obj.get("best_bound").and_then(|v| v.as_i64()), Some(105));
     assert_eq!(obj.get("relative_gap").and_then(|v| v.as_f64()), Some(0.0));
     assert_eq!(
-        out.violations.iter().filter(|v| v.severity == aps_engine::errors::Severity::Error).count(),
+        out.violations
+            .iter()
+            .filter(|v| v.severity == aps_engine::errors::Severity::Error)
+            .count(),
         0
     );
 }
@@ -271,6 +301,59 @@ fn optimal_is_not_fabricated_when_tardiness_cannot_be_proven() {
     assert!(value.weighted_tardiness > 0);
     let sol = out.solution.unwrap();
     assert_eq!(sol.get("optimality_proven"), Some(&json::Json::Bool(false)));
+}
+
+#[test]
+fn cancellation_returns_promptly_with_incumbent_and_warning() {
+    // SRS §7「可终止」：配置时间预算后可停止；取消必须及时返回，并明确标注 incumbent。
+    let text = read("mock/baseline.json");
+    let token = CancelToken::new();
+    let trigger = token.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        trigger.cancel();
+    });
+    let t0 = std::time::Instant::now();
+    let out = engine::solve_json(
+        &text,
+        &SolveOptions {
+            time_limit_ms: 30_000, // 预算远大于取消时刻：必须靠取消而不是超时结束
+            seed: 42,
+            ..Default::default()
+        },
+        &token,
+    );
+    let elapsed = t0.elapsed();
+    assert!(
+        elapsed.as_millis() < 5_000,
+        "取消后必须迅速返回，实际耗时 {elapsed:?}"
+    );
+    assert_eq!(
+        out.status,
+        Status::Cancelled,
+        "状态应为 CANCELLED，实际 {}",
+        out.status.as_str()
+    );
+    assert!(
+        out.violations
+            .iter()
+            .any(|v| v.code == "CANCELLED_WITH_INCUMBENT"
+                && v.severity == aps_engine::errors::Severity::Warning),
+        "必须带 CANCELLED_WITH_INCUMBENT 警告级标注：{:?}",
+        out.violations.iter().map(|v| &v.code).collect::<Vec<_>>()
+    );
+    // 取消前若已找到解，则作为 incumbent 返回且仍然合法（不因取消而变非法）
+    let sol = out.solution.expect("取消也要返回结构完整的方案 JSON");
+    let ops = sol.get("operations").unwrap().as_arr().unwrap();
+    let (_, _, violations) =
+        engine::verify_solution_json(&text, &out.solution_json).expect("输出符合契约");
+    assert!(
+        violations
+            .iter()
+            .all(|v| v.severity != aps_engine::errors::Severity::Error),
+        "incumbent 不得含 error 级违约：{violations:?}"
+    );
+    assert_eq!(ops.len(), 24, "取消时若已排完则应为完整 24 道工序");
 }
 
 #[test]

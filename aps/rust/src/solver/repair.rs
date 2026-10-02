@@ -207,9 +207,7 @@ mod tests {
         assert!(s2.is_complete());
         assert!(
             v2.is_better_than(&v, cfg.strategy) || v2 == v,
-            "局部修复不得恶化目标：{:?} → {:?}",
-            v,
-            v2
+            "局部修复不得恶化目标：{v:?} → {v2:?}"
         );
         // 修复后仍然完全可行
         assert_eq!(crate::schedule::overlap_violation(&c, &s2), None);
@@ -225,7 +223,11 @@ mod tests {
             seed: 5,
             ..Default::default()
         };
-        let out = search(&c, &cfg, &Budget::new(cfg.time_limit_ms, Default::default()));
+        let out = search(
+            &c,
+            &cfg,
+            &Budget::new(cfg.time_limit_ms, Default::default()),
+        );
         let (s, v) = out.best.expect("缺料场景应在 2 秒内找到可行解");
         assert!(s.is_complete());
         assert!(v.weighted_tardiness >= 0);

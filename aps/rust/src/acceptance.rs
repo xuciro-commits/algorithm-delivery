@@ -89,8 +89,10 @@ impl Report {
 }
 
 fn read_json(p: &Path) -> Result<(String, Json), String> {
-    let text = std::fs::read_to_string(p).map_err(|e| format!("读取 {} 失败: {}", p.display(), e))?;
-    let j = crate::json::parse(&text).map_err(|e| format!("{} 不是合法 JSON: {}", p.display(), e))?;
+    let text =
+        std::fs::read_to_string(p).map_err(|e| format!("读取 {} 失败: {}", p.display(), e))?;
+    let j =
+        crate::json::parse(&text).map_err(|e| format!("{} 不是合法 JSON: {}", p.display(), e))?;
     Ok((text, j))
 }
 
@@ -128,7 +130,7 @@ pub fn run(aps_dir: &Path) -> Report {
     let mut summary_json: BTreeMap<&str, Json> = BTreeMap::new();
 
     // ---------------- S01 基础车间 ----------------
-    let s01 = (|| -> CaseResult {
+    let s01 = {
         let mut details = Vec::new();
         let opts = default_solve_options(2_000);
         let out = engine::solve_json(&base_text, &opts, &CancelToken::new());
@@ -146,15 +148,20 @@ pub fn run(aps_dir: &Path) -> Report {
             .map(|orders| {
                 orders
                     .iter()
-                    .map(|o| o.get("operations").and_then(|v| v.as_arr()).map(|a| a.len()).unwrap_or(0))
+                    .map(|o| {
+                        o.get("operations")
+                            .and_then(|v| v.as_arr())
+                            .map(|a| a.len())
+                            .unwrap_or(0)
+                    })
                     .sum()
             })
             .unwrap_or(0);
         if op_count != expected {
             ok = false;
-            details.push(format!("✗ 工序数 {} ≠ 期望 {}", op_count, expected));
+            details.push(format!("✗ 工序数 {op_count} ≠ 期望 {expected}"));
         } else {
-            details.push(format!("✓ {} 道工序各一次分配且资源映射完整", op_count));
+            details.push(format!("✓ {op_count} 道工序各一次分配且资源映射完整"));
         }
         match engine::verify_solution_json(&base_text, &out.solution_json) {
             Ok((_, _, violations)) => {
@@ -167,7 +174,7 @@ pub fn run(aps_dir: &Path) -> Report {
             }
             Err(issues) => {
                 ok = false;
-                details.push(format!("✗ 方案无法被独立解析: {:?}", issues));
+                details.push(format!("✗ 方案无法被独立解析: {issues:?}"));
             }
         }
         if let Some(v) = &out.objective {
@@ -184,7 +191,7 @@ pub fn run(aps_dir: &Path) -> Report {
             out.metrics.compile_ms.unwrap_or(0.0),
             out.metrics
                 .first_feasible_ms
-                .map(|v| format!("{:.1} ms", v))
+                .map(|v| format!("{v:.1} ms"))
                 .unwrap_or_else(|| "unavailable".into()),
             out.metrics.total_ms.unwrap_or(0.0),
             out.metrics
@@ -200,7 +207,7 @@ pub fn run(aps_dir: &Path) -> Report {
             details,
             metrics: Some(out.metrics.to_json()),
         }
-    })();
+    };
 
     // ---------------- S02 设备故障 ----------------
     let s02 = (|| -> CaseResult {
@@ -217,7 +224,11 @@ pub fn run(aps_dir: &Path) -> Report {
                 }
             }
         };
-        let out = engine::solve_json(&breakdown_text, &default_solve_options(2_000), &CancelToken::new());
+        let out = engine::solve_json(
+            &breakdown_text,
+            &default_solve_options(2_000),
+            &CancelToken::new(),
+        );
         let mut ok = out.status == Status::Feasible;
         details.push(format!("状态: {}", out.status.as_str()));
         let sol = out.solution.clone().unwrap_or(Json::Null);
@@ -228,9 +239,18 @@ pub fn run(aps_dir: &Path) -> Report {
                 if let Some(bs) = m.get("blocked").and_then(|v| v.as_arr()) {
                     for b in bs {
                         blocked = Some((
-                            m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            b.get("start").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            b.get("end").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            m.get("id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            b.get("start")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            b.get("end")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                         ));
                     }
                 }
@@ -247,7 +267,9 @@ pub fn run(aps_dir: &Path) -> Report {
                 let mut hits = 0usize;
                 if let Some(ops) = sol.get("operations").and_then(|v| v.as_arr()) {
                     for op in ops {
-                        if op.get("machine_id").and_then(|v| v.as_str()) != Some(machine_id.as_str()) {
+                        if op.get("machine_id").and_then(|v| v.as_str())
+                            != Some(machine_id.as_str())
+                        {
                             continue;
                         }
                         let s = crate::datetime::parse_to_epoch_min(
@@ -261,7 +283,9 @@ pub fn run(aps_dir: &Path) -> Report {
                                 hits += 1;
                                 details.push(format!(
                                     "✗ 工序 {} 进入 {} 停机区间 {} ~ {}",
-                                    op.get("operation_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                                    op.get("operation_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("?"),
                                     machine_id,
                                     bs,
                                     be
@@ -272,8 +296,7 @@ pub fn run(aps_dir: &Path) -> Report {
                 }
                 if hits == 0 {
                     details.push(format!(
-                        "✓ 无任何工序进入 {} 停机区间 {} ~ {}",
-                        machine_id, bs, be
+                        "✓ 无任何工序进入 {machine_id} 停机区间 {bs} ~ {be}"
                     ));
                 } else {
                     ok = false;
@@ -288,17 +311,21 @@ pub fn run(aps_dir: &Path) -> Report {
             }
             Err(e) => {
                 ok = false;
-                details.push(format!("✗ {:?}", e));
+                details.push(format!("✗ {e:?}"));
             }
         }
         // 与基线计划的变更影响
-        if let (Some(base_sol_json), Some(cand_json)) = (summary_json.get("S01"), out.solution.clone()) {
+        if let (Some(base_sol_json), Some(cand_json)) =
+            (summary_json.get("S01"), out.solution.clone())
+        {
             if let (Some(base_sol), Some(cand_sol)) = (
                 crate::verify::parse_solution(base_sol_json).0,
                 crate::verify::parse_solution(&cand_json).0,
             ) {
                 let changed = crate::compare::changed_operations(&base_sol, &cand_sol);
-                details.push(format!("✓ 相对基线计划变更 {} 道工序（变更影响可呈现）", changed));
+                details.push(format!(
+                    "✓ 相对基线计划变更 {changed} 道工序（变更影响可呈现）"
+                ));
             }
         }
         CaseResult {
@@ -325,7 +352,11 @@ pub fn run(aps_dir: &Path) -> Report {
                 }
             }
         };
-        let out = engine::solve_json(&delay_text, &default_solve_options(2_000), &CancelToken::new());
+        let out = engine::solve_json(
+            &delay_text,
+            &default_solve_options(2_000),
+            &CancelToken::new(),
+        );
         let mut ok = out.status == Status::Feasible;
         details.push(format!("状态: {}", out.status.as_str()));
         // 独立复算物料账本：走 src/ledger.rs 的事件重放（求解器/校验器之外的第三条实现）
@@ -335,21 +366,18 @@ pub fn run(aps_dir: &Path) -> Report {
             let (solution, _) = crate::verify::parse_solution(&out.solution?);
             let solution = solution?;
             let od = crate::ledger::overdrafts(&problem, &solution);
-            Some({
-                if od.is_empty() {
-                    details.push(
-                        "✓ 事件序物料账本全程非负（同一时刻先入库后领料，H07）".into(),
-                    );
-                } else {
-                    ok = false;
-                    for o in od.iter() {
-                        details.push(format!(
-                            "✗ 物料 {} 在 {} 透支至 {}（{}）",
-                            o.material_id, o.at_iso, o.balance, o.label
-                        ));
-                    }
+            if od.is_empty() {
+                details.push("✓ 事件序物料账本全程非负（同一时刻先入库后领料，H07）".into());
+            } else {
+                ok = false;
+                for o in od.iter() {
+                    details.push(format!(
+                        "✗ 物料 {} 在 {} 透支至 {}（{}）",
+                        o.material_id, o.at_iso, o.balance, o.label
+                    ));
                 }
-            })
+            };
+            Some(())
         })() {
             Some(()) => {}
             None => {
@@ -365,7 +393,7 @@ pub fn run(aps_dir: &Path) -> Report {
             }
             Err(e) => {
                 ok = false;
-                details.push(format!("✗ {:?}", e));
+                details.push(format!("✗ {e:?}"));
             }
         }
         CaseResult {
@@ -435,7 +463,10 @@ pub fn run(aps_dir: &Path) -> Report {
             }
         } else {
             ok = false;
-            details.push(format!("✗ native 档位状态为 {}，期望 INFEASIBLE", native.status.as_str()));
+            details.push(format!(
+                "✗ native 档位状态为 {}，期望 INFEASIBLE",
+                native.status.as_str()
+            ));
         }
 
         // WASM 轻量档：不得声称已证明无解
@@ -447,11 +478,10 @@ pub fn run(aps_dir: &Path) -> Report {
         let w_status = wasm.status.as_str();
         if wasm.status == Status::Infeasible || wasm.status == Status::Optimal {
             ok = false;
-            details.push(format!("✗ wasm-light 伪称已证明：状态 {}", w_status));
+            details.push(format!("✗ wasm-light 伪称已证明：状态 {w_status}"));
         } else {
             details.push(format!(
-                "✓ wasm-light 状态 {}（诚实标注未证明；允许 NO_SOLUTION_FOUND / UNKNOWN / UNSUPPORTED_CONSTRAINT）",
-                w_status
+                "✓ wasm-light 状态 {w_status}（诚实标注未证明；允许 NO_SOLUTION_FOUND / UNKNOWN / UNSUPPORTED_CONSTRAINT）"
             ));
         }
         CaseResult {
@@ -494,14 +524,17 @@ pub fn run(aps_dir: &Path) -> Report {
         let mut ok = false;
         match engine::verify_solution_json(&breakdown_text, &witness_text) {
             Ok((_, _, violations)) => {
-                if violations.iter().any(|v| v.code == codes::SNAPSHOT_MISMATCH) {
+                if violations
+                    .iter()
+                    .any(|v| v.code == codes::SNAPSHOT_MISMATCH)
+                {
                     details.push("✓ 旧快照方案被判定为 SNAPSHOT_MISMATCH（平台应返回 STALE_SNAPSHOT 并拒发）".into());
                     ok = true;
                 } else {
                     details.push("✗ 未检出快照不一致".into());
                 }
             }
-            Err(e) => details.push(format!("✗ {:?}", e)),
+            Err(e) => details.push(format!("✗ {e:?}")),
         }
         details.push("说明：权威的 STALE_SNAPSHOT 拒绝由 Go 平台层执行，本引擎提供判定依据".into());
         CaseResult {
@@ -551,7 +584,7 @@ pub fn run(aps_dir: &Path) -> Report {
                 false
             }
             Err(e) => {
-                details.push(format!("✗ {:?}", e));
+                details.push(format!("✗ {e:?}"));
                 false
             }
         };
@@ -589,7 +622,7 @@ pub fn run(aps_dir: &Path) -> Report {
     })();
 
     // ---------------- S07 多租户 ----------------
-    let s07 = (|| -> CaseResult {
+    let s07 = {
         let mut details = Vec::new();
         let mut tenant_b = base_json.clone();
         if let Some(meta) = tenant_b.get_mut("meta") {
@@ -598,7 +631,7 @@ pub fn run(aps_dir: &Path) -> Report {
         let tenant_b_text = tenant_b.to_pretty();
         // 用租户 B 的问题核验租户 A 的方案
         let mut ok = false;
-        if let Some(witness_text) = std::fs::read_to_string(&witness_path).ok() {
+        if let Ok(witness_text) = std::fs::read_to_string(&witness_path) {
             // 参考见证快照里没有 tenant_id（历史产物）；模拟“租户 A 签发、带租户绑定”的方案，
             // 核验其被租户 B 的问题拒绝；引擎自己生成的方案恒带 tenant_id。
             let witness_for_a = match base_json.get("meta").and_then(|m| m.get("tenant_id")) {
@@ -618,7 +651,7 @@ pub fn run(aps_dir: &Path) -> Report {
                         details.push("✗ 未检出跨租户访问".into());
                     }
                 }
-                Err(e) => details.push(format!("✗ {:?}", e)),
+                Err(e) => details.push(format!("✗ {e:?}")),
             }
         }
         details.push(
@@ -633,10 +666,10 @@ pub fn run(aps_dir: &Path) -> Report {
             details,
             metrics: None,
         }
-    })();
+    };
 
     // ---------------- S08 能力协商 ----------------
-    let s08 = (|| -> CaseResult {
+    let s08 = {
         let mut details = Vec::new();
         let mut ok = true;
         // 规模超限：2400 工序 vs wasm-light 上限
@@ -650,10 +683,7 @@ pub fn run(aps_dir: &Path) -> Report {
                         "✓ 2400 工序超出 wasm-light（max_operations=600）→ UNSUPPORTED_CONSTRAINT"
                             .into(),
                     );
-                    let mentions_scale = out
-                        .issues
-                        .iter()
-                        .any(|i| i.code == "SCALE_EXCEEDED");
+                    let mentions_scale = out.issues.iter().any(|i| i.code == "SCALE_EXCEEDED");
                     if mentions_scale {
                         details.push("✓ 结构化原因：SCALE_EXCEEDED（含工序数与上限）".into());
                     } else {
@@ -662,27 +692,31 @@ pub fn run(aps_dir: &Path) -> Report {
                     }
                 } else {
                     ok = false;
-                    details.push(format!("✗ 期望 UNSUPPORTED_CONSTRAINT，实际 {}", out.status.as_str()));
+                    details.push(format!(
+                        "✗ 期望 UNSUPPORTED_CONSTRAINT，实际 {}",
+                        out.status.as_str()
+                    ));
                 }
             }
             Err(e) => {
                 ok = false;
-                details.push(format!("✗ 生成 2400 工序基准失败: {}", e));
+                details.push(format!("✗ 生成 2400 工序基准失败: {e}"));
             }
         }
         // 未声明约束：P1 的多人员协同工序
         let mut p1 = base_json.clone();
         if let Some(orders) = p1.get_mut("orders").and_then(|v| v.as_arr_mut()) {
-            if let Some(ops) = orders[0]
-                .get_mut("operations")
-                .and_then(|v| v.as_arr_mut())
-            {
+            if let Some(ops) = orders[0].get_mut("operations").and_then(|v| v.as_arr_mut()) {
                 ops[0].set("worker_count", Json::int(2));
             }
         }
-        let out = engine::solve_json(&p1.to_compact(), &default_solve_options(500), &CancelToken::new());
-        let p1_ok = out.status == Status::UnsupportedConstraint
-            || out.status == Status::ModelInvalid; // worker_count=2 亦违反 P0 契约
+        let out = engine::solve_json(
+            &p1.to_compact(),
+            &default_solve_options(500),
+            &CancelToken::new(),
+        );
+        let p1_ok =
+            out.status == Status::UnsupportedConstraint || out.status == Status::ModelInvalid; // worker_count=2 亦违反 P0 契约
         if p1_ok {
             details.push(format!(
                 "✓ worker_count=2（P1 约束）→ {}，未静默忽略",
@@ -690,7 +724,10 @@ pub fn run(aps_dir: &Path) -> Report {
             ));
         } else {
             ok = false;
-            details.push(format!("✗ worker_count=2 被静默接受: {}", out.status.as_str()));
+            details.push(format!(
+                "✗ worker_count=2 被静默接受: {}",
+                out.status.as_str()
+            ));
         }
         CaseResult {
             id: "S08",
@@ -699,7 +736,7 @@ pub fn run(aps_dir: &Path) -> Report {
             details,
             metrics: None,
         }
-    })();
+    };
 
     report.cases = vec![s01, s02, s03, s04, s05, s06, s07, s08];
     report
@@ -748,7 +785,11 @@ pub fn mutations(problem_text: &str, witness: &Json, breakdown_text: &str) -> Ve
         codes::H01_TIME_ORDER,
         clone(&|m| {
             let start = find_op_mut(m, "ORD-001-CUT")
-                .and_then(|o| o.get("start_at").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .and_then(|o| {
+                    o.get("start_at")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
                 .unwrap_or_default();
             shift_op(m, "ORD-001-CUT", &start, &start);
         }),
@@ -904,7 +945,9 @@ pub fn mutations(problem_text: &str, witness: &Json, breakdown_text: &str) -> Ve
         codes::MISSING_OPERATION,
         clone(&|m| {
             if let Some(ops) = m.get_mut("operations").and_then(|v| v.as_arr_mut()) {
-                ops.retain(|o| o.get("operation_id").and_then(|v| v.as_str()) != Some("ORD-008-PAINT"));
+                ops.retain(|o| {
+                    o.get("operation_id").and_then(|v| v.as_str()) != Some("ORD-008-PAINT")
+                });
             }
         }),
     ));
@@ -928,6 +971,18 @@ pub fn mutations(problem_text: &str, witness: &Json, breakdown_text: &str) -> Ve
                     let mut ghost = first;
                     ghost.set("operation_id", Json::str("GHOST-OP"));
                     ops.push(ghost);
+                }
+            }
+        }),
+    ));
+    out.push(mk(
+        "契约 订单归属错误",
+        codes::ORDER_ID_MISMATCH,
+        clone(&|m| {
+            if let Some(ops) = m.get_mut("operations").and_then(|v| v.as_arr_mut()) {
+                if let Some(first) = ops.first_mut() {
+                    // 把第一道工序的 order_id 改成另一个订单（工序本身仍存在）
+                    first.set("order_id", Json::str("ORD-002"));
                 }
             }
         }),

@@ -44,20 +44,20 @@ pub fn parse_iso8601(text: &str) -> Result<DateTime, TimeError> {
     let b = s.as_bytes();
     // 最少 "YYYY-MM-DDThh:mmZ" = 17 字符
     if b.len() < 17 {
-        return err(format!("时间 '{}' 过短，期望 ISO 8601 含时区偏移", text));
+        return err(format!("时间 '{text}' 过短，期望 ISO 8601 含时区偏移"));
     }
     if b[4] != b'-' || b[7] != b'-' {
-        return err(format!("时间 '{}' 的日期部分应为 YYYY-MM-DD", text));
+        return err(format!("时间 '{text}' 的日期部分应为 YYYY-MM-DD"));
     }
     let year: i64 = parse_digits(text, 0, 4)?;
     let month: u32 = parse_digits(text, 5, 2)? as u32;
     let day: u32 = parse_digits(text, 8, 2)? as u32;
     let sep = b[10];
     if sep != b'T' && sep != b't' && sep != b' ' {
-        return err(format!("时间 '{}' 缺少 'T' 分隔符", text));
+        return err(format!("时间 '{text}' 缺少 'T' 分隔符"));
     }
     if b[13] != b':' {
-        return err(format!("时间 '{}' 的时:分部分应为 hh:mm", text));
+        return err(format!("时间 '{text}' 的时:分部分应为 hh:mm"));
     }
     let hour: u32 = parse_digits(text, 11, 2)? as u32;
     let minute: u32 = parse_digits(text, 14, 2)? as u32;
@@ -76,7 +76,7 @@ pub fn parse_iso8601(text: &str) -> Result<DateTime, TimeError> {
             end += 1;
         }
         if end == start {
-            return err(format!("时间 '{}' 的小数秒缺少数字", text));
+            return err(format!("时间 '{text}' 的小数秒缺少数字"));
         }
         let frac = &text[start..end];
         let mut ns: u32 = 0;
@@ -93,31 +93,29 @@ pub fn parse_iso8601(text: &str) -> Result<DateTime, TimeError> {
     }
 
     if idx >= b.len() {
-        return err(format!("时间 '{}' 缺少时区偏移（如 -07:00 或 Z）", text));
+        return err(format!("时间 '{text}' 缺少时区偏移（如 -07:00 或 Z）"));
     }
     let offset_min = parse_offset(&s[idx..])?;
 
     if !(1..=12).contains(&month) {
-        return err(format!("时间 '{}' 的月份非法", text));
+        return err(format!("时间 '{text}' 的月份非法"));
     }
     let dim = days_in_month(year, month);
     if day < 1 || day > dim {
         return err(format!(
-            "时间 '{}' 的日期非法（{:04}-{:02} 共 {} 天）",
-            text, year, month, dim
+            "时间 '{text}' 的日期非法（{year:04}-{month:02} 共 {dim} 天）"
         ));
     }
     if hour > 23 || minute > 59 {
-        return err(format!("时间 '{}' 的时分非法", text));
+        return err(format!("时间 '{text}' 的时分非法"));
     }
     if second > 59 {
-        return err(format!("时间 '{}' 不支持闰秒（秒值须为 00-59）", text));
+        return err(format!("时间 '{text}' 不支持闰秒（秒值须为 00-59）"));
     }
     if second != 0 || nanos != 0 {
         // P0：分辨率为分钟，秒与亚秒必须为 0，避免静默截断导致时间漂移。
         return err(format!(
-            "时间 '{}' 含非零秒/亚秒部分；P0 时间分辨率为分钟，秒必须为 00",
-            text
+            "时间 '{text}' 含非零秒/亚秒部分；P0 时间分辨率为分钟，秒必须为 00"
         ));
     }
 
@@ -132,15 +130,16 @@ pub fn parse_iso8601(text: &str) -> Result<DateTime, TimeError> {
 fn parse_digits(text: &str, start: usize, len: usize) -> Result<i64, TimeError> {
     let b = text.as_bytes();
     if start + len > b.len() {
-        return err(format!("时间 '{}' 在位置 {} 处长度不足", text, start));
+        return err(format!("时间 '{text}' 在位置 {start} 处长度不足"));
     }
     let mut v: i64 = 0;
-    for i in start..start + len {
-        let c = b[i];
+    for (i, c) in b[start..start + len].iter().copied().enumerate() {
         if !c.is_ascii_digit() {
             return err(format!(
                 "时间 '{}' 在位置 {} 处期望数字，实际为 '{}'",
-                text, i, c as char
+                text,
+                start + i,
+                c as char
             ));
         }
         v = v * 10 + (c - b'0') as i64;
@@ -156,14 +155,14 @@ fn parse_offset(s: &str) -> Result<i32, TimeError> {
     }
     if b[0] == b'Z' || b[0] == b'z' {
         if b.len() != 1 {
-            return err(format!("时区偏移 '{}' 非法（Z 之后不应有内容）", s));
+            return err(format!("时区偏移 '{s}' 非法（Z 之后不应有内容）"));
         }
         return Ok(0);
     }
     let sign = match b[0] {
         b'+' => 1,
         b'-' => -1,
-        _ => return err(format!("时区偏移 '{}' 应以 +、- 或 Z 开头", s)),
+        _ => return err(format!("时区偏移 '{s}' 应以 +、- 或 Z 开头")),
     };
     let (hh, mm) = match b.len() {
         3 => (parse_digits(s, 1, 2)?, 0),
@@ -176,14 +175,14 @@ fn parse_offset(s: &str) -> Result<i32, TimeError> {
         }
         6 => {
             if b[3] != b':' {
-                return err(format!("时区偏移 '{}' 非法", s));
+                return err(format!("时区偏移 '{s}' 非法"));
             }
             (parse_digits(s, 1, 2)?, parse_digits(s, 4, 2)?)
         }
-        _ => return err(format!("时区偏移 '{}' 非法", s)),
+        _ => return err(format!("时区偏移 '{s}' 非法")),
     };
     if hh > 23 || mm > 59 {
-        return err(format!("时区偏移 '{}' 数值越界", s));
+        return err(format!("时区偏移 '{s}' 数值越界"));
     }
     Ok((sign * (hh * 60 + mm)) as i32)
 }
@@ -241,10 +240,7 @@ pub fn format_iso8601(epoch_min: i64, offset_min: i32) -> String {
     let (hh, mm) = (rem / 60, rem % 60);
     let sign = if offset_min < 0 { '-' } else { '+' };
     let (oh, om) = (offset_min.abs() / 60, offset_min.abs() % 60);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:00{}{:02}:{:02}",
-        y, m, d, hh, mm, sign, oh, om
-    )
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:00{sign}{oh:02}:{om:02}")
 }
 
 /// 解析并直接得到绝对分钟。
@@ -279,7 +275,7 @@ mod tests {
         ] {
             let dt = parse_iso8601(text).unwrap();
             let formatted = format_iso8601(dt.epoch_min, dt.offset_min);
-            assert_eq!(formatted, text, "roundtrip {}", text);
+            assert_eq!(formatted, text, "roundtrip {text}");
         }
     }
 
@@ -295,7 +291,7 @@ mod tests {
             "2026-10-05T08:00:00.500Z",
             "2026-10-5T08:00:00Z",
         ] {
-            assert!(parse_iso8601(bad).is_err(), "应被拒绝: {}", bad);
+            assert!(parse_iso8601(bad).is_err(), "应被拒绝: {bad}");
         }
     }
 

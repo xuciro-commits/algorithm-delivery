@@ -178,10 +178,8 @@ pub fn violations(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation
         );
         v.resource_id = Some(od.material_id.clone());
         v.at = Some(od.at_iso.clone());
-        v.details.push((
-            "balance_after".into(),
-            crate::json::Json::int(od.balance),
-        ));
+        v.details
+            .push(("balance_after".into(), crate::json::Json::int(od.balance)));
         v.details
             .push(("qty".into(), crate::json::Json::int(od.qty)));
         v.details
@@ -274,8 +272,7 @@ mod tests {
         // 参考解在到货延迟下会提前领用 M-PAINT，因此应当检出透支（说明重放真的在看时间）
         assert!(
             od.iter().any(|o| o.material_id == "M-PAINT"),
-            "应检出来料到货前的 M-PAINT 透支，实际 {:?}",
-            od
+            "应检出来料到货前的 M-PAINT 透支，实际 {od:?}"
         );
     }
 }

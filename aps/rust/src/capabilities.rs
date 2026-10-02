@@ -61,7 +61,7 @@ pub struct SolverCapabilities {
 
 impl SolverCapabilities {
     pub fn supports(&self, constraint: &str) -> bool {
-        self.constraints.iter().any(|c| *c == constraint)
+        self.constraints.contains(&constraint)
     }
 
     /// 严格符合 `solver-capabilities.schema.json` 的 JSON。
@@ -69,10 +69,16 @@ impl SolverCapabilities {
         Json::obj(vec![
             ("engine", Json::str(self.engine.clone())),
             ("version", Json::str(self.version.clone())),
-            ("constraints", Json::strings(self.constraints.iter().copied())),
+            (
+                "constraints",
+                Json::strings(self.constraints.iter().copied()),
+            ),
             ("max_operations", Json::int(self.max_operations as i64)),
             ("can_prove_optimal", Json::Bool(self.can_prove_optimal)),
-            ("can_prove_infeasible", Json::Bool(self.can_prove_infeasible)),
+            (
+                "can_prove_infeasible",
+                Json::Bool(self.can_prove_infeasible),
+            ),
             ("supports_cancel", Json::Bool(self.supports_cancel)),
         ])
     }
@@ -127,7 +133,10 @@ pub struct Unsupported {
 }
 
 /// 检查“本模型是否落在该引擎能力范围内”；不匹配时返回全部原因（不擅自降级删约束）。
-pub fn check_support(problem: &RawProblem, caps: &SolverCapabilities) -> Result<(), Vec<Unsupported>> {
+pub fn check_support(
+    problem: &RawProblem,
+    caps: &SolverCapabilities,
+) -> Result<(), Vec<Unsupported>> {
     let mut out: Vec<Unsupported> = Vec::new();
     let total_ops: usize = problem.orders.iter().map(|o| o.operations.len()).sum();
     if total_ops > caps.max_operations {
@@ -159,22 +168,20 @@ pub fn check_support(problem: &RawProblem, caps: &SolverCapabilities) -> Result<
 
     for (oi, order) in problem.orders.iter().enumerate() {
         for (pi, op) in order.operations.iter().enumerate() {
-            let path = format!("$.orders[{}].operations[{}]", oi, pi);
+            let path = format!("$.orders[{oi}].operations[{pi}]");
             if op.worker_count != 1 {
                 out.push(Unsupported {
                     code: "MULTI_WORKER_OPERATION".to_string(),
-                    path: format!("{}.worker_count", path),
-                    message: "多人员协同工序（worker_count>1）属于 P1，本引擎不静默忽略".to_string(),
-                    details: vec![(
-                        "operation_id".to_string(),
-                        Json::str(op.id.clone()),
-                    )],
+                    path: format!("{path}.worker_count"),
+                    message: "多人员协同工序（worker_count>1）属于 P1，本引擎不静默忽略"
+                        .to_string(),
+                    details: vec![("operation_id".to_string(), Json::str(op.id.clone()))],
                 });
             }
             if !caps.supports("H06") && !op.tools.is_empty() {
                 out.push(Unsupported {
                     code: "TOOL_CONSTRAINTS_UNSUPPORTED".to_string(),
-                    path: format!("{}.tools", path),
+                    path: format!("{path}.tools"),
                     message: "该引擎未声明支持 H06（独占共享工装）".to_string(),
                     details: vec![("operation_id".to_string(), Json::str(op.id.clone()))],
                 });
@@ -182,25 +189,19 @@ pub fn check_support(problem: &RawProblem, caps: &SolverCapabilities) -> Result<
             if !caps.supports("H07") && !op.materials.is_empty() {
                 out.push(Unsupported {
                     code: "MATERIAL_CONSTRAINTS_UNSUPPORTED".to_string(),
-                    path: format!("{}.materials", path),
+                    path: format!("{path}.materials"),
                     message: "该引擎未声明支持 H07（物料时序平衡）".to_string(),
                     details: vec![("operation_id".to_string(), Json::str(op.id.clone()))],
                 });
             }
             if !caps.supports("H04")
-                && op
-                    .alternatives
-                    .iter()
-                    .all(|a| a.duration_min > 0)
-                && (problem
-                    .machines
-                    .iter()
-                    .any(|m| m.blocked.len() > 0)
-                    || problem.workers.iter().any(|w| w.blocked.len() > 0))
+                && op.alternatives.iter().all(|a| a.duration_min > 0)
+                && (problem.machines.iter().any(|m| !m.blocked.is_empty())
+                    || problem.workers.iter().any(|w| !w.blocked.is_empty()))
             {
                 out.push(Unsupported {
                     code: "CALENDAR_CONSTRAINTS_UNSUPPORTED".to_string(),
-                    path: format!("{}.alternatives", path),
+                    path: format!("{path}.alternatives"),
                     message: "该引擎未声明支持 H04（机器/人员日历与停工窗口）".to_string(),
                     details: vec![("operation_id".to_string(), Json::str(op.id.clone()))],
                 });
@@ -229,10 +230,7 @@ pub fn unsupported_to_json(items: &[Unsupported]) -> Vec<Json> {
                 ("constraint", Json::Null),
                 ("message", Json::str(u.message.clone())),
                 ("path", Json::str(u.path.clone())),
-                (
-                    "details",
-                    Json::Obj(u.details.clone()),
-                ),
+                ("details", Json::Obj(u.details.clone())),
             ])
         })
         .collect()
@@ -254,7 +252,12 @@ mod tests {
     fn native_capabilities_shape() {
         let caps = capabilities_for(Profile::Native);
         let json = caps.to_json();
-        let fields: Vec<&str> = json.as_obj().unwrap().iter().map(|(k, _)| k.as_str()).collect();
+        let fields: Vec<&str> = json
+            .as_obj()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect();
         assert_eq!(
             fields,
             vec![
@@ -271,7 +274,10 @@ mod tests {
         // native 仅在达到有效下界时证明最优（声明为 true，但必须由引擎在达到下界时才写 OPTIMAL）
         assert!(caps.can_prove_optimal);
         assert!(caps.can_prove_infeasible);
-        assert!(caps.notes.iter().any(|n| n.contains("makespan 达到有效下界")));
+        assert!(caps
+            .notes
+            .iter()
+            .any(|n| n.contains("makespan 达到有效下界")));
     }
 
     #[test]
@@ -298,6 +304,8 @@ mod tests {
         caps.constraints = vec!["H01", "H02", "H03", "H04", "H05", "H08"];
         let err = check_support(&p, &caps).unwrap_err();
         assert!(err.iter().any(|u| u.code == "TOOL_CONSTRAINTS_UNSUPPORTED"));
-        assert!(err.iter().any(|u| u.code == "MATERIAL_CONSTRAINTS_UNSUPPORTED"));
+        assert!(err
+            .iter()
+            .any(|u| u.code == "MATERIAL_CONSTRAINTS_UNSUPPORTED"));
     }
 }

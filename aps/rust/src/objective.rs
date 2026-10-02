@@ -69,10 +69,13 @@ impl ObjectiveValue {
             ("max_tardiness_minutes", Json::int(self.max_tardiness)),
             ("late_orders", Json::int(self.late_orders as i64)),
             ("best_bound", Json::opt_int(best_bound)),
-            ("relative_gap", match gap {
-                Some(g) => Json::Float(g),
-                None => Json::Null,
-            }),
+            (
+                "relative_gap",
+                match gap {
+                    Some(g) => Json::Float(g),
+                    None => Json::Null,
+                },
+            ),
         ])
     }
 }
@@ -155,7 +158,11 @@ pub fn makespan_lower_bound(c: &Compiled) -> i64 {
         let start_lb = o.release.max(0).max(preds_max).max(alone_start);
         b[op] = start_lb + o.min_dur;
     }
-    b.iter().copied().max().unwrap_or(0).min(c.meta.horizon_len_min)
+    b.iter()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .min(c.meta.horizon_len_min)
 }
 
 #[cfg(test)]
@@ -206,7 +213,7 @@ mod tests {
         let c = load("mock/baseline.json");
         let lb = makespan_lower_bound(&c);
         // 关键链：CUT 30 + WELD 45 + PAINT 30 = 105（订单内串行下界，忽略产能竞争）
-        assert!(lb >= 105, "下界 {} 应至少覆盖单订单关键链", lb);
+        assert!(lb >= 105, "下界 {lb} 应至少覆盖单订单关键链");
         assert!(lb <= c.meta.horizon_len_min);
     }
 }

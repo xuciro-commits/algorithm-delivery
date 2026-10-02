@@ -12,28 +12,22 @@ use crate::model::RawProblem;
 use crate::verify::{parse_minutes, RawSolution};
 
 /// 生成解释 JSON；`operation_id` 不存在时返回带 `error` 字段的对象。
-pub fn explain_operation(
-    problem: &RawProblem,
-    solution: &RawSolution,
-    operation_id: &str,
-) -> Json {
+pub fn explain_operation(problem: &RawProblem, solution: &RawSolution, operation_id: &str) -> Json {
     let op_row = solution
         .operations
         .iter()
         .find(|o| o.operation_id == operation_id);
-    let (order, spec) = match problem
-        .orders
-        .iter()
-        .find_map(|o| o.operations.iter().find(|op| op.id == operation_id).map(|op| (o, op)))
-    {
+    let (order, spec) = match problem.orders.iter().find_map(|o| {
+        o.operations
+            .iter()
+            .find(|op| op.id == operation_id)
+            .map(|op| (o, op))
+    }) {
         Some(v) => v,
         None => {
             return Json::obj(vec![
                 ("operation_id", Json::str(operation_id.to_string())),
-                (
-                    "error",
-                    Json::str("问题模型中不存在该工序 ID".to_string()),
-                ),
+                ("error", Json::str("问题模型中不存在该工序 ID".to_string())),
             ])
         }
     };
@@ -75,12 +69,12 @@ pub fn explain_operation(
                 Json::obj(vec![
                     ("id", Json::str(m.id.clone())),
                     ("capabilities", Json::strings(m.capabilities.clone())),
-                    ("capability_ok", Json::Bool(m.capabilities.iter().any(|c| c == &spec.skill))),
-                    ("containing_window", containing),
                     (
-                        "blocked_count",
-                        Json::int(m.blocked.len() as i64),
+                        "capability_ok",
+                        Json::Bool(m.capabilities.iter().any(|c| c == &spec.skill)),
                     ),
+                    ("containing_window", containing),
+                    ("blocked_count", Json::int(m.blocked.len() as i64)),
                 ])
             }
         }
@@ -197,10 +191,7 @@ pub fn explain_operation(
             let row = solution.operations.iter().find(|o| &o.operation_id == p);
             Json::obj(vec![
                 ("operation_id", Json::str(p.clone())),
-                (
-                    "end_at",
-                    row.map(|r| iso(r.end_min)).unwrap_or(Json::Null),
-                ),
+                ("end_at", row.map(|r| iso(r.end_min)).unwrap_or(Json::Null)),
                 (
                     "satisfied",
                     Json::Bool(match (start, row.and_then(|r| r.end_min)) {
@@ -262,10 +253,7 @@ pub fn explain_operation(
         ("chosen_machine_detail", Json::Null),
         (
             "machine",
-            machine_id
-                .as_deref()
-                .map(|m| machine_obj(m))
-                .unwrap_or(Json::Null),
+            machine_id.as_deref().map(machine_obj).unwrap_or(Json::Null),
         ),
         ("worker", worker_obj),
         ("tool_ids", Json::strings(tools)),
@@ -357,7 +345,10 @@ pub fn format_explain(j: &Json) -> String {
     if j.get("machine").and_then(|v| v.as_obj()).is_some() {
         s.push_str(&format!(
             "  机器: {}  能力校验: {}\n",
-            g("machine").get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+            g("machine")
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-"),
             if g("machine")
                 .get("capability_ok")
                 .and_then(|v| v.as_bool())
@@ -391,7 +382,10 @@ pub fn format_explain(j: &Json) -> String {
     if j.get("worker").and_then(|v| v.as_obj()).is_some() {
         s.push_str(&format!(
             "  人员: {}  技能: {}  资格缺失: {}\n",
-            g("worker").get("id").and_then(|v| v.as_str()).unwrap_or("-"),
+            g("worker")
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("-"),
             json_list(&g("worker").get("skills").cloned().unwrap_or(Json::Null)),
             json_list(
                 &g("worker")
@@ -421,8 +415,7 @@ pub fn format_explain(j: &Json) -> String {
                     .and_then(|v| v.as_arr())
                     .map(|a| a.len())
                     .unwrap_or(0),
-                if m
-                    .get("negative_after")
+                if m.get("negative_after")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false)
                 {
@@ -455,9 +448,7 @@ pub fn format_explain(j: &Json) -> String {
     ));
     let vs = g("violations");
     match vs.as_arr() {
-        Some(list) if list.is_empty() => {
-            s.push_str("  核验结论: H01–H08 全部通过（独立校验器）\n")
-        }
+        Some([]) => s.push_str("  核验结论: H01–H08 全部通过（独立校验器）\n"),
         Some(list) => {
             s.push_str(&format!("  核验结论: {} 条违约\n", list.len()));
             for v in list {
@@ -502,7 +493,11 @@ fn json_field_list(v: &Json, id_key: &str, time_key: &str) -> String {
 }
 
 /// 供 UI 使用的“为什么不能更早”诊断：返回该工序之前被占用的资源与时段。
-pub fn blocking_resources(problem: &RawProblem, solution: &RawSolution, operation_id: &str) -> Json {
+pub fn blocking_resources(
+    problem: &RawProblem,
+    solution: &RawSolution,
+    operation_id: &str,
+) -> Json {
     let (start, machine_id, worker_id, tools) = match solution
         .operations
         .iter()
@@ -530,22 +525,21 @@ pub fn blocking_resources(problem: &RawProblem, solution: &RawSolution, operatio
         }
         let mut tags: Vec<String> = Vec::new();
         if op.machine_id == machine_id {
-            tags.push(format!("机器 {}", machine_id));
+            tags.push(format!("机器 {machine_id}"));
         }
         if op.worker_id == worker_id {
-            tags.push(format!("人员 {}", worker_id));
+            tags.push(format!("人员 {worker_id}"));
         }
         for t in op.tool_ids.iter() {
             if tools.contains(t) {
-                tags.push(format!("工装 {}", t));
+                tags.push(format!("工装 {t}"));
             }
         }
         for tag in tags {
-            conflicts.entry(tag).or_default().push((
-                s,
-                e,
-                op.operation_id.clone(),
-            ));
+            conflicts
+                .entry(tag)
+                .or_default()
+                .push((s, e, op.operation_id.clone()));
         }
     }
     let items: Vec<Json> = conflicts
@@ -591,9 +585,9 @@ pub fn blocking_resources(problem: &RawProblem, solution: &RawSolution, operatio
 /// 便捷：判断某工序是否通过全部核验（前端打勾用）。
 pub fn operation_ok(problem: &RawProblem, solution: &RawSolution, operation_id: &str) -> bool {
     let violations = crate::verify::verify(problem, solution);
-    !violations.iter().any(|v| {
-        v.operation_id.as_deref() == Some(operation_id) && v.severity == Severity::Error
-    })
+    !violations
+        .iter()
+        .any(|v| v.operation_id.as_deref() == Some(operation_id) && v.severity == Severity::Error)
 }
 
 /// 供 CLI 使用：解析“相对分钟”文本（如 `+2h`）——此处仅保留 ISO 解析。
@@ -628,7 +622,11 @@ mod tests {
         let j = explain_operation(&p, &sol, "ORD-001-CUT");
         assert_eq!(j.get("operation_id").unwrap().as_str(), Some("ORD-001-CUT"));
         assert_eq!(
-            j.get("machine").unwrap().get("capability_ok").unwrap().as_bool(),
+            j.get("machine")
+                .unwrap()
+                .get("capability_ok")
+                .unwrap()
+                .as_bool(),
             Some(true)
         );
         assert_eq!(j.get("verified_ok").unwrap().as_bool(), Some(true));

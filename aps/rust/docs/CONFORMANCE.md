@@ -40,8 +40,8 @@
 | S03 到货延迟 | 事件序账本非负 | ✓ | `s03` + `src/ledger.rs` |
 | S04 证明无解 | native `INFEASIBLE` + `NO_ELIGIBLE_WORKER` + `operations=[]`；wasm-light 不伪称 | ✓ | `s04` |
 | S05 失效快照 | 旧快照 → `SNAPSHOT_MISMATCH`（权威拒绝在 Go 层） | ✓ | `s05` |
-| S06 对抗错误方案 | 17 组变异逐一检出 | ✓ | `s06` + `mutations()` |
-| S07 多租户 | 跨租户 → `TENANT_MISMATCH` | ✓ | `s07` |
+| S06 对抗错误方案 | 18 组变异逐一检出（H01–H08 + 契约级，含 `ORDER_ID_MISMATCH`） | ✓ | `s06` + `mutations()` |
+| S07 多租户 | 租户 A 方案 vs 租户 B 问题 → `TENANT_MISMATCH` | ✓ | `s07` |
 | S08 能力协商 | 2400 工序 → `UNSUPPORTED_CONSTRAINT`/`SCALE_EXCEEDED`；`worker_count=2` → `MODEL_INVALID` | ✓ | `s08` |
 
 基准规模与种子：`24 / 240 / 2400` × `42 / 73 / 2026`，实测见 `docs/BENCHMARKS.md`。
@@ -50,12 +50,19 @@
 
 | 交付项 | 位置 | 状态 |
 |--------|------|------|
-| Rust 原生算法核心（编译/求解/校验/对比/解释） | `aps/rust/src/` | ✅ 零第三方依赖，57 个单元测试 + 10 个集成测试 |
-| WASM 可复现构建（浏览器可用） | `src/wasm_api.rs`、`scripts/build_wasm.sh`、`web/aps-worker.js`、`scripts/smoke_wasm.mjs` | ✅ 576 KiB 产物，Node 冒烟通过（24 工序零违约） |
+| Rust 原生算法核心（编译/求解/校验/对比/解释） | `aps/rust/src/` | ✅ 零第三方依赖，57 个单元测试 + 11 个集成测试 |
+| WASM 可复现构建（浏览器可用） | `src/wasm_api.rs`、`scripts/build_wasm.sh`、`web/aps-worker.js`、`scripts/smoke_wasm.mjs` | ✅ 577 KiB 产物，Node 冒烟通过（24 工序零违约） |
 | 约束编译器单元测试（含负例） | `src/compile.rs`、`src/validate.rs`、`src/verify.rs` 内 `#[cfg(test)]` | ✅ |
 | 负例/变异数据 | `src/acceptance.rs::mutations()`（17 例）+ `aps/tests/verify_mock.py`（7 例交叉验证） | ✅ |
 | 基准生成与脚本 | `src/benchgen.rs`（与 Python 生成器逐字节一致）、`scripts/run_benchmarks.sh` | ✅ |
-| 构建/运行说明与文档 | `README.md`、`docs/USAGE.md`、`docs/BENCHMARKS.md`、本文；`toolchain/setup_rust.sh` | ✅ |
+| 构建/运行说明与文档 | `README.md`、`docs/USAGE.md`、`docs/MODEL-MATH.md`、`docs/INTEGRATION.md`、`docs/BENCHMARKS.md`、本文；`toolchain/setup_rust.sh` | ✅ |
+| 约束编译器设计与数学约束逐条对照 | `docs/MODEL-MATH.md`（编译流水线 + H01–H08 数学↔代码↔测试 + 追溯设计） | ✅ |
+| 契约符合性（PlanProblem/PlanSolution/SolverCapabilities） | `scripts/check_contracts.py`（零依赖 JSON Schema 子集校验，30 项） | ✅ 30/30 |
+| 依赖清单 / 许可证 / SBOM | `docs/DEPENDENCIES.md`（零第三方 crate；`cargo tree` 仅本 crate） | ✅ |
+| 容器与部署 / 升级回退 | `docs/DEPENDENCIES.md` §5–6（Dockerfile 片段、升级/回退流程） | ✅ |
+| CI 自动化（SRS §8 M4） | `.github/workflows/aps-rust.yml`（依赖审计 → rustfmt/clippy 质量门 → 测试 → S01–S08 → 契约 → WASM 冒烟 → 产物） | ✅ 已在 PR #2 上全绿 |
+| 代码质量门 | `cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings`（均阻塞 CI） | ✅ 0 警告 |
+| 可终止性（时间预算 + 取消回执） | 集成测试 `cancellation_returns_promptly_with_incumbent_and_warning`；CLI `--cancel-after-ms` | ✅ |
 | 可复现 CLI（`--json` 契约输出、退出码语义） | `src/main.rs`（validate/solve/verify/compare/explain/benchmark/bench/accept/capabilities） | ✅ |
 
 ## E. 明确不在本 crate 范围（SRS §0/§5/§6/§10）

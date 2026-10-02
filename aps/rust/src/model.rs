@@ -191,8 +191,8 @@ impl Ctx {
                 if !allowed.contains(&k.as_str()) {
                     self.error(
                         "UNKNOWN_FIELD",
-                        format!("{}.{}", path, k),
-                        format!("契约不允许字段 '{}'（additionalProperties: false）", k),
+                        format!("{path}.{k}"),
+                        format!("契约不允许字段 '{k}'（additionalProperties: false）"),
                     );
                 }
             }
@@ -214,8 +214,8 @@ impl Ctx {
             None => {
                 self.error(
                     "MISSING_FIELD",
-                    format!("{}.{}", base, key),
-                    format!("缺少必需字段 '{}'", key),
+                    format!("{base}.{key}"),
+                    format!("缺少必需字段 '{key}'"),
                 );
                 None
             }
@@ -225,7 +225,7 @@ impl Ctx {
     pub fn req_obj<'a>(&mut self, obj: &'a Json, key: &str, base: &str) -> Option<&'a Json> {
         let v = self.field(obj, key, base)?;
         if v.as_obj().is_none() {
-            self.type_err(&format!("{}.{}", base, key), "object", v);
+            self.type_err(&format!("{base}.{key}"), "object", v);
             return None;
         }
         Some(v)
@@ -238,13 +238,13 @@ impl Ctx {
             Some(_) => {
                 self.error(
                     "RANGE_VIOLATION",
-                    format!("{}.{}", base, key),
+                    format!("{base}.{key}"),
                     "字符串不得为空（minLength: 1）",
                 );
                 None
             }
             None => {
-                self.type_err(&format!("{}.{}", base, key), "string", v);
+                self.type_err(&format!("{base}.{key}"), "string", v);
                 None
             }
         }
@@ -256,7 +256,7 @@ impl Ctx {
             Some(v) => match v.as_str() {
                 Some(s) => Some(s.to_string()),
                 None => {
-                    self.type_err(&format!("{}.{}", base, key), "string", v);
+                    self.type_err(&format!("{base}.{key}"), "string", v);
                     None
                 }
             },
@@ -277,21 +277,28 @@ impl Ctx {
                 if i < min || i > max {
                     self.error(
                         "RANGE_VIOLATION",
-                        format!("{}.{}", base, key),
-                        format!("取值 {} 超出允许范围 [{}, {}]", i, min, max),
+                        format!("{base}.{key}"),
+                        format!("取值 {i} 超出允许范围 [{min}, {max}]"),
                     );
                     return None;
                 }
                 Some(i)
             }
             None => {
-                self.type_err(&format!("{}.{}", base, key), "integer", v);
+                self.type_err(&format!("{base}.{key}"), "integer", v);
                 None
             }
         }
     }
 
-    pub fn opt_i64(&mut self, obj: &Json, key: &str, base: &str, min: i64, max: i64) -> Option<i64> {
+    pub fn opt_i64(
+        &mut self,
+        obj: &Json,
+        key: &str,
+        base: &str,
+        min: i64,
+        max: i64,
+    ) -> Option<i64> {
         match obj.get(key) {
             None | Some(Json::Null) => None,
             Some(v) => match v.as_i64() {
@@ -299,13 +306,13 @@ impl Ctx {
                 Some(i) => {
                     self.error(
                         "RANGE_VIOLATION",
-                        format!("{}.{}", base, key),
-                        format!("取值 {} 超出允许范围 [{}, {}]", i, min, max),
+                        format!("{base}.{key}"),
+                        format!("取值 {i} 超出允许范围 [{min}, {max}]"),
                     );
                     None
                 }
                 None => {
-                    self.type_err(&format!("{}.{}", base, key), "integer", v);
+                    self.type_err(&format!("{base}.{key}"), "integer", v);
                     None
                 }
             },
@@ -325,7 +332,7 @@ impl Ctx {
                 if items.len() < min_items {
                     self.error(
                         "EMPTY_ARRAY",
-                        format!("{}.{}", base, key),
+                        format!("{base}.{key}"),
                         format!("数组元素个数 {} 少于 minItems {}", items.len(), min_items),
                     );
                     return None;
@@ -333,7 +340,7 @@ impl Ctx {
                 Some(items)
             }
             None => {
-                self.type_err(&format!("{}.{}", base, key), "array", v);
+                self.type_err(&format!("{base}.{key}"), "array", v);
                 None
             }
         }
@@ -349,7 +356,7 @@ impl Ctx {
         unique_items: bool,
     ) -> Option<Vec<String>> {
         let items = self.req_arr(obj, key, base, min_items)?;
-        let path = format!("{}.{}", base, key);
+        let path = format!("{base}.{key}");
         let mut out: Vec<String> = Vec::with_capacity(items.len());
         for (i, item) in items.iter().enumerate() {
             match item.as_str() {
@@ -357,8 +364,8 @@ impl Ctx {
                     if unique_items && out.iter().any(|x| x == s) {
                         self.error(
                             "DUPLICATE_ITEM",
-                            format!("{}[{}]", path, i),
-                            format!("数组元素 '{}' 重复（uniqueItems: true）", s),
+                            format!("{path}[{i}]"),
+                            format!("数组元素 '{s}' 重复（uniqueItems: true）"),
                         );
                     } else {
                         out.push(s.to_string());
@@ -366,13 +373,13 @@ impl Ctx {
                 }
                 Some(_) => self.error(
                     "RANGE_VIOLATION",
-                    format!("{}[{}]", path, i),
+                    format!("{path}[{i}]"),
                     "数组元素不得为空字符串",
                 ),
                 None => {
                     self.error(
                         "TYPE_MISMATCH",
-                        format!("{}[{}]", path, i),
+                        format!("{path}[{i}]"),
                         format!("期望 string，实际为 {}", item.type_name()),
                     );
                 }
@@ -382,14 +389,9 @@ impl Ctx {
     }
 
     /// 解析 `date-time` 字段，返回 (原文, 绝对分钟, 偏移分钟)。
-    pub fn req_time(
-        &mut self,
-        obj: &Json,
-        key: &str,
-        base: &str,
-    ) -> Option<(String, i64, i32)> {
+    pub fn req_time(&mut self, obj: &Json, key: &str, base: &str) -> Option<(String, i64, i32)> {
         let text = self.req_str(obj, key, base)?;
-        let path = format!("{}.{}", base, key);
+        let path = format!("{base}.{key}");
         match parse_iso8601(&text) {
             Ok(dt) => Some((text, dt.epoch_min, dt.offset_min)),
             Err(e) => {
@@ -402,10 +404,10 @@ impl Ctx {
     /// 解析 `{start, end, reason?}` 区间数组（available / blocked）。
     pub fn interval_list(&mut self, obj: &Json, key: &str, base: &str) -> Option<Vec<RawInterval>> {
         let items = self.req_arr(obj, key, base, 0)?;
-        let path = format!("{}.{}", base, key);
+        let path = format!("{base}.{key}");
         let mut out = Vec::with_capacity(items.len());
         for (i, item) in items.iter().enumerate() {
-            let ipath = format!("{}[{}]", path, i);
+            let ipath = format!("{path}[{i}]");
             if self.expect_obj(item, &ipath).is_none() {
                 continue;
             }
@@ -422,10 +424,7 @@ impl Ctx {
                 self.error(
                     "RANGE_VIOLATION",
                     ipath.clone(),
-                    format!(
-                        "区间终点必须晚于起点（{} 至 {}）",
-                        start, end
-                    ),
+                    format!("区间终点必须晚于起点（{start} 至 {end}）"),
                 );
                 continue;
             }
@@ -450,9 +449,7 @@ pub fn parse_problem(json: &Json) -> (Option<RawProblem>, Vec<Issue>) {
 }
 
 fn parse_problem_inner(c: &mut Ctx, json: &Json) -> Option<RawProblem> {
-    if c.expect_obj(json, "$").is_none() {
-        return None;
-    }
+    c.expect_obj(json, "$")?;
     c.check_keys(json, "$", PROBLEM_ROOT_FIELDS);
 
     // 每个顶层集合独立解析并累计错误：一次运行报告尽可能多的字段问题。
@@ -500,10 +497,7 @@ fn parse_meta(c: &mut Ctx, root: &Json) -> Option<RawMeta> {
         c.error(
             "CONST_MISMATCH",
             "$.meta.schema_version",
-            format!(
-                "schema_version 必须为 '{}'，实际为 '{}'",
-                SCHEMA_VERSION_PROBLEM, schema_version
-            ),
+            format!("schema_version 必须为 '{SCHEMA_VERSION_PROBLEM}'，实际为 '{schema_version}'"),
         );
     }
     let tenant_id = c.req_str(meta, "tenant_id", "$.meta")?;
@@ -546,7 +540,7 @@ fn parse_machines(c: &mut Ctx, root: &Json) -> Option<Vec<RawMachine>> {
     let items = c.req_arr(root, "machines", "$", 1)?;
     let mut out = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let path = format!("$.machines[{}]", i);
+        let path = format!("$.machines[{i}]");
         if let Some(v) = parse_machine(c, item, &path) {
             out.push(v);
         }
@@ -573,7 +567,7 @@ fn parse_workers(c: &mut Ctx, root: &Json) -> Option<Vec<RawWorker>> {
     let items = c.req_arr(root, "workers", "$", 1)?;
     let mut out = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let path = format!("$.workers[{}]", i);
+        let path = format!("$.workers[{i}]");
         if let Some(v) = parse_worker(c, item, &path) {
             out.push(v);
         }
@@ -606,7 +600,7 @@ fn parse_tools(c: &mut Ctx, root: &Json) -> Option<Vec<RawTool>> {
     let items = c.req_arr(root, "tools", "$", 0)?;
     let mut out = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let path = format!("$.tools[{}]", i);
+        let path = format!("$.tools[{i}]");
         if let Some(v) = parse_tool(c, item, &path) {
             out.push(v);
         }
@@ -622,7 +616,7 @@ fn parse_tool(c: &mut Ctx, item: &Json, path: &str) -> Option<RawTool> {
     if capacity != 1 {
         c.error(
             "CONST_MISMATCH",
-            format!("{}.capacity", path),
+            format!("{path}.capacity"),
             "capacity 必须为 1（独占共享工装）",
         );
     }
@@ -633,7 +627,7 @@ fn parse_materials(c: &mut Ctx, root: &Json) -> Option<Vec<RawMaterial>> {
     let items = c.req_arr(root, "materials", "$", 0)?;
     let mut out = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let path = format!("$.materials[{}]", i);
+        let path = format!("$.materials[{i}]");
         if let Some(v) = parse_material(c, item, &path) {
             out.push(v);
         }
@@ -649,7 +643,7 @@ fn parse_material(c: &mut Ctx, item: &Json, path: &str) -> Option<RawMaterial> {
     let receipt_items = c.req_arr(item, "receipts", path, 0)?;
     let mut receipts = Vec::with_capacity(receipt_items.len());
     for (j, r) in receipt_items.iter().enumerate() {
-        let rpath = format!("{}.receipts[{}]", path, j);
+        let rpath = format!("{path}.receipts[{j}]");
         if let Some(rec) = parse_receipt(c, r, &rpath) {
             receipts.push(rec);
         }
@@ -677,7 +671,7 @@ fn parse_orders(c: &mut Ctx, root: &Json) -> Option<Vec<RawOrder>> {
     let items = c.req_arr(root, "orders", "$", 1)?;
     let mut out = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
-        let path = format!("$.orders[{}]", i);
+        let path = format!("$.orders[{i}]");
         if let Some(v) = parse_order(c, item, &path) {
             out.push(v);
         }
@@ -686,13 +680,18 @@ fn parse_orders(c: &mut Ctx, root: &Json) -> Option<Vec<RawOrder>> {
 }
 
 fn parse_order(c: &mut Ctx, item: &Json, path: &str) -> Option<RawOrder> {
-    if c.expect_obj(item, path).is_none() {
-        return None;
-    }
+    c.expect_obj(item, path)?;
     c.check_keys(
         item,
         path,
-        &["id", "quantity", "priority", "release_at", "due_at", "operations"],
+        &[
+            "id",
+            "quantity",
+            "priority",
+            "release_at",
+            "due_at",
+            "operations",
+        ],
     );
     // 逐个字段解析并累计错误（不提前返回），一次报告订单内尽可能多的问题。
     let id = c.req_str(item, "id", path);
@@ -704,7 +703,7 @@ fn parse_order(c: &mut Ctx, item: &Json, path: &str) -> Option<RawOrder> {
         if d.1 < r.1 {
             c.error(
                 "RANGE_VIOLATION",
-                format!("{}.due_at", path),
+                format!("{path}.due_at"),
                 "due_at 不得早于 release_at",
             );
         }
@@ -714,7 +713,7 @@ fn parse_order(c: &mut Ctx, item: &Json, path: &str) -> Option<RawOrder> {
     match c.req_arr(item, "operations", path, 1) {
         Some(op_items) => {
             for (j, op) in op_items.iter().enumerate() {
-                let opath = format!("{}.operations[{}]", path, j);
+                let opath = format!("{path}.operations[{j}]");
                 match parse_operation(c, op, &opath) {
                     Some(v) => operations.push(v),
                     None => ops_ok = false,
@@ -724,28 +723,28 @@ fn parse_order(c: &mut Ctx, item: &Json, path: &str) -> Option<RawOrder> {
         None => ops_ok = false,
     }
     match (id, quantity, priority, release, due) {
-        (Some(id), Some(quantity), Some(priority), Some((release_at, release_min, _)), Some((due_at, due_min, _)))
-            if ops_ok =>
-        {
-            Some(RawOrder {
-                id,
-                quantity,
-                priority,
-                release_at,
-                due_at,
-                release_min,
-                due_min,
-                operations,
-            })
-        }
+        (
+            Some(id),
+            Some(quantity),
+            Some(priority),
+            Some((release_at, release_min, _)),
+            Some((due_at, due_min, _)),
+        ) if ops_ok => Some(RawOrder {
+            id,
+            quantity,
+            priority,
+            release_at,
+            due_at,
+            release_min,
+            due_min,
+            operations,
+        }),
         _ => None,
     }
 }
 
 fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> {
-    if c.expect_obj(op, opath).is_none() {
-        return None;
-    }
+    c.expect_obj(op, opath)?;
     c.check_keys(
         op,
         opath,
@@ -766,7 +765,7 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
         if preds.iter().any(|p| p == id) {
             c.error(
                 "RANGE_VIOLATION",
-                format!("{}.predecessors", opath),
+                format!("{opath}.predecessors"),
                 "工序不能把自己作为前置工序",
             );
         }
@@ -778,7 +777,7 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
         if wc != 1 {
             c.error(
                 "CONST_MISMATCH",
-                format!("{}.worker_count", opath),
+                format!("{opath}.worker_count"),
                 "P0 的 worker_count 必须为 1（多工序协同资源属于 P1）",
             );
         }
@@ -788,7 +787,7 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
     match c.req_arr(op, "alternatives", opath, 1) {
         Some(alt_items) => {
             for (k, alt) in alt_items.iter().enumerate() {
-                let apath = format!("{}.alternatives[{}]", opath, k);
+                let apath = format!("{opath}.alternatives[{k}]");
                 match parse_alternative(c, alt, &apath) {
                     Some(v) => {
                         if alternatives.iter().any(|a| a.machine_id == v.machine_id) {
@@ -807,7 +806,7 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
             if alternatives.is_empty() {
                 c.error(
                     "EMPTY_ARRAY",
-                    format!("{}.alternatives", opath),
+                    format!("{opath}.alternatives"),
                     "工序至少需要一个备选机器（minItems: 1）",
                 );
                 alts_ok = false;
@@ -821,11 +820,15 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
     match c.req_obj(op, "materials", opath) {
         Some(mat_obj) => {
             for (mat_id, qty) in mat_obj.as_obj().unwrap_or(&[]) {
-                let mpath = format!("{}.materials.{}", opath, mat_id);
+                let mpath = format!("{opath}.materials.{mat_id}");
                 match qty.as_i64() {
                     Some(q) if q >= 1 => materials.push((mat_id.clone(), q)),
                     Some(q) => {
-                        c.error("RANGE_VIOLATION", mpath, format!("用量必须 ≥ 1，实际为 {}", q));
+                        c.error(
+                            "RANGE_VIOLATION",
+                            mpath,
+                            format!("用量必须 ≥ 1，实际为 {q}"),
+                        );
                         mats_ok = false;
                     }
                     None => {
@@ -841,7 +844,14 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
         }
         None => mats_ok = false,
     }
-    match (op_id, predecessors, skill, qualifications, worker_count, tools) {
+    match (
+        op_id,
+        predecessors,
+        skill,
+        qualifications,
+        worker_count,
+        tools,
+    ) {
         (
             Some(op_id),
             Some(predecessors),
@@ -864,9 +874,7 @@ fn parse_operation(c: &mut Ctx, op: &Json, opath: &str) -> Option<RawOperation> 
 }
 
 fn parse_alternative(c: &mut Ctx, alt: &Json, apath: &str) -> Option<RawAlternative> {
-    if c.expect_obj(alt, apath).is_none() {
-        return None;
-    }
+    c.expect_obj(alt, apath)?;
     c.check_keys(alt, apath, &["machine_id", "duration_min"]);
     let machine_id = c.req_str(alt, "machine_id", apath);
     let duration_min = c.req_i64(alt, "duration_min", apath, 1, i64::MAX);
@@ -891,10 +899,7 @@ fn parse_objective(c: &mut Ctx, root: &Json) -> Option<RawObjective> {
         c.error(
             "INVALID_ENUM",
             "$.objective.strategy",
-            format!(
-                "strategy 只能为 'lexicographic' 或 'makespan'，实际为 '{}'",
-                strategy
-            ),
+            format!("strategy 只能为 'lexicographic' 或 'makespan'，实际为 '{strategy}'"),
         );
     }
     let phase_items = c.req_arr(obj, "phases", "$.objective", 0)?;
@@ -904,12 +909,12 @@ fn parse_objective(c: &mut Ctx, root: &Json) -> Option<RawObjective> {
             Some(s @ "weighted_tardiness") | Some(s @ "makespan") => phases.push(s.to_string()),
             Some(other) => c.error(
                 "INVALID_ENUM",
-                format!("$.objective.phases[{}]", i),
-                format!("未知阶段 '{}'（仅支持 weighted_tardiness / makespan）", other),
+                format!("$.objective.phases[{i}]"),
+                format!("未知阶段 '{other}'（仅支持 weighted_tardiness / makespan）"),
             ),
             None => c.error(
                 "TYPE_MISMATCH",
-                format!("$.objective.phases[{}]", i),
+                format!("$.objective.phases[{i}]"),
                 format!("期望 string，实际为 {}", p.type_name()),
             ),
         }
@@ -930,7 +935,8 @@ mod tests {
 
     fn load(rel: &str) -> Json {
         let path = format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), rel);
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("读取 {} 失败: {}", path, e));
+        let text =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("读取 {path} 失败: {e}"));
         crate::json::parse(&text).expect("JSON 解析失败")
     }
 
@@ -939,9 +945,10 @@ mod tests {
         let json = load("mock/baseline.json");
         let (problem, issues) = parse_problem(&json);
         assert!(
-            issues.iter().all(|i| i.severity != crate::errors::Severity::Error),
-            "基线样本应无结构错误: {:?}",
             issues
+                .iter()
+                .all(|i| i.severity != crate::errors::Severity::Error),
+            "基线样本应无结构错误: {issues:?}"
         );
         let p = problem.expect("应解析成功");
         assert_eq!(p.meta.tenant_id, "mock-tenant-alpha");
@@ -958,7 +965,7 @@ mod tests {
         // 时间换算：规划起点 = 0 分钟
         assert_eq!(p.meta.to_relative_min(p.meta.horizon_start_min), 0);
         assert_eq!(p.meta.horizon_len_min(), 4 * 1440 + 9 * 60); // 10-05 08:00 → 10-09 17:00
-        // 物料到货与消耗
+                                                                 // 物料到货与消耗
         let paint = p.materials.iter().find(|m| m.id == "M-PAINT").unwrap();
         assert_eq!(paint.initial_quantity, 8);
         assert_eq!(paint.receipts[0].quantity, 10);
@@ -986,8 +993,8 @@ mod tests {
         let (problem, issues) = parse_problem(&json);
         assert!(problem.is_none());
         let codes: Vec<&str> = issues.iter().map(|i| i.code.as_str()).collect();
-        assert!(codes.contains(&"CONST_MISMATCH"), "{:?}", issues);
-        assert!(codes.contains(&"UNKNOWN_FIELD"), "{:?}", issues);
+        assert!(codes.contains(&"CONST_MISMATCH"), "{issues:?}");
+        assert!(codes.contains(&"UNKNOWN_FIELD"), "{issues:?}");
         assert!(issues
             .iter()
             .any(|i| i.path == "$.orders[0].operations[0].bogus"));
