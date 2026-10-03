@@ -207,11 +207,22 @@ jobs:
           retention-days: 14
 
       - name: Lab 静态检查、集成测试与产物校验
-        # 统一入口：test:post-build = test:static（文档/美术契约/性能红线）
+        # 统一入口：test:post-build = test:static（文档/工作流/美术契约/性能红线）
         # + 全部 Lab 集成测试 + 产物与 Pages 子路径仿真。
         # 新增检查请改 lab/package.json 的 test:post-build，不要在 CI 里另起一份清单，
         # 否则 CI 与本地 `npm run test:all` 会悄悄漂移。
-        run: npm run test:post-build
+        run: |
+          set -o pipefail
+          npm run test:post-build 2>&1 | tee "$RUNNER_TEMP/lab-gate.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 作业日志归档在外部存储（API 不返回），注解是随 API 一起回来的失败现场：
+            # 把尾部逐行写成 ::error::，这样只看 run 也能定位到是哪一项检查挂了。
+            tail -n 30 "$RUNNER_TEMP/lab-gate.log" | sed '/^[[:space:]]*$/d' | head -n 12 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
 
       - name: 准备 GitHub Pages 部署产物
         if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
