@@ -189,9 +189,19 @@ lines.push('- 英雄设备：同屏只载入当前选中的一台（切换时 di
 lines.push('- 厂房与产线：drei `useGLTF` 缓存保证同一个 GLB 只解析一次，每实例 `scene.clone(true)` 共享几何、独立节点，绝不改动缓存本身；');
 lines.push('- 所有模型的四边形/三角形数上限由结构审查报告给出，禁止把 10 万三角形级的整合场景直接塞进实时画面。');
 lines.push('');
-// 校验模式只读：不重写清单文档（否则每次 `--check` 都会因为生成时间变化而弄脏工作区）
+// 写模式也只在**内容真正变化**时重写清单文档：
+//   - `--check` 完全只读，不会弄脏工作区；
+//   - 正常同步时，若只有「生成时间」这一行不同，也保持原文件不动 ——
+//     这样时间戳表达的是“模型集最后一次变化的时刻”，更有信息量，
+//     也不会让每次构建都留下一个只有时间戳的 diff。
+const docPath = resolve(assetsDir, 'ART-LAB-MODEL-SET.md');
+const stripTimestamp = (text) => text.replace(/^- 生成时间：.*$/m, '');
+const nextDoc = `${lines.join('\n')}\n`;
 if (!check) {
-  writeFileSync(resolve(assetsDir, 'ART-LAB-MODEL-SET.md'), `${lines.join('\n')}\n`);
+  const prevDoc = existsSync(docPath) ? readFileSync(docPath, 'utf8') : null;
+  if (prevDoc === null || stripTimestamp(prevDoc) !== stripTimestamp(nextDoc)) {
+    writeFileSync(docPath, nextDoc);
+  }
 }
 
 if (problems.length) {

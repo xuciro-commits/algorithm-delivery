@@ -1,4 +1,4 @@
-# Algorithm Lab 组件设计（视觉方向确认后的实施蓝图）
+# Algorithm Lab V2 组件设计（视觉方向确认后的实施蓝图）
 
 > 前置：`VISUAL-DIRECTION.md`（方向）+ `concepts/*.png`（已确认概念图）。
 > 本文定义组件结构、渲染管线、交互与性能约束，是三个实验室前端重做的实施基准。
