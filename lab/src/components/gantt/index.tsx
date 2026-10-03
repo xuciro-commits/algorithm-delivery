@@ -246,11 +246,11 @@ export function Gantt<T = GanttTask>({
     return normalizeTasks(data ?? [], accessorsRef.current!);
   }, [tasksProp, data]);
   const [innerScale, setInnerScale] = useState<GanttTimeScale>(timeScale ?? "day");
-  const scale = timeScale ?? innerScale;
+  const scale = onTimeScaleChange && timeScale !== undefined ? timeScale : innerScale;
   const [innerCritical, setInnerCritical] = useState(false);
-  const criticalOn = showCritical ?? innerCritical;
+  const criticalOn = onShowCriticalChange && showCritical !== undefined ? showCritical : innerCritical;
   const [innerBaseline, setInnerBaseline] = useState(true);
-  const baselineOn = showBaseline ?? innerBaseline;
+  const baselineOn = onShowBaselineChange && showBaseline !== undefined ? showBaseline : innerBaseline;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [drag, setDrag] = useState<DragState | null>(null);
   const [link, setLink] = useState<LinkState | null>(null);
@@ -260,6 +260,7 @@ export function Gantt<T = GanttTask>({
   const [zoom, setZoom] = useState(1);
   const [scrollTop, setScrollTop] = useState(0);
   const [vpH, setVpH] = useState(600);
+  const [vpW, setVpW] = useState(1000);
   const [exporting, setExporting] = useState<string | null>(null);
   // 悬停气泡（供 renderTooltip 插槽使用；与选中 / 拖拽状态严格分离）
   const [tipTask, setTipTask] = useState<GanttTask | null>(null);
@@ -426,9 +427,14 @@ export function Gantt<T = GanttTask>({
     }
     const pad = scale === "hour" ? 6 * HOUR : scale === "day" ? 5 * DAY : scale === "week" ? 21 * DAY : 60 * DAY;
     const start = floorUnit(min - pad, botOf(scale));
-    return { start, end: nextUnit(floorUnit(max + pad, botOf(scale)), botOf(scale)) };
-  }, [spans, scale]);
-  const chartW = Math.max(400, (range.end - range.start) * ppm);
+    let end = nextUnit(floorUnit(max + pad, botOf(scale)), botOf(scale));
+    const minSpan = Math.max(400, vpW - leftW) / ppm;
+    if (end - start < minSpan) {
+      end = nextUnit(floorUnit(start + minSpan + pad, botOf(scale)), botOf(scale));
+    }
+    return { start, end };
+  }, [spans, scale, vpW, leftW, ppm]);
+  const chartW = Math.max(Math.max(400, vpW - leftW), (range.end - range.start) * ppm);
   const totalH = Math.max(rows.length * rowH, 120);
   const xOf = useCallback((t: number) => (t - range.start) * ppm, [range.start, ppm]);
 
@@ -467,9 +473,10 @@ export function Gantt<T = GanttTask>({
     if (!criticalOn) return { set, depSet };
     const leaves = tasks.filter((t) => (childrenMap.get(t.id) ?? []).length === 0);
     if (!leaves.length) return { set, depSet };
-    let last = leaves[0];
+    let maxEnd = -Infinity;
     leaves.forEach((t) => {
-      if ((spans.get(t.id)?.e ?? 0) > (spans.get(last.id)?.e ?? 0)) last = t;
+      const e = spans.get(t.id)?.e ?? 0;
+      if (e > maxEnd) maxEnd = e;
     });
     const visit = (id: string) => {
       if (set.has(id)) return;
@@ -484,15 +491,22 @@ export function Gantt<T = GanttTask>({
       });
       preds.forEach((d) => {
         const p = spans.get(d.from);
-        if (p && p.e >= bestEnd - 1 && me.s - p.e <= 3 * DAY) {
+        if (p && p.e >= bestEnd - 1) {
           depSet.add(d.id);
           visit(d.from);
         }
       });
     };
-    visit(last.id);
+    leaves
+      .filter((t) => (spans.get(t.id)?.e ?? 0) >= maxEnd - 1000)
+      .forEach((t) => visit(t.id));
+    const allCrit = Array.from(set);
+    allCrit.forEach((id) => {
+      const t = byId.get(id);
+      if (t?.parentId) set.add(t.parentId);
+    });
     return { set, depSet };
-  }, [criticalOn, tasks, childrenMap, spans, depByTo]);
+  }, [criticalOn, tasks, childrenMap, spans, depByTo, byId]);
 
   // ---------- 虚拟滚动 ----------
   const startRow = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN);
@@ -502,11 +516,16 @@ export function Gantt<T = GanttTask>({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (el.clientHeight) setVpH(el.clientHeight);
+    if (el.clientWidth) setVpW(el.clientWidth);
     const onScroll = () => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => setScrollTop(el.scrollTop));
     };
-    const ro = new ResizeObserver(() => setVpH(el.clientHeight));
+    const ro = new ResizeObserver(() => {
+      setVpH(el.clientHeight);
+      setVpW(el.clientWidth);
+    });
     ro.observe(el);
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
@@ -591,7 +610,7 @@ export function Gantt<T = GanttTask>({
 
   const changeScale = (s: GanttTimeScale) => {
     setZoom(1);
-    if (timeScale === undefined) setInnerScale(s);
+    setInnerScale(s);
     onTimeScaleChange?.(s);
   };
 
@@ -833,6 +852,7 @@ export function Gantt<T = GanttTask>({
   return (
     <div
       ref={rootRef}
+      data-gantt-root
       className={cn("platform-gantt-root relative flex h-full min-h-0 flex-col overflow-hidden rounded border border-border bg-surface text-xs text-foreground", className)}
     >
       {/* 工具栏 */}
@@ -849,10 +869,24 @@ export function Gantt<T = GanttTask>({
             </button>
           ))}
         </div>
-        <ToolBtn active={criticalOn} onClick={() => (showCritical === undefined ? setInnerCritical((v) => !v) : onShowCriticalChange?.(!criticalOn))} icon={<Route className="size-3.5" />}>
+        <ToolBtn
+          active={criticalOn}
+          onClick={() => {
+            setInnerCritical((v) => !v);
+            onShowCriticalChange?.(!criticalOn);
+          }}
+          icon={<Route className="size-3.5" />}
+        >
           关键路径
         </ToolBtn>
-        <ToolBtn active={baselineOn} onClick={() => (showBaseline === undefined ? setInnerBaseline((v) => !v) : onShowBaselineChange?.(!baselineOn))} icon={<ChevronsUpDown className="size-3.5" />}>
+        <ToolBtn
+          active={baselineOn}
+          onClick={() => {
+            setInnerBaseline((v) => !v);
+            onShowBaselineChange?.(!baselineOn);
+          }}
+          icon={<ChevronsUpDown className="size-3.5" />}
+        >
           基线对比
         </ToolBtn>
         <ToolBtn onClick={() => setCollapsed(new Set())} icon={<ChevronsUpDown className="size-3.5" />}>
@@ -883,7 +917,7 @@ export function Gantt<T = GanttTask>({
 
       {/* 单一滚动容器：左右上下绝对同步 */}
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto overscroll-contain">
-        <div style={{ width: leftW + chartW, minHeight: "100%" }} className="relative">
+        <div style={{ width: leftW + chartW, minWidth: "100%", minHeight: "100%" }} className="relative">
           {/* 表头 */}
           <div className="sticky top-0 z-30 flex border-b border-border bg-surface" style={{ height: HEADER_H }}>
             <div className="sticky left-0 z-10 flex shrink-0 items-end border-r border-border bg-surface pb-1.5" style={{ width: leftW }}>
@@ -895,14 +929,26 @@ export function Gantt<T = GanttTask>({
               ))}
             </div>
             <svg width={chartW} height={HEADER_H} className="shrink-0 select-none">
-              {ticks.top.map((t) => (
-                <g key={`t${t.t}`}>
-                  <line x1={xOf(t.t)} x2={xOf(t.t)} y1={0} y2={HEADER_H} className="stroke-border" />
-                  <text x={Math.max(xOf(t.t), 0) + 6} y={16} className="fill-foreground text-[11px] font-medium">
-                    {unitLabel(t.t, topU, true)}
-                  </text>
-                </g>
-              ))}
+              {ticks.top.map((t) => {
+                const cellLeft = Math.max(0, xOf(t.t));
+                const cellRight = xOf(t.next);
+                const cellW = cellRight - cellLeft;
+                if (cellW <= 0) return null;
+                const showFull = cellW >= 90;
+                const showShort = cellW >= 36;
+                return (
+                  <g key={`t${t.t}`}>
+                    {xOf(t.t) > 0 && (
+                      <line x1={xOf(t.t)} x2={xOf(t.t)} y1={0} y2={HEADER_H} className="stroke-border" />
+                    )}
+                    {showShort && (
+                      <text x={cellLeft + 6} y={16} className="fill-foreground text-[11px] font-medium">
+                        {unitLabel(t.t, topU, showFull)}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
               <line x1={0} x2={chartW} y1={24} y2={24} className="stroke-border" />
               {ticks.bot.map((t) => {
                 const w = (t.next - t.t) * ppm;

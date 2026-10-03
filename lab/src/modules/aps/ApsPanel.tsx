@@ -36,7 +36,7 @@ import {
 import { metricCards } from '../../core/aps/transform';
 import type { Runner } from '../../core/aps/engine';
 import { GanttChart } from '../../components/GanttChart';
-import { Gantt } from '../../components/gantt';
+import { Gantt, type GanttTimeScale } from '../../components/gantt';
 import { adaptApsToGantt } from '../../components/gantt/apsAdapter';
 import { MetricsPanel } from '../../components/MetricsPanel';
 import { ResourcePanel } from '../../components/ResourcePanel';
@@ -83,6 +83,9 @@ export function ApsPanel({
   const [tab, setTab] = useState<Tab>('gantt');
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
   const [ganttMode, setGanttMode] = useState<'advanced' | 'classic'>('advanced');
+  const [ganttTimeScale, setGanttTimeScale] = useState<GanttTimeScale>('day');
+  const [ganttCritical, setGanttCritical] = useState(false);
+  const [ganttBaseline, setGanttBaseline] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -583,9 +586,12 @@ export function ApsPanel({
                     <Gantt
                       tasks={advancedGantt.tasks}
                       dependencies={advancedGantt.dependencies}
-                      timeScale="day"
-                      showCritical={false}
-                      showBaseline={true}
+                      timeScale={ganttTimeScale}
+                      onTimeScaleChange={setGanttTimeScale}
+                      showCritical={ganttCritical}
+                      onShowCriticalChange={setGanttCritical}
+                      showBaseline={ganttBaseline}
+                      onShowBaselineChange={setGanttBaseline}
                       readOnly={true}
                       selectedTaskId={selectedOp ?? undefined}
                       onTaskSelect={(id) => setSelectedOp(id)}
