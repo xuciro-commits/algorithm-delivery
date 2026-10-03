@@ -10,6 +10,7 @@ import type { AlgorithmModule } from '../core/types';
 import { apsModule } from './aps';
 import { mapfModule } from './mapf';
 import { agvModule } from './agv';
+import { artLabModule } from './art-lab';
 
 const planned: AlgorithmModule[] = [
   {
@@ -39,5 +40,6 @@ export function installModules(): void {
   registerModule(apsModule);
   registerModule(mapfModule);
   registerModule(agvModule);
+  registerModule(artLabModule);
   for (const m of planned) registerModule(m);
 }

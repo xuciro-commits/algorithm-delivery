@@ -12,11 +12,13 @@ import { useApsEngine } from './core/aps/useApsEngine';
 import { useMapfEngine } from './core/mapf/useMapfEngine';
 import { useAgvEngine } from './core/agv/useAgvEngine';
 import { EngineBanner } from './components/EngineBanner';
+import { ArtModeBar } from './components/hud/ArtModeBar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { AlgorithmModule } from './core/types';
 import type { ApsPanelProps } from './modules/aps/ApsPanel';
 import type { MapfPanelProps } from './modules/mapf/MapfPanel';
 import type { AgvPanelProps } from './modules/agv/AgvPanel';
+import type { ArtLabEngineProps } from './modules/art-lab/ArtLabPanel';
 
 installModules();
 
@@ -65,6 +67,9 @@ export default function App() {
           onRetry={engine.refresh}
         />
       </header>
+
+      {/* 全局视觉模式：三种模式共用同一套场景几何与算法数据（需求 §八） */}
+      <ArtModeBar />
 
       <nav className="module-nav" aria-label="算法模块">
         {groups.map((group) => (
@@ -186,5 +191,37 @@ function PanelHost({
   if (module.id === 'aps') return <Panel {...apsProps} />;
   if (module.id === 'path-planning') return <Panel {...mapfProps} />;
   if (module.id === 'agv-dispatch') return <Panel {...agvProps} />;
+  // 三维实验室复用三个引擎的句柄：几何来自上传模型，算法结果来自真实 WASM 引擎。
+  if (module.id === 'art-lab') {
+    const artProps: ArtLabEngineProps = {
+      aps: {
+        manifest: apsProps.manifest,
+        runner: apsProps.runner,
+        engineReady: apsProps.engineReady,
+        engineVersion: apsProps.engineVersion,
+        assetUrl: apsProps.assetUrl,
+        cancelSolve: apsProps.cancelSolve,
+      },
+      mapf: {
+        manifest: mapfProps.manifest,
+        handle: mapfProps.handle,
+        engineReady: mapfProps.engineReady,
+        engineVersion: mapfProps.engineVersion,
+        assetUrl: mapfProps.assetUrl,
+        setBusy: mapfProps.setBusy,
+        cancelSolve: mapfProps.cancelSolve,
+      },
+      agv: {
+        manifest: agvProps.manifest,
+        handle: agvProps.handle,
+        engineReady: agvProps.engineReady,
+        engineVersion: agvProps.engineVersion,
+        assetUrl: agvProps.assetUrl,
+        setBusy: agvProps.setBusy,
+        cancelSolve: agvProps.cancelSolve,
+      },
+    };
+    return <Panel {...artProps} />;
+  }
   return <Panel />;
 }

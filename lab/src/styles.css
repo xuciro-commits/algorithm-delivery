@@ -2878,3 +2878,464 @@ select optgroup {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ============================================================================
+   三维实验室（art-lab）+ 全局视觉模式
+   视觉语言：深石墨底 + 冰蓝/青色发光 + 银白文字；分区用细分隔线而非重卡片。
+   ========================================================================== */
+
+.art-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--sb-line);
+  background: linear-gradient(180deg, rgba(12, 21, 36, 0.92), rgba(10, 18, 32, 0.72));
+  backdrop-filter: blur(6px);
+}
+
+.art-mode-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sb-faint);
+}
+
+.art-mode-note {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--sb-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------- 主面板骨架 */
+
+.artlab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.artlab-grid {
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+@media (max-width: 1500px) {
+  .artlab-grid {
+    grid-template-columns: 256px minmax(0, 1fr) 296px;
+  }
+}
+
+@media (max-width: 1240px) {
+  .artlab-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .artlab-grid > .artlab-rail {
+    max-height: 340px;
+  }
+}
+
+.artlab-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  overflow-y: auto;
+  background: var(--sb-glass-2);
+}
+
+.artlab-head .hud-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.artlab-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sb-text);
+}
+
+.artlab-sub {
+  font-size: 11.5px;
+  color: var(--sb-muted);
+  line-height: 1.5;
+}
+
+.artlab-search {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--sb-line-2);
+  border-radius: 6px;
+  background: rgba(8, 15, 28, 0.72);
+  color: var(--sb-text);
+  font-size: 12px;
+  outline: none;
+}
+
+.artlab-search:focus {
+  border-color: rgba(127, 215, 255, 0.42);
+  box-shadow: 0 0 0 2px rgba(127, 215, 255, 0.1);
+}
+
+.artlab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.artlab-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-left: 2px solid transparent;
+  border-radius: 5px;
+  background: rgba(16, 26, 44, 0.5);
+  color: var(--sb-text-2);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.artlab-item:hover {
+  background: rgba(34, 51, 78, 0.6);
+  border-color: var(--sb-line-2);
+}
+
+.artlab-item.active,
+.artlab-item[aria-current='true'],
+.artlab-item[aria-selected='true'] {
+  border-left-color: var(--sb-ice);
+  background: rgba(44, 74, 104, 0.55);
+  color: var(--sb-text);
+}
+
+.artlab-item-name {
+  font-weight: 550;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artlab-item-meta {
+  font-size: 10.5px;
+  color: var(--sb-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.artlab-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.artlab-part {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--sb-text-2);
+  cursor: pointer;
+}
+
+.artlab-part:hover {
+  background: rgba(44, 74, 104, 0.5);
+}
+
+.artlab-part.active {
+  background: rgba(58, 96, 132, 0.6);
+  color: var(--sb-text);
+  box-shadow: inset 2px 0 0 var(--sb-ice);
+}
+
+.artlab-parts .artlab-part {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+}
+
+.artlab-parts .artlab-part b {
+  font-weight: 520;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artlab-parts .artlab-part span:last-child {
+  grid-column: 2;
+  font-size: 10.5px;
+  color: var(--sb-faint);
+}
+
+/* 角色圆点：与 3D 里的角色配色一致 */
+.role-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 6px currentColor;
+  background: currentColor;
+}
+
+.role-structure { color: #8fa4bd; }
+.role-shell { color: #cfe3f2; }
+.role-glazing { color: #7fd7ff; }
+.role-mechanism { color: #ffb454; }
+.role-conveyor { color: #3fe0d4; }
+.role-frame { color: #6b7f96; }
+.role-graphite { color: #4b5a6e; }
+.role-machined { color: #d7dee8; }
+.role-hazard { color: #ffb454; }
+.role-status { color: #4fe3a7; }
+.role-lighting { color: #f4f7fb; }
+.role-cable { color: #39485a; }
+.role-unknown { color: #556069; }
+
+.artlab-part-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--sb-faint);
+}
+
+/* --------------------------------------------------------------- 中央 3D 舞台 */
+
+.artlab-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: min(64vh, 660px);
+  height: min(74vh, 780px);
+  border: 1px solid var(--sb-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, #0d1727 0%, var(--sb-stage) 62%, #05090f 100%);
+}
+
+.artlab-stage > div:first-child,
+.artlab-stage > canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.artlab-stage-loading {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  color: var(--sb-muted);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+}
+
+.artlab-stage-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid var(--sb-line);
+  border-radius: 8px;
+  background: rgba(9, 17, 30, 0.82);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 32px rgba(2, 6, 14, 0.5);
+}
+
+.artlab-stage-bar .hud-row {
+  flex-wrap: wrap;
+}
+
+.artlab-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--sb-text-2);
+}
+
+.artlab-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.artlab-legend-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  box-shadow: 0 0 6px currentColor;
+  background: currentColor;
+}
+
+/* ------------------------------------------------------------------ 数据行 */
+
+.artlab-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 7px currentColor;
+}
+
+.artlab-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 11.5px;
+  color: var(--sb-muted);
+}
+
+.artlab-stat b {
+  color: var(--sb-text);
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+
+.artlab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.artlab-table th,
+.artlab-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(127, 215, 255, 0.08);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artlab-table th {
+  color: var(--sb-faint);
+  font-weight: 520;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.artlab-table td {
+  color: var(--sb-text-2);
+}
+
+.artlab-table tr[aria-selected='true'] td {
+  color: var(--sb-text);
+  background: rgba(44, 74, 104, 0.4);
+}
+
+.artlab-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.artlab-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--sb-muted);
+}
+
+.artlab-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--sb-ice);
+}
+
+.artlab-notice {
+  padding: 8px 10px;
+  border: 1px solid var(--sb-line-2);
+  border-radius: 6px;
+  background: rgba(12, 21, 36, 0.66);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--sb-text-2);
+}
+
+.artlab-warn {
+  border-color: rgba(255, 180, 84, 0.36);
+  background: rgba(58, 40, 16, 0.34);
+  color: #ffd9a5;
+}
+
+.artlab-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--sb-line-2);
+  font-size: 10.5px;
+  color: var(--sb-muted);
+}
+
+.artlab-status[data-tone='good'] {
+  border-color: rgba(79, 227, 167, 0.4);
+  color: var(--sb-teal);
+}
+
+.artlab-status[data-tone='warn'] {
+  border-color: rgba(255, 180, 84, 0.4);
+  color: var(--sb-amber);
+}
+
+.artlab-status[data-tone='bad'] {
+  border-color: rgba(255, 111, 111, 0.42);
+  color: var(--sb-coral);
+}
+
+.artlab-status[data-tone='busy'] {
+  border-color: rgba(127, 215, 255, 0.42);
+  color: var(--sb-ice);
+}
+
+/* 狭长屏：轨道与舞台并排，避免纵向堆叠过高 */
+@media (min-width: 1101px) {
+  .artlab-stage-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+}

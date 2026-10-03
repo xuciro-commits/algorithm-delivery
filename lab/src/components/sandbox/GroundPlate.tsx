@@ -5,6 +5,8 @@
 
 import { Grid, RoundedBox } from '@react-three/drei';
 import { SB } from './theme';
+import { ART_MODES } from '../../art/modes';
+import { useArtStore } from '../../art/settings';
 
 export interface GroundPlateProps {
   width: number;
@@ -16,6 +18,13 @@ export interface GroundPlateProps {
 }
 
 export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: GroundPlateProps) {
+  // 模式 A = 既有实验台观感；模式 B/C 使用艺术化地坪（冷色反射 + 细网格 + 分区刻线）。
+  const artMode = useArtStore((state) => state.mode);
+  const mode = ART_MODES[artMode];
+  const art = artMode !== 'A';
+  const floorColor = art ? mode.ground.tint : '#38444a';
+  const gridCell = art ? mode.ground.gridColor : '#596b77';
+  const gridSection = art ? mode.ground.sectionColor : '#82919b';
   const edge = 0.4;
   const centerX = width / 2;
   const centerZ = height / 2;
@@ -36,7 +45,12 @@ export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: Gr
       {/* Industrial floor coating: a separate, matte PBR surface with visible value range. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centerX, -0.012, centerZ]} receiveShadow>
         <planeGeometry args={[width, height]} />
-        <meshStandardMaterial color="#38444a" roughness={0.88} metalness={0.08} envMapIntensity={0.24} />
+        <meshStandardMaterial
+          color={floorColor}
+          roughness={art ? 0.34 : 0.88}
+          metalness={art ? 0.42 : 0.08}
+          envMapIntensity={art ? 0.95 : 0.24}
+        />
       </mesh>
 
       {/* Four edge rails (not a solid overlay, so the floor and grid remain visible). */}
@@ -63,10 +77,10 @@ export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: Gr
         args={[width, height]}
         cellSize={cellSize}
         cellThickness={0.48}
-        cellColor="#596b77"
+        cellColor={gridCell}
         sectionSize={sectionSize}
-        sectionThickness={0.88}
-        sectionColor="#82919b"
+        sectionThickness={art ? 1.05 : 0.88}
+        sectionColor={gridSection}
         fadeDistance={Math.max(width, height) * 3.2}
         fadeStrength={1.12}
         followCamera={false}

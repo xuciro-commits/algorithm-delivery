@@ -7,6 +7,7 @@ import { Instance, Instances } from '@react-three/drei';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type * as THREE from 'three';
 import { SB } from './theme';
+import { useArtStore } from '../../art/settings';
 
 export interface ObstacleFieldProps {
   /** 障碍格坐标（格坐标，0 基）。 */
@@ -19,8 +20,11 @@ export interface ObstacleFieldProps {
 
 export function ObstacleField({ cells, height = 0.42, variant = 'wall' }: ObstacleFieldProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const color = variant === 'cold' ? SB.obstacleCold : SB.obstacle;
-  const edge = variant === 'cold' ? SB.obstacleEdge : SB.obstacleEdge;
+  // 艺术化模式下结构体进入“深石墨 + 冷灰”层次：更暗、更金属，让发光轨迹成为焦点。
+  const artMode = useArtStore((state) => state.mode);
+  const art = artMode !== 'A';
+  const color = art ? (variant === 'cold' ? '#2b3a46' : '#222c35') : variant === 'cold' ? SB.obstacleCold : SB.obstacle;
+  const edge = art ? '#39485a' : SB.obstacleEdge;
 
   // 按连通性粗分组给少量色差，避免完全均质（低成本「体积感」）
   const tinted = useMemo(
@@ -40,7 +44,7 @@ export function ObstacleField({ cells, height = 0.42, variant = 'wall' }: Obstac
     <group ref={groupRef}>
       <Instances limit={Math.max(64, tinted.length)} range={tinted.length} castShadow receiveShadow>
         <boxGeometry args={[0.94, 1, 0.94]} />
-        <meshStandardMaterial color={color} roughness={0.72} metalness={0.32} envMapIntensity={0.72} />
+        <meshStandardMaterial color={color} roughness={art ? 0.52 : 0.72} metalness={art ? 0.62 : 0.32} envMapIntensity={art ? 0.9 : 0.72} />
         {tinted.map((c, i) => (
           <Instance
             key={`${c.x},${c.y}`}
