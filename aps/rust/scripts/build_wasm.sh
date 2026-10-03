@@ -24,8 +24,8 @@ if ! rustc --print target-list 2>/dev/null | grep -qx "$TARGET"; then
   exit 1
 fi
 
-echo "==> 构建 $TARGET（release）"
-cargo build --release --target "$TARGET" --lib
+echo "==> 构建 ${TARGET}（release）"
+RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=--allow-undefined" cargo build --release --target "$TARGET" --lib
 
 # 产物目录与 cargo 的规则一致：CARGO_TARGET_DIR 优先，其次 crate 内 target/
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
