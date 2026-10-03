@@ -32,8 +32,8 @@ fi
 export LAB_APS_BIN="${LAB_APS_BIN:-$cli}"
 [ -x "$LAB_APS_BIN" ] || { echo "✗ 找不到 aps CLI：$LAB_APS_BIN"; exit 1; }
 
-log "3/6 安装实验室依赖"
-(cd "$lab_dir" && npm install --no-audit --no-fund)
+log "3/6 安装锁定的实验室依赖"
+(cd "$lab_dir" && npm ci --no-audit --no-fund)
 
 log "4/6 同步引擎清单 + 构建（typecheck + vite build）"
 (cd "$lab_dir" && npm run build)

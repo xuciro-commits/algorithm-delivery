@@ -1,0 +1,134 @@
+name: Algorithm Lab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lab/**"
+      - "aps/**"
+      - ".github/workflows/aps-quality.yml"
+      - ".github/workflows/lab.yml"
+  pull_request:
+    paths:
+      - "lab/**"
+      - "aps/**"
+      - ".github/workflows/aps-quality.yml"
+      - ".github/workflows/lab.yml"
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: "可选：使用正式 Release 的引擎（例如 v1.0.0）；留空则使用当前源码构建"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: algorithm-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aps-quality:
+    name: APS 质量门
+    uses: ./.github/workflows/aps-quality.yml
+
+  build-lab:
+    name: 构建与验证 Lab
+    needs: aps-quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lab
+    env:
+      LAB_BASE: /algorithm-delivery/
+      LAB_BENCH_SIZES: 240,c48
+      LAB_APS_BIN: ../aps/rust/target/release/aps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载 APS 质量门产物
+        uses: actions/download-artifact@v4
+        with:
+          name: aps-engine-artifacts
+          path: aps/rust
+
+      - name: 准备正式 Release 引擎（手动选择时）
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.engine_tag != '' }}
+        working-directory: .
+        env:
+          ENGINE_TAG: ${{ inputs.engine_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$ENGINE_TAG" in
+            v*) ;;
+            *) echo "engine_tag 必须是 v* 标签，例如 v1.0.0" >&2; exit 1 ;;
+          esac
+          release_dir="$RUNNER_TEMP/lab-engine-release"
+          mkdir -p "$release_dir"
+          gh release download "$ENGINE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "aps-linux-x86_64-unknown-linux-gnu.tar.gz" \
+            --pattern "aps-engine-wasm32-unknown-unknown.wasm" \
+            --dir "$release_dir"
+          tar -xzf "$release_dir/aps-linux-x86_64-unknown-linux-gnu.tar.gz" -C "$release_dir"
+          test -x "$release_dir/aps"
+          test -s "$release_dir/aps-engine-wasm32-unknown-unknown.wasm"
+          {
+            echo "LAB_APS_BIN=$release_dir/aps"
+            echo "LAB_WASM=$release_dir/aps-engine-wasm32-unknown-unknown.wasm"
+            echo "LAB_SOURCE=release:$ENGINE_TAG"
+            echo "LAB_GIT_TAG=$ENGINE_TAG"
+          } >> "$GITHUB_ENV"
+
+      - name: 安装 Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: lab/package-lock.json
+
+      - name: 安装前端依赖（锁文件）
+        run: npm ci --no-audit --no-fund
+
+      - name: 同步引擎、类型检查与生产构建
+        run: npm run build
+
+      - name: Lab 冒烟、Worker 生命周期、渲染与产物检查
+        run: |
+          npm run test:core
+          npm run test:runner
+          npm run test:render
+          npm run test:dist
+          npm run test:pages
+
+      - name: 上传临时预览产物（保留 14 天）
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-preview
+          path: lab/dist
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 准备 GitHub Pages 部署产物
+        if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: lab/dist
+
+  deploy-pages:
+    name: 部署 GitHub Pages
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    needs: build-lab
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布 Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

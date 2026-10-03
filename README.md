@@ -1,51 +1,89 @@
-# Algorithm Delivery (算法外包交付仓库)
+# Algorithm Delivery（算法交付与实验室）
 
-本项目为独立的算法外包交付与验收仓库，用于集中管理各类独立算法模块（排程、求解、寻路、运筹优化等）的规格说明（SRS）、接口契约（Contracts）、Mock 数据集与验收测试工具。
+本仓库用于独立管理算法模块的规格说明、接口契约、Mock 数据、验收工具与可运行演示。算法核心与主业务系统物理隔离；浏览器演示在本地运行算法，不依赖常驻业务后端。
 
-**本项目与主业务系统物理隔离，作为纯算法交付件独立演进与版本管理。**
+## 模块
 
----
+### APS 高级计划与排程引擎
 
-## 模块目录
+- 需求说明：[APS-SRS.md](aps/APS-SRS.md)
+- 契约与 Mock：[aps/contracts/](aps/contracts/)、[aps/mock/](aps/mock/)
+- Rust 引擎（native CLI + WebAssembly）：[aps/rust/](aps/rust/)
+- 引擎使用手册：[USAGE.md](aps/rust/docs/USAGE.md)；需求追溯：[CONFORMANCE.md](aps/rust/docs/CONFORMANCE.md)
 
-### 1. [APS 高级计划与排程引擎](aps/README.md) (`aps/`)
-- **需求说明书 (SRS)**：[APS-SRS.md](aps/APS-SRS.md)
-  - 核心定义：`PlanProblem v1`、`PlanSolution v1`、`SolverCapabilities v1` 领域中立规划契约
-  - 交付边界：React 工作台甘特图、OR-Tools CP-SAT 求解后端、Rust WASM/Native 独立校验与局部启发式
-- **接口契约**：[contracts/](aps/contracts/)（JSON Schema 2020-12 与求解示例）
-- **基准场景与 Mock**：[mock/](aps/mock/)（车间基准 baseline、故障、缺料、无解、稳定性等场景）
-- **自动化验收与反例测试**：[tests/](aps/tests/)（结构合法性、参考可行解、7组约束破坏反例、规模压测生成器）
-- **Rust 算法引擎（交付实现）**：[rust/](aps/rust/)（native CLI `aps` + WASM，零第三方依赖）
-  - 使用手册：[USAGE.md](aps/rust/docs/USAGE.md)｜建模对照：[MODEL-MATH.md](aps/rust/docs/MODEL-MATH.md)｜平台集成：[INTEGRATION.md](aps/rust/docs/INTEGRATION.md)｜实测：[BENCHMARKS.md](aps/rust/docs/BENCHMARKS.md)｜需求对照：[CONFORMANCE.md](aps/rust/docs/CONFORMANCE.md)｜依赖/SBOM：[DEPENDENCIES.md](aps/rust/docs/DEPENDENCIES.md)
-  - 一键验收：`cd aps/rust && cargo build --release && cd .. && rust/target/release/aps accept`（覆盖 S01–S08）
+### 统一算法实验室（Lab）
 
----
+`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 APS 模块可运行；路径规划、AGV 调度、库位优化和密集立库会先以“待接入”标记展示，不显示虚构结果。
 
-## 快速运行与测试
+- 实验室说明、开发与模块接入指南：[lab/README.md](lab/README.md)
+- **在线预览地址（首次启用 Pages 并完成部署后）：** <https://xuciro-commits.github.io/algorithm-delivery/>
+- APS 求解在浏览器 Web Worker 中通过 WASM 运行；导入的测试问题保存在当前浏览器，不会上传到服务器。
 
-进入对应模块目录运行验证脚本：
+## 本地预览与完整验证
+
+要求 Node.js 20+ 和 Rust 1.88（含 `wasm32-unknown-unknown` target）。受限网络环境可先运行仓库提供的工具链安装脚本，见 [Rust 使用手册](aps/rust/toolchain/setup_rust.sh)。
 
 ```bash
-cd aps
-python3 generate_mock.py
-python3 contracts/make_schemas.py
-python3 tests/verify_mock.py
-python3 tests/generate_benchmark.py --operations 240 --out /tmp/aps-240.json
+# 一键构建引擎、同步演示数据、构建前端并执行实验室测试
+bash lab/scripts/build-all.sh
+
+# 本机开发预览（首次运行前需有可用的 APS WASM；上面的脚本会生成）
+cd lab
+LAB_BASE=/ npm run dev
 ```
 
-Rust 算法引擎（SRS §9 交付实现，native + WASM 同源）：
+访问 Vite 打印的本地地址。`LAB_BASE=/` 是本机根路径预览用；GitHub Pages 项目站点需要 `/algorithm-delivery/` 子路径，构建和部署流程会自动使用这个值并做 HTTP 子路径检查。
+
+单独验证 APS 引擎：
 
 ```bash
 cd aps/rust
-cargo build --release && cargo test --release     # 54 单元 + 8 集成测试
-cd .. && rust/target/release/aps accept           # S01–S08 一键验收（8/8 通过）
-rust/target/release/aps solve --problem mock/baseline.json --out /tmp/plan.json --time-limit-ms 2000
-rust/target/release/aps verify  --problem mock/baseline.json --solution /tmp/plan.json
-bash rust/scripts/build_wasm.sh                   # 产出 dist/aps_engine.wasm + Node 冒烟
-python3 rust/scripts/check_contracts.py           # 契约符合性（30 项，零依赖）
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --release --locked
+cargo test --release --test acceptance_suite -- --ignored  # S01–S08
+python3 scripts/check_contracts.py
+bash scripts/build_wasm.sh
+node scripts/test_worker_cancel.mjs
 ```
 
-CI：[.github/workflows/aps-rust.yml](.github/workflows/aps-rust.yml)（依赖审计 → 测试 → S01–S08 → 契约检查 → WASM 冒烟 → 产物）。
+## 自动构建与 GitHub Pages 发布
 
-> 受限网络（无法访问 crates.io / static.rust-lang.org）请先执行 `bash aps/rust/toolchain/setup_rust.sh`；
-> 完整命令、契约字段语义、状态码与 FAQ 见 [aps/rust/docs/USAGE.md](aps/rust/docs/USAGE.md)。
+### 每次新增 Lab 后如何上线
+
+1. 按 [lab/README.md §5](lab/README.md#5-新增一个算法模块) 添加模块，并提交改动。
+2. 发起 Pull Request：GitHub Actions 会构建并执行质量检查，但**不会**把 PR 预览发布到正式站点。
+3. PR 合并到 `main` 后，`lab.yml` 自动构建并部署 GitHub Pages。对 `lab/**`、`aps/**` 或相关工作流的修改都会触发；因此新增 Lab 或更新引擎后会重新发布整个实验室。
+4. 也可以在仓库 **Actions → Algorithm Lab → Run workflow** 手动运行发布工作流（选择 `main` 分支；需要时填写 `engine_tag` 指定正式引擎版本）。
+
+构建链路包括 APS Rust/WASM 质量门、Node 依赖安装、引擎与 Mock 同步、版本/哈希/产物自检、前端构建、实验室测试、Pages 子路径 HTTP 仿真，全部成功后才部署。Pull Request 的构建产物是保留 14 天的临时 Artifact；它不是正式 Release，也不会自动部署。
+
+### 首次启用 Pages（只需设置一次）
+
+在 GitHub 仓库打开 **Settings → Pages → Build and deployment → Source**，选择 **GitHub Actions**。之后合并到 `main` 即自动部署，无需手动上传 `dist/`，也不需要配置个人令牌或新增 Secrets。工作流使用受限的 `GITHUB_TOKEN` 权限发布页面。
+
+站点地址为 <https://xuciro-commits.github.io/algorithm-delivery/>。Pages 的项目站点位于 `/algorithm-delivery/` 子路径；Vite 的 `base`、WASM、Worker、清单和 Mock 资源都按该路径构建，并在部署前由 `npm run test:pages` 验证。
+
+> 如果刚合并首次配置后页面尚未出现，请先确认 Pages 的 Source 已设为 **GitHub Actions**，再到 **Actions** 查看 `lab.yml` 是否完成；只有构建、测试和部署都成功后站点才会更新。
+
+## CI 工作流
+
+- [aps-rust.yml](.github/workflows/aps-rust.yml)：APS 代码变更时运行可复用 Rust 质量门。
+- [aps-quality.yml](.github/workflows/aps-quality.yml)：格式、Clippy、Rust 测试、S01–S08、契约、WASM 与 Worker 取消回归。
+- [lab.yml](.github/workflows/lab.yml)：构建/测试 Lab；合并到 `main` 后发布 Pages。
+- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物，所有目标成功后才创建 Release，并附 SHA-256 校验文件。
+
+### 创建正式 Release
+
+先确认要发布的版本已合并到 `main`，再推送版本标签：
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git tag -a v1.0.0 -m "v1.0.0"
+git push origin v1.0.0
+```
+
+`release.yml` 会先跑 APS 质量门，再分别构建 Linux x86-64、Linux ARM64、macOS ARM64 与 WASM。**任何一个目标失败都不会创建 Release**；全部成功后才上传压缩包、`VERSION.txt` 和 `SHA256SUMS`。Lab 工作流手动选择 `engine_tag` 时，可使用该 Release 的 wasm 与 Linux x86-64 CLI。
+
+更多实验室运行、数据来源、测试命令和新增算法规范见 [lab/README.md](lab/README.md)。

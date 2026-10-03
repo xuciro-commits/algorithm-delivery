@@ -1,0 +1,135 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  aps-quality:
+    name: APS 质量门
+    uses: ./.github/workflows/aps-quality.yml
+
+  build-cli:
+    name: Native CLI · ${{ matrix.asset }}
+    needs: aps-quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: linux-x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset: linux-aarch64-unknown-linux-gnu
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            asset: macos-aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ARM64 Linux 交叉链接器
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: 安装 Rust 1.88 与目标平台
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustup target add "${{ matrix.target }}" --toolchain 1.88.0
+          rustc --version && cargo --version
+
+      - name: 构建 CLI
+        working-directory: aps/rust
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --locked --release --target "${{ matrix.target }}" --bin aps
+
+      - name: 打包
+        working-directory: aps/rust
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET: ${{ matrix.asset }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/release-assets" "$RUNNER_TEMP/aps-package"
+          cp "target/$TARGET/release/aps" "$RUNNER_TEMP/aps-package/aps"
+          chmod +x "$RUNNER_TEMP/aps-package/aps"
+          tar -C "$RUNNER_TEMP/aps-package" -czf \
+            "$GITHUB_WORKSPACE/release-assets/aps-$ASSET.tar.gz" aps
+
+      - name: 上传平台产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          path: release-assets/aps-${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  build-wasm:
+    name: WebAssembly
+    needs: aps-quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 1.88 与 wasm32 目标
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+
+      - name: 构建 WASM
+        working-directory: aps/rust
+        run: bash scripts/build_wasm.sh
+
+      - name: 准备 Release 产物
+        run: |
+          mkdir -p release-assets
+          cp aps/rust/dist/aps_engine.wasm release-assets/aps-engine-wasm32-unknown-unknown.wasm
+
+      - name: 上传 WASM 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-wasm32-unknown-unknown
+          path: release-assets/aps-engine-wasm32-unknown-unknown.wasm
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: 发布 GitHub Release
+    needs: [build-cli, build-wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载所有成功构建的产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: 生成版本信息与 SHA-256SUMS
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          printf 'Algorithm Delivery %s\n' "$VERSION" > release-assets/VERSION.txt
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: 创建 Release（仅在所有平台构建成功后运行）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          gh release create "$VERSION" release-assets/* \
+            --title "Algorithm Delivery $VERSION" \
+            --generate-notes
