@@ -60,7 +60,7 @@ type Tool = 'select' | 'wall' | 'erase' | 'addRobot' | 'setStart' | 'setGoal' | 
 type Mode = 'edit' | 'playback';
 
 const TOOLS: Array<{ id: Tool; label: string; hint: string }> = [
-  { id: 'select', label: '选择/平移', hint: '点击拾取机器人；空格/中键拖动平移；滚轮缩放' },
+  { id: 'select', label: '选择/平移', hint: '点击拾取机器人；左键拖动旋转（3D）；右键/中键/空格/Shift 拖动平移；滚轮缩放' },
   { id: 'wall', label: '画障碍', hint: '按住拖刷画障碍（机器人起终点格会被拒绝）' },
   { id: 'erase', label: '擦障碍', hint: '按住拖刷恢复可通行' },
   { id: 'addRobot', label: '加机器人', hint: '点击空格新增机器人（起点=点击处）' },
@@ -923,6 +923,7 @@ export function MapfPanel(props: MapfPanelProps) {
                 conflictCells={conflictCells}
                 eventMarks={eventMarks}
                 view={camView}
+                brushing={tool === 'wall' || tool === 'erase'}
                 clock={clockRef.current}
                 playing={playing}
                 onCellClick={onCellClick}

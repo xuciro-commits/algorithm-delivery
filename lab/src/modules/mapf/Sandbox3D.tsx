@@ -48,7 +48,8 @@ export interface MapfSandbox3DProps {
   conflictCells: Array<{ cell: Cell; at: number }>;
   eventMarks: Array<{ cell: Cell; at: number; kind: string }>;
   view: 'iso' | 'top';
-  /** 指针工具是否正在编辑（编辑时锁定相机旋转，避免与笔刷冲突）。 */
+  /** 是否正在笔刷绘制（画障碍/擦障碍时锁定相机旋转，避免笔画与视角冲突）。 */
+  brushing?: boolean;
   /** 回放时钟：帧内插值系数 frac 的唯一来源（离散时间红线）。 */
   clock: PlaybackClock | null;
   /** 时钟是否在播放（播放=frameloop always；静止=demand 零 GPU 负载）。 */
@@ -64,7 +65,7 @@ const PATH_Y = 0.22;
 const NODE_Y = 0.05;
 
 export function MapfSandbox3D(props: MapfSandbox3DProps) {
-  const { doc, solution, ghost, t, primary, selected, layers, view, clock, playing, eventMarks, conflictCells } = props;
+  const { doc, solution, ghost, t, primary, selected, layers, view, clock, playing, eventMarks, conflictCells, brushing = false } = props;
   const width = doc.map.cells[0]?.length ?? 0;
   const height = doc.map.cells.length;
   const dims: GridDims = { width, height };
@@ -107,7 +108,7 @@ export function MapfSandbox3D(props: MapfSandbox3DProps) {
 
   return (
     <SandboxScene width={width} height={height} className="sandbox-stage" active={playing}>
-      <IsoCamera span={span} width={width} height={height} view={view} rotatable={false} />
+      <IsoCamera span={span} width={width} height={height} view={view} rotatable={!brushing} />
 
       {/* 空间底板 + 工程网格 */}
       <GroundPlate width={width} height={height} />
@@ -216,6 +217,7 @@ export function MapfSandbox3D(props: MapfSandbox3DProps) {
       {/* 拾取平面（透明，不渲染但参与射线检测） */}
       <PickPlane
         dims={dims}
+        brushing={brushing}
         onCellClick={props.onCellClick}
         onCellDrag={props.onCellDrag}
         onCellDown={props.onCellDown}
@@ -279,10 +281,11 @@ function MapfRobot({
 
 /**
  * 拾取平面：透明网格覆盖底板，把指针交点换算成格坐标。
- * 3D 与 2D 共用 click/drag/down/up 生命周期；离开画布也会结束被捕获的笔画。
+ * 笔刷模式（画/擦障碍）接管指针捕获；非笔刷模式允许相机旋转/平移，并按像素位移区分点击选择与拖拽旋转。
  */
 function PickPlane({
   dims,
+  brushing = false,
   onCellClick,
   onCellDrag,
   onCellDown,
@@ -290,6 +293,7 @@ function PickPlane({
   onHover,
 }: {
   dims: GridDims;
+  brushing?: boolean;
   onCellClick?: (cell: Cell, mods: { shift: boolean; meta: boolean }) => void;
   onCellDrag?: (cell: Cell) => void;
   onCellDown?: (cell: Cell) => void;
@@ -297,9 +301,11 @@ function PickPlane({
   onHover?: (cell: Cell | null) => void;
 }) {
   const gestureRef = useRef<{ start: Cell | null; last: Cell | null; moved: boolean }>({ start: null, last: null, moved: false });
+  const pointerStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const { gl } = useThree();
   const resetGesture = () => {
     gestureRef.current = { start: null, last: null, moved: false };
+    pointerStartPosRef.current = null;
   };
   useEffect(() => {
     const onLostCapture = () => {
@@ -320,8 +326,7 @@ function PickPlane({
       if (release) target?.releasePointerCapture?.(ev.pointerId);
       else target?.setPointerCapture?.(ev.pointerId);
     } catch {
-      // Capture can be unavailable for synthetic/unsupported pointer events; normal
-      // canvas events still work, and the canvas lost-capture listener below always settles history.
+      // Capture can be unavailable for synthetic/unsupported pointer events
     }
   };
   const cellAt = (point: THREE.Vector3 | null | undefined) =>
@@ -339,8 +344,6 @@ function PickPlane({
     if (!cancelled && dragged) {
       if (!gesture.moved) onCellDrag?.(gesture.start);
       if (cell && (cell.x !== gesture.last?.x || cell.y !== gesture.last?.y)) onCellDrag?.(cell);
-    } else if (!cancelled && cell && !dragged && cell.x === gesture.start.x && cell.y === gesture.start.y) {
-      onCellClick?.(cell, { shift: ev.shiftKey, meta: ev.metaKey || ev.ctrlKey });
     }
     onCellUp?.(end);
     resetGesture();
@@ -354,6 +357,7 @@ function PickPlane({
       onPointerMove={(ev) => {
         const cell = cellAt(ev.point);
         onHover?.(cell);
+        if (!brushing) return;
         const gesture = gestureRef.current;
         if (!gesture.start || !cell) return;
         const crossedStart = cell.x !== gesture.start.x || cell.y !== gesture.start.y;
@@ -369,20 +373,40 @@ function PickPlane({
       }}
       onPointerDown={(ev) => {
         if (ev.button !== 0) return;
-        ev.stopPropagation();
-        const cell = cellAt(ev.point);
-        gestureRef.current = { start: cell, last: cell, moved: false };
-        if (cell) onCellDown?.(cell);
-        capture(ev);
+        pointerStartPosRef.current = { x: ev.clientX, y: ev.clientY };
+        if (brushing) {
+          ev.stopPropagation();
+          const cell = cellAt(ev.point);
+          gestureRef.current = { start: cell, last: cell, moved: false };
+          if (cell) onCellDown?.(cell);
+          capture(ev);
+        }
       }}
       onPointerUp={(ev) => {
-        ev.stopPropagation();
-        finish(ev, false);
+        if (brushing) {
+          ev.stopPropagation();
+          finish(ev, false);
+          return;
+        }
+        // 非笔刷模式：轻微点击（位移<=6px）触发选择，大幅拖拽则为相机旋转/平移
+        if (pointerStartPosRef.current) {
+          const dist = Math.hypot(ev.clientX - pointerStartPosRef.current.x, ev.clientY - pointerStartPosRef.current.y);
+          pointerStartPosRef.current = null;
+          if (dist <= 6) {
+            const cell = cellAt(ev.point);
+            if (cell) {
+              onCellClick?.(cell, { shift: ev.shiftKey, meta: ev.metaKey || ev.ctrlKey });
+            }
+          }
+        }
       }}
       onPointerCancel={(ev) => {
-        finish(ev, true);
+        if (brushing) finish(ev, true);
+        else pointerStartPosRef.current = null;
       }}
-      onPointerLeave={() => onHover?.(null)}
+      onPointerLeave={() => {
+        onHover?.(null);
+      }}
     >
       <planeGeometry args={[dims.width, dims.height]} />
       <meshBasicMaterial transparent opacity={0} depthWrite={false} />

@@ -46,6 +46,8 @@ export interface AgvSandbox3DProps {
   invalidCells: Cell[];
   conflictCells: Cell[];
   view: 'iso' | 'top';
+  /** 是否正在笔刷绘制（画障碍/擦障碍时锁定相机旋转，避免笔画与视角冲突）。 */
+  brushing?: boolean;
   clock: PlaybackClock | null;
   playing: boolean;
   onCellClick?: (cell: Cell) => void;
@@ -77,7 +79,7 @@ function stationOccupancy(solution: AgvSolution | null, cells: Array<[number, nu
 }
 
 export function AgvSandbox3D(props: AgvSandbox3DProps) {
-  const { scene, solution, t, primary, layers, view, clock, playing } = props;
+  const { scene, solution, t, primary, layers, view, clock, playing, brushing = false } = props;
   const width = scene.map.cells[0]?.length ?? 0;
   const height = scene.map.cells.length;
   const dims: GridDims = { width, height };
@@ -111,7 +113,7 @@ export function AgvSandbox3D(props: AgvSandbox3DProps) {
 
   return (
     <SandboxScene width={width} height={height} className="sandbox-stage" active={playing}>
-      <IsoCamera span={span} width={width} height={height} view={view} rotatable={false} />
+      <IsoCamera span={span} width={width} height={height} view={view} rotatable={!brushing} />
       <GroundPlate width={width} height={height} />
       <WarehouseEnvironment width={width} height={height} />
 
@@ -215,6 +217,7 @@ export function AgvSandbox3D(props: AgvSandbox3DProps) {
 
       <PickPlane
         dims={dims}
+        brushing={brushing}
         onCellClick={props.onCellClick}
         onCellDrag={props.onCellDrag}
         onCellDown={props.onCellDown}
@@ -280,6 +283,7 @@ function AgvRobot({
 /** 拾取平面（与 MAPF 3D 同一协议）。 */
 function PickPlane({
   dims,
+  brushing = false,
   onCellClick,
   onCellDrag,
   onCellDown,
@@ -287,6 +291,7 @@ function PickPlane({
   onHover,
 }: {
   dims: GridDims;
+  brushing?: boolean;
   onCellClick?: (cell: Cell) => void;
   onCellDrag?: (cell: Cell) => void;
   onCellDown?: (cell: Cell) => void;
@@ -294,9 +299,11 @@ function PickPlane({
   onHover?: (cell: Cell | null) => void;
 }) {
   const gestureRef = useRef<{ start: Cell | null; last: Cell | null; moved: boolean }>({ start: null, last: null, moved: false });
+  const pointerStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const { gl } = useThree();
   const resetGesture = () => {
     gestureRef.current = { start: null, last: null, moved: false };
+    pointerStartPosRef.current = null;
   };
   useEffect(() => {
     const onLostCapture = () => {
@@ -317,8 +324,7 @@ function PickPlane({
       if (release) target?.releasePointerCapture?.(ev.pointerId);
       else target?.setPointerCapture?.(ev.pointerId);
     } catch {
-      // Capture can be unavailable for synthetic/unsupported pointer events; normal
-      // canvas events still work, and the canvas lost-capture listener below always settles history.
+      // Capture can be unavailable for synthetic/unsupported pointer events
     }
   };
   const cellAt = (point: THREE.Vector3 | null | undefined) =>
@@ -336,8 +342,6 @@ function PickPlane({
     if (!cancelled && dragged) {
       if (!gesture.moved) onCellDrag?.(gesture.start);
       if (cell && (cell.x !== gesture.last?.x || cell.y !== gesture.last?.y)) onCellDrag?.(cell);
-    } else if (!cancelled && cell && !dragged && cell.x === gesture.start.x && cell.y === gesture.start.y) {
-      onCellClick?.(cell);
     }
     onCellUp?.(end);
     resetGesture();
@@ -351,6 +355,7 @@ function PickPlane({
       onPointerMove={(ev) => {
         const cell = cellAt(ev.point);
         onHover?.(cell);
+        if (!brushing) return;
         const gesture = gestureRef.current;
         if (!gesture.start || !cell) return;
         const crossedStart = cell.x !== gesture.start.x || cell.y !== gesture.start.y;
@@ -366,18 +371,34 @@ function PickPlane({
       }}
       onPointerDown={(ev) => {
         if (ev.button !== 0) return;
-        ev.stopPropagation();
-        const cell = cellAt(ev.point);
-        gestureRef.current = { start: cell, last: cell, moved: false };
-        if (cell) onCellDown?.(cell);
-        capture(ev);
+        pointerStartPosRef.current = { x: ev.clientX, y: ev.clientY };
+        if (brushing) {
+          ev.stopPropagation();
+          const cell = cellAt(ev.point);
+          gestureRef.current = { start: cell, last: cell, moved: false };
+          if (cell) onCellDown?.(cell);
+          capture(ev);
+        }
       }}
       onPointerUp={(ev) => {
-        ev.stopPropagation();
-        finish(ev, false);
+        if (brushing) {
+          ev.stopPropagation();
+          finish(ev, false);
+          return;
+        }
+        // 非笔刷模式：轻微点击（位移<=6px）触发选择，大幅拖拽则为相机旋转/平移
+        if (pointerStartPosRef.current) {
+          const dist = Math.hypot(ev.clientX - pointerStartPosRef.current.x, ev.clientY - pointerStartPosRef.current.y);
+          pointerStartPosRef.current = null;
+          if (dist <= 6) {
+            const cell = cellAt(ev.point);
+            if (cell) onCellClick?.(cell);
+          }
+        }
       }}
       onPointerCancel={(ev) => {
-        finish(ev, true);
+        if (brushing) finish(ev, true);
+        else pointerStartPosRef.current = null;
       }}
       onPointerLeave={() => onHover?.(null)}
     >

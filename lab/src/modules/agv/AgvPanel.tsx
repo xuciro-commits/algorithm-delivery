@@ -49,7 +49,7 @@ export interface AgvPanelProps {
 type Tool = 'select' | 'wall' | 'erase' | 'addVehicle' | 'moveVehicle' | 'addTaskPickup' | 'addTaskDropoff' | 'stationDock' | 'removeItem';
 
 const TOOLS: Array<{ id: Tool; label: string; hint: string }> = [
-  { id: 'select', label: '选择/平移', hint: '点击选中车辆/任务；空格拖动平移；滚轮缩放' },
+  { id: 'select', label: '选择/平移', hint: '点击选中车辆/任务；左键拖动旋转（3D）；右键/中键/空格/Shift 拖动平移；滚轮缩放' },
   { id: 'wall', label: '画障碍', hint: '拖刷画障碍（车辆起点/任务点/泊位会被拒绝）' },
   { id: 'erase', label: '擦障碍', hint: '拖刷恢复可通行' },
   { id: 'addVehicle', label: '加车辆', hint: '点击空格放置 AGV 起点' },
@@ -751,6 +751,7 @@ export function AgvPanel(props: AgvPanelProps) {
                 invalidCells={invalidCells}
                 conflictCells={conflictCells}
                 view={camView}
+                brushing={tool === 'wall' || tool === 'erase'}
                 clock={clockRef.current}
                 playing={playing}
                 onCellClick={onCellClick}

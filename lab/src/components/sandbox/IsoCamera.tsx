@@ -47,9 +47,44 @@ export function fitZoom(
 }
 
 export function IsoCamera({ span, width = span, height = span, view = 'iso', rotatable = true }: IsoCameraProps) {
-  const { camera, invalidate, size } = useThree();
+  const { camera, invalidate, size, gl } = useThree();
   const [fit, setFit] = useState(48);
   const center = useMemo(() => new THREE.Vector3(width / 2, 0, height / 2), [width, height]);
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [shiftPressed, setShiftPressed] = useState(false);
+
+  // 屏蔽画布上的原生右键菜单，让右键拖动平移顺畅可用
+  useEffect(() => {
+    const dom = gl?.domElement;
+    if (!dom) return;
+    const prevent = (e: MouseEvent) => e.preventDefault();
+    dom.addEventListener('contextmenu', prevent);
+    return () => dom.removeEventListener('contextmenu', prevent);
+  }, [gl]);
+
+  // 空格键 / Shift 键平移修饰：按住时切到平移模式（与 2D 地图及主流 3D 软件体验一致）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) setSpacePressed(true);
+      if ((e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) setShiftPressed(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setSpacePressed(false);
+      if (e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') setShiftPressed(false);
+    };
+    const onBlur = () => {
+      setSpacePressed(false);
+      setShiftPressed(false);
+    };
+    globalThis.addEventListener?.('keydown', onKeyDown);
+    globalThis.addEventListener?.('keyup', onKeyUp);
+    globalThis.addEventListener?.('blur', onBlur);
+    return () => {
+      globalThis.removeEventListener?.('keydown', onKeyDown);
+      globalThis.removeEventListener?.('keyup', onKeyUp);
+      globalThis.removeEventListener?.('blur', onBlur);
+    };
+  }, []);
 
   useEffect(() => {
     const zoom = fitZoom(size.width, span, size.height, width, height, view);
@@ -65,13 +100,27 @@ export function IsoCamera({ span, width = span, height = span, view = 'iso', rot
     invalidate();
   }, [view, span, width, height, size.width, size.height, camera, center, invalidate]);
 
+  const canRotate = rotatable && view !== 'top' && !spacePressed && !shiftPressed;
+  const leftAction = canRotate
+    ? THREE.MOUSE.ROTATE
+    : rotatable
+      ? THREE.MOUSE.PAN
+      : THREE.MOUSE.ROTATE;
+
   return (
     <OrbitControls
       makeDefault
       target={[center.x, 0, center.z]}
       enableDamping
       dampingFactor={0.12}
-      enableRotate={rotatable}
+      enableRotate={canRotate}
+      enablePan={true}
+      screenSpacePanning={true}
+      mouseButtons={{
+        LEFT: leftAction,
+        MIDDLE: THREE.MOUSE.PAN,
+        RIGHT: THREE.MOUSE.PAN,
+      }}
       minZoom={Math.max(2, fit * 0.35)}
       maxZoom={Math.min(2000, fit * 8)}
       minPolarAngle={0.12}
