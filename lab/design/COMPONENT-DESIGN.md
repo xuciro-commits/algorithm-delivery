@@ -1,6 +1,6 @@
 # Algorithm Lab V2 组件设计（视觉方向确认后的实施蓝图）
 
-> 前置：`VISUAL-DIRECTION-V2.md`（方向）+ `concepts/*.png`（已确认概念图）。
+> 前置：`VISUAL-DIRECTION.md`（方向）+ `concepts/*.png`（已确认概念图）。
 > 本文定义组件结构、渲染管线、交互与性能约束，是三个实验室前端重做的实施基准。
 
 ## 1. 技术栈与新增依赖
@@ -13,8 +13,20 @@
 | 算法 | Rust / WASM（不变） | Three.js 只做可视化，禁止编造路径 |
 
 **性能红线**：`frameloop="demand"` 按需渲染；InstancedMesh（障碍/货架/节点）；
-几何与材质复用；`dpr` 上限 2；**不引入 postprocessing**——发光 = 双层 Line2（细亮核心 +
-宽透明晕，additive）+ 自发光材质，无 bloom/SSAO 后处理；离屏自动暂停。
+几何与材质复用；`dpr` 上限 2；离屏自动暂停。
+
+**后处理的修订（2026-10，本轮审批后生效）**：原文"**不引入 postprocessing**"在执行中做了一次
+**受控例外**——用户批准"允许受控 Bloom，但仅针对关键路径和状态灯，并且必须可关闭"。落地方式：
+
+- 只用 `three` 自带的 `EffectComposer` + `UnrealBloomPass` + `OutputPass`，**不引入任何第三方后处理依赖**
+  （`@react-three/postprocessing` 明令禁止，`audit-perf.mjs` 持续断言）；
+- 泛光实现只允许存在于 `src/components/sandbox/ArtBloom.tsx` 一个文件；
+- 阈值取高（模式 B 0.86 / 模式 C 0.72），只让越阈自发光参与，金属高光不糊；
+- 模式 A（工业原貌）恒关；一键关闭后直接走 `gl.render(scene, camera)`，与改造前逐像素一致；
+- 仍然禁止 SSAO / DOF / 描边后处理等"未审批"的额外通道。
+
+"发光 = 双层 Line2（细亮核心 + 宽透明晕，additive）+ 自发光材质"仍是**路径与节点**的实现方式，
+泛光只是在其上叠加的一层"越阈增益"，不是发光本身。
 
 ## 2. 目录结构
 
@@ -31,7 +43,7 @@ lab/src/components/sandbox/          # 共享 3D 原语（MAPF/AGV 复用，无�
   AgvUnit.tsx          AGV 小车：车身/轮舱/载货托盘/警示灯/朝向轴（程序化几何，共享 geometry）
   StationPad.tsx       工作站泊位：发光垫面 + 容量灯条（占用/空闲）
   picking.ts           射线拾取 → 格坐标（编辑器事件桥，3D 与 2D 同一回调协议）
-  theme.ts             V2 色板：iceBlue/cyan/teal/violet/amber/coral + 石墨材质色
+  theme.ts             色板转出（唯一来源在 src/art/tokens.ts：iceBlue/cyan/teal/violet/amber/coral + 石墨材质色）
 lab/src/components/hud/              # 悬浮玻璃面板体系（三实验室共用）
   HudPanel.tsx / HudSection.tsx / StatChip.tsx / ToolButton.tsx / ModeTabs.tsx
 lab/src/modules/mapf/Sandbox3D.tsx   # MAPF 面板装配：SceneDoc + solution → 沙盘

@@ -1,5 +1,5 @@
 /**
- * AGV 智能工业调度沙盘 · 3D 装配（V2 §五-02 / COMPONENT-DESIGN-V2 §2）。
+ * AGV 智能工业调度沙盘 · 3D 装配（V2 §五-02 / COMPONENT-DESIGN §2）。
  *
  * 把 AgvScene（问题）+ AgvSolution（引擎解）+ 回放时钟投影到 3D：
  *   - 底板/障碍 = 场景；货架用冷灰蓝变体（与 MAPF 石墨障碍区分）；

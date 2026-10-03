@@ -28,8 +28,17 @@ PACK_FILES = [
     'steps/99/output.txt'  # science-laboratory-and-cleanroom
 ]
 
-BRAIN_DIR = '/Users/ciro/.gemini/antigravity-ide/brain/c37c5d12-703e-48d5-8c3c-ccd86df0fbd7/.system_generated/'
-TARGET_BASE = '/Users/ciro/Developer/algorithm-delivery/lab/design/assets'
+# 路径全部相对于仓库，避免把个人机器的绝对路径写进共享脚本。
+# 素材包清单（PACK_FILES）来自 3dassets.dev 的导出快照，可用环境变量指向别处的副本：
+#   LAB_ASSET_PACK_DIR=/path/to/.system_generated python3 lab/scripts/download-3d-assets.py
+HERE = os.path.dirname(os.path.abspath(__file__))
+TARGET_BASE = os.path.normpath(os.path.join(HERE, '..', 'design', 'assets'))
+BRAIN_DIR = os.environ.get(
+    'LAB_ASSET_PACK_DIR',
+    os.path.join(HERE, '.asset-packs'),  # 默认放在 scripts/.asset-packs（已在 .gitignore 之外，仅本地缓存）
+)
+if BRAIN_DIR and not BRAIN_DIR.endswith(os.sep):
+    BRAIN_DIR += os.sep
 
 def classify_asset(a, pack_slug):
     slug = a['slug']

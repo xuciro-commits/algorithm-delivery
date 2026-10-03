@@ -8,14 +8,11 @@ import { build } from 'esbuild';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('MAPF 运行历史测试');
 
 const tmp = join(labDir, 'node_modules', '.lab-mapf-runs');
 rmSync(tmp, { recursive: true, force: true });
@@ -63,8 +60,4 @@ const baseSol = {
   check('每车差异表覆盖全部机器人', robots.length === 2 && robots.every((r) => r.id === 'R1' || r.id === 'R2'));
 }
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log('\n✓ MAPF 运行历史测试全部通过');
+finish('✓ MAPF 运行历史测试全部通过');

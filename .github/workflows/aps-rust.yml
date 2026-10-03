@@ -1,13 +1,11 @@
 name: aps-rust
 
+# 说明：main 与 arena/** 分支上的引擎质量门由 lab.yml 统一触发（并产出 Lab 需要的
+# wasm 产物），PR 也由 lab.yml 覆盖。这里只在**其它分支**上兜底，避免同一次推送
+# 把同一套 Rust 质量门跑两遍（runner 资源翻倍）。
 on:
   push:
-    branches: ["**"]
-    paths:
-      - "aps/**"
-      - ".github/workflows/aps-rust.yml"
-      - ".github/workflows/aps-quality.yml"
-  pull_request:
+    branches-ignore: [main, "arena/**"]
     paths:
       - "aps/**"
       - ".github/workflows/aps-rust.yml"

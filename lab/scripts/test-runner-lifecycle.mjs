@@ -12,22 +12,19 @@
  * 两边跑的是同一份胶水与同一个 wasm 产物。
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
 const repoRoot = resolve(labDir, '..');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('运行器生命周期测试');
 
 // Node 的 Worker 协议与 Web Worker 不同，用适配器对齐
 class NodeWorkerAdapter {
@@ -109,6 +106,13 @@ export * from ${JSON.stringify(join(labDir, 'src/core/aps/params.ts'))};
 
 // ---------------- 准备 ----------------
 const wasmPath = process.env.LAB_WASM ?? join(repoRoot, 'aps/rust/dist/aps_engine.wasm');
+
+// 缺产物时给出可操作结论，而不是未捕获的 ENOENT 栈
+// （CI 会先下载质量门产物；本地需先 cd aps/rust && bash scripts/build_wasm.sh）
+if (!existsSync(wasmPath)) {
+  failures.push(`找不到 wasm 产物：${wasmPath}（先构建 wasm 产物）`);
+  finish('运行器生命周期测试');
+}
 const workerPath = join(repoRoot, 'aps/rust/web/aps-worker.js');
 const { spawnSolver, SolveCancelledError } = await import(`${pathToFileURL(workerPath).href}?t=${Date.now()}`);
 const glueSha = createHash('sha256').update(readFileSync(workerPath)).digest('hex');
@@ -222,8 +226,4 @@ check('取消错误类型可区分', new SolveCancelledError('x') instanceof Err
 const badParams = core.validateParams({ ...core.DEFAULT_PARAMS, timeLimitMs: 0 });
 check('非法参数在运行前被拦截（不进入引擎）', badParams.length > 0, badParams.join('；'));
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log('\n✓ 运行器生命周期测试全部通过');
+finish('✓ 运行器生命周期测试全部通过');

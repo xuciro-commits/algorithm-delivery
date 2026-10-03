@@ -10,14 +10,11 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('MAPF 场景内核测试');
 
 const tmp = join(labDir, 'node_modules', '.lab-mapf-scene');
 rmSync(tmp, { recursive: true, force: true });
@@ -178,8 +175,4 @@ const {
   check('at < T 被拦截（E-EVENT-TIME）', early.some((i) => i.message.includes('E-EVENT-TIME')));
 }
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log('\n✓ MAPF 场景内核测试全部通过');
+finish('✓ MAPF 场景内核测试全部通过');

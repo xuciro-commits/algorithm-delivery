@@ -10,8 +10,11 @@ import urllib.request
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-TARGET_DIR = '/Users/ciro/Developer/algorithm-delivery/lab/design/assets/assembled-scenes'
-CATALOG_PATH = '/Users/ciro/Developer/algorithm-delivery/lab/design/assets/ASSET-CATALOG.json'
+# 路径相对于脚本位置，任何机器/CI 上都能复现（不再依赖个人目录结构）
+HERE = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.normpath(os.path.join(HERE, '..', 'design', 'assets'))
+TARGET_DIR = os.path.join(ASSETS_DIR, 'assembled-scenes')
+CATALOG_PATH = os.path.join(ASSETS_DIR, 'ASSET-CATALOG.json')
 os.makedirs(TARGET_DIR, exist_ok=True)
 
 SCENES = [

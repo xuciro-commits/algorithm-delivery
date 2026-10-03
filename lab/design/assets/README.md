@@ -1,6 +1,6 @@
 # Algorithm Lab 3D 资产与完整场景库 (3D Assets & Assembled Scenes Catalog)
 
-> 本目录收录了专为 **Algorithm Lab（算法实验室）** 3D 数字沙盘与数字孪生建模定制的 **475 个高质量 low-poly GLB 模型与 16 套开箱即用完整大场景**。
+> 本目录收录了专为 **Algorithm Lab（算法实验室）** 3D 数字沙盘与数字孪生建模定制的 **472 个高质量 low-poly GLB 模型与 13 套开箱即用完整大场景**。
 > 所有资产均遵循 **CC0 1.0 Universal** 协议（公共领域，免版税，可商用，支持无署名再分发）。
 
 ## 🌟 推荐建模工作流：大场景基座 + 细分组件增删
@@ -14,34 +14,33 @@
 
 | 目录 / 分类 | 模型数量 | 适用场景 / 核心内容 | 格式与技术规格 |
 |---|---:|---|---|
-| [`assembled-scenes/`](./assembled-scenes) · 成套完整大场景 / 沙盘基座 (Pre-Assembled Large Scenes & Environments) | **16** | 开箱即用的 16 套完整大场景沙盘（涵盖重工业机加工厂房、汽... | GLB · 合计 35.05 MB |
+| [`assembled-scenes/`](./assembled-scenes) · 成套完整大场景 / 沙盘基座 (Pre-Assembled Large Scenes & Environments) | **13** | 开箱即用的完整大场景沙盘（涵盖重工业机加工厂房、汽车总装流水... | GLB · 合计 34.97 MB |
 | [`agv-warehouse/`](./agv-warehouse) · AGV 智能仓储与物流沙盘 (AGV & Smart Warehouse) | **110** | 包含低趴搬运 AGV、潜伏式顶升 AGV、牵引车、平衡重叉车... | GLB · 合计 15.21 MB |
 | [`aps-machining/`](./aps-machining) · APS 智能制造与机加工单元 (APS Machining & Manufacturing) | **112** | 包含 CNC 数控加工中心、精密车床、立式铣床、重型冲压机、... | GLB · 合计 10.03 MB |
 | [`mapf-robotics/`](./mapf-robotics) · MAPF 多智能体移动机器人与空间基建 (MAPF Mobile Robots & Telemetry) | **51** | 包含双足服务机器人、巡检机器人、配送机器人、四足机器狗、四驱... | GLB · 合计 1.32 MB |
 | [`conveyors-logistics/`](./conveyors-logistics) · 连续输送与智能分拣网络 (Conveyors & Sorting Network) | **123** | 包含直段动力输送带、无动力滚筒输送线、90度弯道机、三向分流... | GLB · 合计 2.21 MB |
 | [`lab-cleanroom/`](./lab-cleanroom) · 数字孪生实验室与洁净室仪器 (Digital Lab & Scientific Cleanroom) | **63** | 包含模块化实验室工作台、洁净室气淋室、生物安全柜、通风橱、高... | GLB · 合计 3.28 MB |
-| **合计** | **475** | **全场景覆盖 (16 套完整大场景 + 459 个细分元模型)** | **合计 ~67.09 MB (极速加载)** |
+| **合计** | **472** | **全场景覆盖 (13 套完整大场景 + 459 个细分元模型)** | **合计 ~67.01 MB (极速加载)** |
 
-## 2. 16 套成套完整大场景速查 (`assembled-scenes/`)
+> 注：清单（`ASSET-CATALOG.json`）中共有 475 条记录，其中 **3 个文件当前不在仓库中**（未列出，避免死链）：`assembled-scenes/car-factory-welding-framing-cell.glb`、`assembled-scenes/robot-drone-field-test-yard.glb`、`assembled-scenes/trade-counter-and-paint-mixing.glb`。补齐下载或更新清单后重跑 `python3 lab/scripts/generate-assets-doc.py`。
+
+## 2. 13 套成套完整大场景速查 (`assembled-scenes/`)
 
 | 文件名 | 场景名称 | 尺寸 (X×Y×Z 米) | 面数 | 推荐算法与沙盘用途 |
 |---|---|---|---:|---|
 | [`warehouse-high-bay-aisles.glb`](./assembled-scenes/warehouse-high-bay-aisles.glb) | **高位立体仓储与叉车巷道大场景 (Warehouse High-Bay Racking & Aisles)** | 12.0 × 6.0 × 16.0 | 422,284 | 智能仓储 / AGV 调度 / 库位优化 |
 | [`car-assembly-plant-production-line.glb`](./assembled-scenes/car-assembly-plant-production-line.glb) | **汽车总装与冲压焊接自动化产线大场景 (Automotive Assembly & Production Line)** | 24.0 × 8.0 × 36.0 | 345,948 | APS 生产排程 / 复杂多工序装配 / 机器人协同 |
-| [`car-factory-welding-framing-cell.glb`](./assembled-scenes/car-factory-welding-framing-cell.glb) | **机器人焊接定位与冲压进料单元场景 (Framing Cell & Press Feed)** | 8.0 × 4.5 × 12.0 | 58,240 | APS 关键瓶颈工位 / 机器人焊接 |
 | [`machine-shop-day-shift-hall.glb`](./assembled-scenes/machine-shop-day-shift-hall.glb) | **机加工车间与龙门吊厂房大场景 (Day Shift Machine Shop & Crane Hall)** | 36.0 × 9.0 × 24.0 | 435,580 | APS 经典车间排程 (JSSP / FJSP) / 重型加工 |
 | [`machine-shop-welding-bay-stores.glb`](./assembled-scenes/machine-shop-welding-bay-stores.glb) | **焊接工段与备件备料库场景 (Welding Bay & Stores Corner)** | 12.0 × 4.0 × 8.0 | 24,150 | APS 人工辅助工序 / 备件缓冲 |
 | [`parcel-sorting-hub-logistics-hall.glb`](./assembled-scenes/parcel-sorting-hub-logistics-hall.glb) | **快递物流自动分拣中心大场景 (Parcel Depot & Sorting Logistics Hall)** | 24.0 × 5.0 × 18.0 | 48,976 | 物流自动分拣 / 动态路径规划 / 输送线网络 |
 | [`conveyor-network-production-floor.glb`](./assembled-scenes/conveyor-network-production-floor.glb) | **自动化连续输送与质检一体化车间 (Conveyor Network Production Floor)** | 12.0 × 3.9 × 12.6 | 2,692 | 轻量化快速流水线沙盘 / 输送线调度 |
 | [`robotics-workshop-hangar.glb`](./assembled-scenes/robotics-workshop-hangar.glb) | **机器人与无人机研发整备机库大场景 (Robotics Workshop & Drone Hangar)** | 18.0 × 6.0 × 15.0 | 50,192 | MAPF 智能体整备基地 / 多机调度与路径仿真 |
-| [`robot-drone-field-test-yard.glb`](./assembled-scenes/robot-drone-field-test-yard.glb) | **室外机器人与多机路径测试场场景 (Robot & Drone Field Test Yard)** | 15.0 × 4.0 × 15.0 | 16,800 | MAPF 开放网格地图 / 无人机起降航路 |
 | [`science-laboratory-cleanroom-floor.glb`](./assembled-scenes/science-laboratory-cleanroom-floor.glb) | **科研实验台与洁净分析室完整沙盘 (Science Laboratory & Cleanroom Floor)** | 18.0 × 2.8 × 12.0 | 97,496 | 数字孪生实验室 / 科学仪器风格界面 |
 | [`data-center-server-operations-compound.glb`](./assembled-scenes/data-center-server-operations-compound.glb) | **密集服务器数据中心与机房运维基地大场景 (Data Centre Server Operations Compound)** | 18.0 × 3.7 × 15.0 | 167,268 | 算法算力中心 / 调度集群核心机房 |
 | [`nuclear-station-central-control-room-plant.glb`](./assembled-scenes/nuclear-station-central-control-room-plant.glb) | **工业中控室大屏与动力车间剖切沙盘 (Central Control Room & Cutaway Plant Floor)** | 48.3 × 12.8 × 32.0 | 401,988 | 未来工业数字指挥中心 / 全局调度大屏 |
 | [`container-freight-inspection-yard.glb`](./assembled-scenes/container-freight-inspection-yard.glb) | **智能集装箱堆场与货运过磅查验大场景 (Container Yard & Customs Inspection Freight)** | 30.0 × 8.0 × 24.0 | 185,600 | 堆场调度 / 集装箱配载 / 重型物流 |
 | [`vertical-farm-automated-storage-packhouse.glb`](./assembled-scenes/vertical-farm-automated-storage-packhouse.glb) | **垂直立体密集仓储与穿梭车包装车间大场景 (Vertical Automated Storage & Packhouse)** | 16.0 × 6.5 × 14.0 | 216,576 | 密集立库 (AS/RS) / 四向穿梭车调度 |
 | [`automated-food-processing-confectionery-line.glb`](./assembled-scenes/automated-food-processing-confectionery-line.glb) | **自动化连续食品流水线工厂大场景 (Automated Continuous Food Processing Line)** | 25.0 × 4.5 × 15.0 | 143,510 | 流程型与混合型 APS 排程 / 管道连续流 |
-| [`trade-counter-and-paint-mixing.glb`](./assembled-scenes/trade-counter-and-paint-mixing.glb) | **物流发件服务台与工作站场景 (Trade Counter & Dispatch Workstation)** | 8.0 × 3.5 × 6.0 | 18,500 | 物流出入库台 / 人工交接站 |
 
 ## 3. 使用方法 (Three.js & React Three Fiber)
 

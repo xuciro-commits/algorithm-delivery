@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AGV 动态事件与运行对比测试（V2 §5 / COMPONENT-DESIGN-V2 §5）：
+ * AGV 动态事件与运行对比测试（V2 §5 / COMPONENT-DESIGN §5）：
  *  1) 笔画级撤销：一笔拖刷 = 一个撤销步（与 MAPF SceneHistory 同构）；
  *  2) dynamic 契约块：快照投影（pos/path 覆盖 0..=T 且 path[T]==pos）、事件序列化；
  *  3) 提交前预检镜像引擎语义（任务 id 冲突 / 取消已完成 / 快照越界 / 障碍压历史）；
@@ -12,14 +12,11 @@ import { build } from 'esbuild';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('AGV 动态事件与运行对比测试');
 
 const tmp = join(labDir, 'node_modules', '.lab-agv-dynamic');
 rmSync(tmp, { recursive: true, force: true });
@@ -205,9 +202,4 @@ const solution = {
   check('动态标记投影', a.dynamic === false && makeAgvRunRecord(6, '{}', '{}', { status: 'FEASIBLE', dynamic: { snapshot_time: 3 }, metrics: {} }, 'x').dynamic === true);
 }
 
-console.log('');
-if (failures.length) {
-  console.error(`✗ AGV 动态/对比测试失败 ${failures.length} 项：${failures.join('；')}`);
-  process.exit(1);
-}
-console.log('✓ AGV 动态事件与运行对比测试全部通过');
+finish('✓ AGV 动态事件与运行对比测试全部通过');

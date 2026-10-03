@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * APS 3D 产线投影测试（V2 §五-03 / COMPONENT-DESIGN-V2 §5）：
+ * APS 3D 产线投影测试（V2 §五-03 / COMPONENT-DESIGN §5）：
  *  1) 投影零伪造：opId/orderId/machineId/区间原样透传，设备顺序 = 工序出现顺序，
  *     未排产设备从资源清单补齐，无数据时返回空投影（不编造设备）；
  *  2) 在制判定：闭区间包含 now 才算在制，零长区间不算（边界可预期）；
@@ -11,14 +11,11 @@ import { build } from 'esbuild';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('APS 3D 产线投影测试');
 
 const tmp = join(labDir, 'node_modules', '.lab-aps-line');
 rmSync(tmp, { recursive: true, force: true });
@@ -84,9 +81,4 @@ const gantt = {
   check('step=APS_STEPS → maxMs', stepToMs(0, 5000, APS_STEPS) === 5000);
 }
 
-console.log('');
-if (failures.length) {
-  console.error(`✗ APS 3D 产线投影测试失败 ${failures.length} 项：${failures.join('；')}`);
-  process.exit(1);
-}
-console.log('✓ APS 3D 产线投影测试全部通过');
+finish('✓ APS 3D 产线投影测试全部通过');

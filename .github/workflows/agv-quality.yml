@@ -14,16 +14,17 @@ jobs:
   quality:
     name: AGV 质量门（native + WASM）
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: agv/rust
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: 安装 Node.js 20（WASM / Worker 冒烟）
-        uses: actions/setup-node@v4
+      - name: 安装 Node.js 24（WASM / Worker 冒烟）
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -33,11 +34,12 @@ jobs:
           rustc --version && cargo --version
 
       - name: 缓存 cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.rustup
             agv/rust/target
             aps/rust/target
             mapf/rust/target
@@ -82,7 +84,7 @@ jobs:
         run: node scripts/test_worker_cancel.mjs
 
       - name: 上传引擎产物（供 Lab 与 Release 使用，保留 14 天）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: agv-engine-artifacts
           path: |

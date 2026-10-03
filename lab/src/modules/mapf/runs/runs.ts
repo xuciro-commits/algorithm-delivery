@@ -2,11 +2,26 @@
  * 运行历史与对比（M0 §10）：RunRecord 会话内存保存（上限 20 条），
  * 按 problem_hash 分组——只有同一问题的两次运行才允许对比。
  * 纯 TS 可测。
+ *
+ * 与 AGV 的 runs.ts 共用 `core/runs` 的骨架（上限、可比性、方向语义、格式化），
+ * 这里只保留 MAPF 自己的指标集。
  */
 
 import type { MapfSolution } from '../../../core/mapf/types';
+import {
+  MAX_RUNS,
+  fmtMB,
+  fmtNum,
+  fmtVerified,
+  lowerBetter,
+  row,
+  sameProblem,
+  sameWhenEqual,
+  type RunDiffRow,
+} from '../../../core/runs';
 
-export const MAX_RUNS = 20;
+export { MAX_RUNS };
+export type { RunDiffRow };
 
 export interface RunRecord {
   seq: number;
@@ -49,33 +64,18 @@ export function makeRunRecord(seq: number, problemText: string, solutionText: st
 
 export function runsGroupable(a: RunRecord, b: RunRecord): boolean {
   // 同一问题（同 problem_hash；均为 null 视为不可比——不同手写输入）
-  return Boolean(a.problemHash && a.problemHash === b.problemHash);
-}
-
-export interface RunDiffRow {
-  label: string;
-  a: string;
-  b: string;
-  /** 'better' | 'worse' | 'same' | ''（无从比较）。 */
-  verdict: '' | 'better' | 'worse' | 'same';
+  return sameProblem(a, b);
 }
 
 export function diffRuns(a: RunRecord, b: RunRecord): { rows: RunDiffRow[]; robots: Array<{ id: string; steps: string; arrival: string; waits: string }> } {
-  const num = (x: number | null) => (x == null ? '—' : String(x));
-  /** verdict 描述 B 列相对 A 列（越小越好型指标）。 */
-  const lowerBetter = (a: number | null, b: number | null): RunDiffRow['verdict'] => {
-    if (a == null || b == null) return '';
-    if (a === b) return 'same';
-    return b < a ? 'better' : 'worse';
-  };
   const rows: RunDiffRow[] = [
-    { label: '状态', a: a.status, b: b.status, verdict: a.status === b.status ? 'same' : '' },
-    { label: 'SOC', a: num(a.soc), b: num(b.soc), verdict: lowerBetter(a.soc, b.soc) },
-    { label: 'Makespan', a: num(a.makespan), b: num(b.makespan), verdict: lowerBetter(a.makespan, b.makespan) },
-    { label: '求解耗时 ms', a: num(a.solveMs), b: num(b.solveMs), verdict: '' },
-    { label: '首解 ms', a: num(a.firstFeasibleMs), b: num(b.firstFeasibleMs), verdict: '' },
-    { label: '峰值内存 MB', a: a.peakMemoryBytes == null ? '—' : (a.peakMemoryBytes / 1048576).toFixed(1), b: b.peakMemoryBytes == null ? '—' : (b.peakMemoryBytes / 1048576).toFixed(1), verdict: '' },
-    { label: '核验', a: a.verified == null ? '—' : a.verified ? '✓' : '✗', b: b.verified == null ? '—' : b.verified ? '✓' : '✗', verdict: a.verified === b.verified ? 'same' : '' },
+    row('状态', a.status, b.status, sameWhenEqual(a.status, b.status)),
+    row('SOC', fmtNum(a.soc), fmtNum(b.soc), lowerBetter(a.soc, b.soc)),
+    row('Makespan', fmtNum(a.makespan), fmtNum(b.makespan), lowerBetter(a.makespan, b.makespan)),
+    row('求解耗时 ms', fmtNum(a.solveMs), fmtNum(b.solveMs)),
+    row('首解 ms', fmtNum(a.firstFeasibleMs), fmtNum(b.firstFeasibleMs)),
+    row('峰值内存 MB', fmtMB(a.peakMemoryBytes), fmtMB(b.peakMemoryBytes)),
+    row('核验', fmtVerified(a.verified), fmtVerified(b.verified), sameWhenEqual(a.verified, b.verified)),
   ];
   const byId = (sol: MapfSolution) => new Map((sol.robots ?? []).map((r) => [r.id, r]));
   const ma = byId(a.solution);

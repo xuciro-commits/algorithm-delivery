@@ -21,6 +21,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
@@ -35,11 +36,7 @@ function arg(name, fallback) {
 const base = arg('base', process.env.LAB_BASE ?? '/algorithm-delivery/');
 const distDir = resolve(labDir, 'dist');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('Pages 子路径仿真');
 
 if (!existsSync(distDir)) {
   console.error(`✗ 找不到 dist：${distDir}（先运行 npm run build）`);
@@ -111,6 +108,11 @@ try {
   const manifestUrl = `${baseUrl}engine-manifest.json`;
   const manifestRes = await fetch(manifestUrl);
   check('子路径下 engine-manifest.json 可访问', manifestRes.ok, `HTTP ${manifestRes.status}`);
+  if (!manifestRes.ok) {
+    // 清单缺失时后面所有校验都无从谈起：给出明确结论并退出，而不是抛 JSON 解析栈。
+    finish(`Pages 子路径仿真（base=${base}）`);
+    throw new Error('engine-manifest.json 缺失，页面仿真无法继续');
+  }
   const manifest = await manifestRes.json();
 
   const wasmUrl = `${baseUrl}${manifest.wasm.file}`;
@@ -228,8 +230,4 @@ try {
   rmSync(siteRoot, { recursive: true, force: true });
 }
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log(`\n✓ Pages 子路径仿真通过（base=${base}）`);
+finish(`✓ Pages 子路径仿真通过（base=${base}）`);

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Algorithm Delivery 统一算法实验室：浏览器内 WASM 计算、可视化与性能评测",
   "scripts": {
-    "sync": "node scripts/sync-engine.mjs && node scripts/sync-mapf.mjs && node scripts/sync-agv.mjs",
+    "sync": "node scripts/sync-engine.mjs && node scripts/sync-mapf.mjs && node scripts/sync-agv.mjs && node scripts/sync-assets.mjs",
     "predev": "npm run sync",
     "dev": "vite",
     "prebuild": "npm run sync",
@@ -20,7 +20,7 @@
     "test:render": "node scripts/test-render.mjs",
     "test:dist": "node scripts/check-dist.mjs",
     "test:pages": "node scripts/check-pages.mjs",
-    "test:all": "npm run build && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run audit:perf && npm run test:dist && npm run test:pages",
+    "test:all": "npm run build && npm run test:post-build",
     "build:all": "bash scripts/build-all.sh",
     "sync:aps": "node scripts/sync-engine.mjs",
     "sync:mapf": "node scripts/sync-mapf.mjs",
@@ -32,7 +32,14 @@
     "test:agv:dynamic": "node scripts/test-agv-dynamic.mjs",
     "test:aps:line": "node scripts/test-aps-line.mjs",
     "audit:perf": "node scripts/audit-perf.mjs",
-    "test:visual": "node scripts/visual-acceptance.mjs"
+    "test:visual": "node scripts/visual-acceptance.mjs",
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "audit:models": "node scripts/model-structure-audit.mjs",
+    "test:art": "node scripts/test-art-system.mjs",
+    "test:static": "npm run check:docs && npm run check:workflows && npm run test:art && npm run audit:perf",
+    "test:post-build": "npm run test:static && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run test:dist && npm run test:pages",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:workflows": "node scripts/check-workflows.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.3",
@@ -56,5 +63,8 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

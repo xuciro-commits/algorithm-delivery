@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
@@ -30,11 +31,7 @@ function arg(name, fallback) {
 
 const base = arg('base', process.env.LAB_BASE ?? '/algorithm-delivery/');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('dist 校验');
 
 if (!existsSync(distDir)) {
   console.error(`✗ 找不到构建产物目录：${distDir}（先运行 npm run build）`);
@@ -164,8 +161,4 @@ const walk = (dir) => {
 walk(distDir);
 check('产物总体积 < 30 MB（避免误打包）', total < 30 * 1024 * 1024, `${(total / 1048576).toFixed(1)} MB`);
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log(`\n✓ dist 校验通过（base=${base}，总体积 ${(total / 1048576).toFixed(1)} MB）`);
+finish(`✓ dist 校验通过（base=${base}，总体积 ${(total / 1048576).toFixed(1)} MB）`);

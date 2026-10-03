@@ -14,16 +14,17 @@ jobs:
   quality:
     name: APS 质量门（native + WASM）
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: aps/rust
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 Node.js（WASM / Worker 冒烟）
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -33,11 +34,12 @@ jobs:
           rustc --version && cargo --version
 
       - name: 缓存 cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.rustup
             aps/rust/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('aps/rust/Cargo.lock') }}
 
@@ -76,7 +78,7 @@ jobs:
         run: node scripts/test_worker_cancel.mjs
 
       - name: 上传引擎产物（供 Lab 与人工下载，保留 14 天）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: aps-engine-artifacts
           path: |

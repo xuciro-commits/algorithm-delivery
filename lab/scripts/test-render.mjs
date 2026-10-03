@@ -13,15 +13,12 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('渲染冒烟');
 
 const tmp = join(labDir, 'node_modules', '.lab-render-test');
 rmSync(tmp, { recursive: true, force: true });
@@ -63,7 +60,11 @@ const { render } = await import(pathToFileURL(join(tmp, 'render.mjs')).href);
 
 // ---- 1) 默认（APS）----
 let html = render('');
-check('外壳标题与副标题渲染', html.includes('算法实验室') && html.includes('统一实验'), '');
+check(
+  '外壳标题与副标题渲染',
+  html.includes('算法实验室') && html.includes('三维实时沙盘') && html.includes('视觉模式'),
+  '机架式外壳：品牌区 + 视觉模式按钮组',
+);
 check('模块导航含 APS、MAPF、AGV（已就绪）与两个待接入模块',
   ['APS 计划排程', 'MAPF 路径规划', 'AGV 调度', '库位优化', '密集立库'].every((n) => html.includes(n)));
 check('模块导航标记“待接入”（仅未接入的 2 个）', (html.match(/待接入/g) ?? []).length >= 2);
@@ -97,8 +98,4 @@ check('未知 hash 回退到 APS 模块', html.includes('选择一个排程场�
 // ---- 4) 各模块面板在无引擎上下文时可渲染（模块自带 props 的健壮性）----
 check('待接入模块不注册 Panel（避免渲染假界面）', html.length > 0);
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log('\n✓ 渲染冒烟通过');
+finish('✓ 渲染冒烟通过');

@@ -1,5 +1,5 @@
 /**
- * APS 排程沙盘 · 3D 装配（V2 §五-03 / COMPONENT-DESIGN-V2 §2）。
+ * APS 排程沙盘 · 3D 装配（V2 §五-03 / COMPONENT-DESIGN §2）。
  *
  * 把排程解投影成等距产线：
  *   - 设备（机器）按索引铺成产线网格， MachineUnit 呈现机身/主轴/状态灯/进度条；

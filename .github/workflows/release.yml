@@ -39,8 +39,9 @@ jobs:
           #   target: aarch64-apple-darwin
           #   asset: macos-aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 ARM64 Linux 交叉链接器
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -72,7 +73,7 @@ jobs:
             "$GITHUB_WORKSPACE/release-assets/aps-$ASSET.tar.gz" aps
 
       - name: 上传平台产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-${{ matrix.asset }}
           path: release-assets/aps-${{ matrix.asset }}.tar.gz
@@ -83,8 +84,9 @@ jobs:
     name: WebAssembly
     needs: [aps-quality, mapf-quality, agv-quality]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -102,7 +104,7 @@ jobs:
           cp aps/rust/dist/aps_engine.wasm release-assets/aps-engine-wasm32-unknown-unknown.wasm
 
       - name: 上传 WASM 产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-wasm32-unknown-unknown
           path: release-assets/aps-engine-wasm32-unknown-unknown.wasm
@@ -123,8 +125,9 @@ jobs:
             target: aarch64-unknown-linux-gnu
             asset: linux-aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 ARM64 Linux 交叉链接器
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -156,7 +159,7 @@ jobs:
             "$GITHUB_WORKSPACE/release-assets/mapf-$ASSET.tar.gz" mapf
 
       - name: 上传平台产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-mapf-${{ matrix.asset }}
           path: release-assets/mapf-${{ matrix.asset }}.tar.gz
@@ -167,8 +170,9 @@ jobs:
     name: MAPF WebAssembly
     needs: [aps-quality, mapf-quality, agv-quality]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -186,7 +190,7 @@ jobs:
           cp mapf/rust/dist/mapf_engine.wasm release-assets/mapf-engine-wasm32-unknown-unknown.wasm
 
       - name: 上传 WASM 产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-mapf-wasm32-unknown-unknown
           path: release-assets/mapf-engine-wasm32-unknown-unknown.wasm
@@ -207,8 +211,9 @@ jobs:
             target: aarch64-unknown-linux-gnu
             asset: linux-aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 ARM64 Linux 交叉链接器
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -239,7 +244,7 @@ jobs:
           tar -C "$RUNNER_TEMP/agv-package" -czf             "$GITHUB_WORKSPACE/release-assets/agv-$ASSET.tar.gz" agv
 
       - name: 上传平台产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-agv-${{ matrix.asset }}
           path: release-assets/agv-${{ matrix.asset }}.tar.gz
@@ -250,8 +255,9 @@ jobs:
     name: AGV WebAssembly
     needs: [aps-quality, mapf-quality, agv-quality]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -269,7 +275,7 @@ jobs:
           cp agv/rust/dist/agv_engine.wasm release-assets/agv-engine-wasm32-unknown-unknown.wasm
 
       - name: 上传 WASM 产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-agv-wasm32-unknown-unknown
           path: release-assets/agv-engine-wasm32-unknown-unknown.wasm
@@ -280,11 +286,12 @@ jobs:
     name: 发布 GitHub Release
     needs: [build-cli, build-wasm, build-mapf-cli, build-mapf-wasm, build-agv-cli, build-agv-wasm]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
       - name: 下载所有成功构建的产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: release-assets

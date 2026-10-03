@@ -1,0 +1,690 @@
+{
+  "version": "1.0.0",
+  "note": "单一来源：实验室艺术化系统的语义规则。运行时（TypeScript）与构建期审计脚本（Node）都读这一份，避免两套规则漂移。规则条目来自对 lab/design/assets 全部 475 个 GLB 的材质名/节点名实测统计（见 lab/design/assets/MODEL-STRUCTURE-AUDIT.json）。",
+  "roles": {
+    "shell": "设备外壳/机罩：喷涂金属板（cream/blue/enamel/paint 等），艺术化后为冷银灰，可选择性半透明",
+    "frame": "结构钢构/机架：steel，保持清晰机械轮廓，不做透明",
+    "graphite": "深色金属结构件：dark/charcoal/graphite，用于压出层次",
+    "machined": "精密加工金属件：cast/metal，主轴、台面、导轨等内部机构",
+    "glazing": "玻璃/透明件：观察窗、防护罩、门窗玻璃",
+    "rubber": "橡胶/密封/轮胎",
+    "hazard": "安全色：黄/绿警示涂装",
+    "accent": "强调色：橙/红/琥珀（按钮、护罩、危险件）",
+    "emissive": "自发光件：glow/light/screen（状态灯、屏幕、灯具）",
+    "fluid": "液体/水/冷却液",
+    "polymer": "塑料/复合/软性材料：soft/carcass/surface/white/grey",
+    "floor": "地面与基础：floor/concrete/epoxy/deck",
+    "organic": "木材等自然材料：wood",
+    "metalWarm": "有色金属：copper/brass",
+    "consumable": "工件/被加工物：candy/choc/kraft 等",
+    "skin": "人形标尺的皮肤材质（机器人模型）",
+    "unknown": "未命中规则：审计会列出，必须显式扩展规则而不是静默兜底"
+  },
+  "unlitRiskRoles": [
+    "emissive"
+  ],
+  "transparencyCandidates": [
+    "glazing",
+    "shell"
+  ],
+  "materialRules": [
+    {
+      "match": "glass",
+      "role": "glazing"
+    },
+    {
+      "match": "glazing",
+      "role": "glazing"
+    },
+    {
+      "match": "steel",
+      "role": "frame"
+    },
+    {
+      "match": "dark",
+      "role": "graphite"
+    },
+    {
+      "match": "charcoal",
+      "role": "graphite"
+    },
+    {
+      "match": "graphite",
+      "role": "graphite"
+    },
+    {
+      "match": "cast",
+      "role": "machined"
+    },
+    {
+      "match": "metal",
+      "role": "machined"
+    },
+    {
+      "match": "enamel",
+      "role": "shell"
+    },
+    {
+      "match": "cream",
+      "role": "shell"
+    },
+    {
+      "match": "shell",
+      "role": "shell"
+    },
+    {
+      "match": "blue",
+      "role": "shell"
+    },
+    {
+      "match": "paint",
+      "role": "shell"
+    },
+    {
+      "match": "primer",
+      "role": "shell"
+    },
+    {
+      "match": "yellow",
+      "role": "hazard"
+    },
+    {
+      "match": "green",
+      "role": "hazard"
+    },
+    {
+      "match": "orange",
+      "role": "accent"
+    },
+    {
+      "match": "amber",
+      "role": "accent"
+    },
+    {
+      "match": "accent",
+      "role": "accent"
+    },
+    {
+      "match": "red",
+      "role": "accent"
+    },
+    {
+      "match": "coral",
+      "role": "accent"
+    },
+    {
+      "match": "rubber",
+      "role": "rubber"
+    },
+    {
+      "match": "tire",
+      "role": "rubber"
+    },
+    {
+      "match": "glow",
+      "role": "emissive"
+    },
+    {
+      "match": "light",
+      "role": "emissive"
+    },
+    {
+      "match": "screen",
+      "role": "emissive"
+    },
+    {
+      "match": "display",
+      "role": "emissive"
+    },
+    {
+      "match": "liquid",
+      "role": "fluid"
+    },
+    {
+      "match": "water",
+      "role": "fluid"
+    },
+    {
+      "match": "soft",
+      "role": "polymer"
+    },
+    {
+      "match": "carcass",
+      "role": "polymer"
+    },
+    {
+      "match": "surface",
+      "role": "polymer"
+    },
+    {
+      "match": "white",
+      "role": "polymer"
+    },
+    {
+      "match": "grey",
+      "role": "polymer"
+    },
+    {
+      "match": "gray",
+      "role": "polymer"
+    },
+    {
+      "match": "floor",
+      "role": "floor"
+    },
+    {
+      "match": "concrete",
+      "role": "floor"
+    },
+    {
+      "match": "epoxy",
+      "role": "floor"
+    },
+    {
+      "match": "deck",
+      "role": "floor"
+    },
+    {
+      "match": "wood",
+      "role": "organic"
+    },
+    {
+      "match": "copper",
+      "role": "metalWarm"
+    },
+    {
+      "match": "brass",
+      "role": "metalWarm"
+    },
+    {
+      "match": "candy",
+      "role": "consumable"
+    },
+    {
+      "match": "choc",
+      "role": "consumable"
+    },
+    {
+      "match": "kraft",
+      "role": "consumable"
+    },
+    {
+      "match": "card",
+      "role": "consumable"
+    },
+    {
+      "match": "skin",
+      "role": "skin"
+    },
+    {
+      "match": "led",
+      "role": "emissive"
+    },
+    {
+      "match": "signal",
+      "role": "emissive"
+    },
+    {
+      "match": "cyan",
+      "role": "accent"
+    },
+    {
+      "match": "teal",
+      "role": "shell"
+    },
+    {
+      "match": "navy",
+      "role": "shell"
+    },
+    {
+      "match": "panel",
+      "role": "polymer"
+    },
+    {
+      "match": "fabric",
+      "role": "polymer"
+    },
+    {
+      "match": "galv",
+      "role": "machined"
+    },
+    {
+      "match": "leaf",
+      "role": "organic"
+    }
+  ],
+  "partGroupRules": [
+    {
+      "match": "wall-cladding",
+      "group": "structure"
+    },
+    {
+      "match": "roof-cladding",
+      "group": "roof"
+    },
+    {
+      "match": "roof-truss",
+      "group": "structure"
+    },
+    {
+      "match": "ridge-skylight",
+      "group": "roof"
+    },
+    {
+      "match": "window-band",
+      "group": "aperture"
+    },
+    {
+      "match": "high-window",
+      "group": "aperture"
+    },
+    {
+      "match": "steel-column",
+      "group": "structure"
+    },
+    {
+      "match": "roller-door",
+      "group": "aperture"
+    },
+    {
+      "match": "personnel-door",
+      "group": "aperture"
+    },
+    {
+      "match": "door",
+      "group": "aperture"
+    },
+    {
+      "match": "shutter",
+      "group": "aperture"
+    },
+    {
+      "match": "gate",
+      "group": "aperture"
+    },
+    {
+      "match": "hatch",
+      "group": "aperture"
+    },
+    {
+      "match": "skylight",
+      "group": "roof"
+    },
+    {
+      "match": "roof",
+      "group": "roof"
+    },
+    {
+      "match": "cladding",
+      "group": "roof"
+    },
+    {
+      "match": "ridge",
+      "group": "roof"
+    },
+    {
+      "match": "ceiling",
+      "group": "roof"
+    },
+    {
+      "match": "window",
+      "group": "aperture"
+    },
+    {
+      "match": "wall",
+      "group": "structure"
+    },
+    {
+      "match": "column",
+      "group": "structure"
+    },
+    {
+      "match": "truss",
+      "group": "structure"
+    },
+    {
+      "match": "portal",
+      "group": "structure"
+    },
+    {
+      "match": "mezzanine",
+      "group": "structure"
+    },
+    {
+      "match": "stair",
+      "group": "structure"
+    },
+    {
+      "match": "floor",
+      "group": "floor"
+    },
+    {
+      "match": "tile",
+      "group": "floor"
+    },
+    {
+      "match": "walkway",
+      "group": "floor"
+    },
+    {
+      "match": "marking",
+      "group": "floor"
+    },
+    {
+      "match": "conveyor",
+      "group": "conveyor"
+    },
+    {
+      "match": "roller",
+      "group": "conveyor"
+    },
+    {
+      "match": "belt",
+      "group": "conveyor"
+    },
+    {
+      "match": "sorter",
+      "group": "conveyor"
+    },
+    {
+      "match": "robot",
+      "group": "robot"
+    },
+    {
+      "match": "gripper",
+      "group": "robot"
+    },
+    {
+      "match": "manipulator",
+      "group": "robot"
+    },
+    {
+      "match": "rack",
+      "group": "racking"
+    },
+    {
+      "match": "shelf",
+      "group": "racking"
+    },
+    {
+      "match": "upright",
+      "group": "racking"
+    },
+    {
+      "match": "beam",
+      "group": "racking"
+    },
+    {
+      "match": "console",
+      "group": "panel"
+    },
+    {
+      "match": "terminal",
+      "group": "panel"
+    },
+    {
+      "match": "hmi",
+      "group": "panel"
+    },
+    {
+      "match": "screen",
+      "group": "panel"
+    },
+    {
+      "match": "panel",
+      "group": "panel"
+    },
+    {
+      "match": "andon",
+      "group": "lighting"
+    },
+    {
+      "match": "lamp",
+      "group": "lighting"
+    },
+    {
+      "match": "light",
+      "group": "lighting"
+    },
+    {
+      "match": "guard",
+      "group": "guard"
+    },
+    {
+      "match": "fence",
+      "group": "guard"
+    },
+    {
+      "match": "handrail",
+      "group": "guard"
+    },
+    {
+      "match": "rail",
+      "group": "guard"
+    },
+    {
+      "match": "barrier",
+      "group": "guard"
+    },
+    {
+      "match": "motor",
+      "group": "drive"
+    },
+    {
+      "match": "pump",
+      "group": "drive"
+    },
+    {
+      "match": "spindle",
+      "group": "drive"
+    },
+    {
+      "match": "cylinder",
+      "group": "drive"
+    },
+    {
+      "match": "piston",
+      "group": "drive"
+    },
+    {
+      "match": "gearbox",
+      "group": "drive"
+    },
+    {
+      "match": "pallet",
+      "group": "cargo"
+    },
+    {
+      "match": "crate",
+      "group": "cargo"
+    },
+    {
+      "match": "carton",
+      "group": "cargo"
+    },
+    {
+      "match": "bin",
+      "group": "cargo"
+    },
+    {
+      "match": "cage",
+      "group": "cargo"
+    },
+    {
+      "match": "duct",
+      "group": "services"
+    },
+    {
+      "match": "pipe",
+      "group": "services"
+    },
+    {
+      "match": "conduit",
+      "group": "services"
+    },
+    {
+      "match": "cable",
+      "group": "services"
+    },
+    {
+      "match": "hose",
+      "group": "services"
+    },
+    {
+      "match": "agv",
+      "group": "vehicle"
+    },
+    {
+      "match": "forklift",
+      "group": "vehicle"
+    },
+    {
+      "match": "truck",
+      "group": "vehicle"
+    },
+    {
+      "match": "trolley",
+      "group": "vehicle"
+    },
+    {
+      "match": "lorry",
+      "group": "vehicle"
+    },
+    {
+      "match": "tank",
+      "group": "vessel"
+    },
+    {
+      "match": "vessel",
+      "group": "vessel"
+    },
+    {
+      "match": "silo",
+      "group": "vessel"
+    },
+    {
+      "match": "drum",
+      "group": "vessel"
+    },
+    {
+      "match": "sign",
+      "group": "signage"
+    },
+    {
+      "match": "label",
+      "group": "signage"
+    },
+    {
+      "match": "bench",
+      "group": "workstation"
+    },
+    {
+      "match": "workbench",
+      "group": "workstation"
+    },
+    {
+      "match": "station",
+      "group": "workstation"
+    },
+    {
+      "match": "cabinet",
+      "group": "workstation"
+    },
+    {
+      "match": "machine",
+      "group": "machine"
+    },
+    {
+      "match": "lathe",
+      "group": "machine"
+    },
+    {
+      "match": "mill",
+      "group": "machine"
+    },
+    {
+      "match": "press",
+      "group": "machine"
+    },
+    {
+      "match": "cnc",
+      "group": "machine"
+    },
+    {
+      "match": "saw",
+      "group": "machine"
+    },
+    {
+      "match": "fan",
+      "group": "utilities"
+    },
+    {
+      "match": "compressor",
+      "group": "utilities"
+    },
+    {
+      "match": "pump-skid",
+      "group": "utilities"
+    },
+    {
+      "match": "boiler",
+      "group": "utilities"
+    },
+    {
+      "match": "crane-rail",
+      "group": "structure",
+      "note": "吊车轨道 = 厂房结构件（审批结论；handrail 仍按护栏处理）"
+    }
+  ],
+  "transparencyPolicy": {
+    "note": "哪些角色/部件组允许进入半透明外壳层（模式 B/C）。顺序即优先级：先命中先用。设备内部机构永远不进透明层，保证内部结构可见。",
+    "rules": [
+      {
+        "kind": "group",
+        "match": "roof",
+        "scope": "structure",
+        "alpha": 0.1
+      },
+      {
+        "kind": "group",
+        "match": "structure",
+        "scope": "structure",
+        "alpha": 0.14
+      },
+      {
+        "kind": "group",
+        "match": "floor",
+        "scope": "structure",
+        "alpha": 0.0
+      },
+      {
+        "kind": "role",
+        "match": "glazing",
+        "scope": "equipment",
+        "alpha": 0.26
+      },
+      {
+        "kind": "role",
+        "match": "shell",
+        "scope": "equipment",
+        "alpha": 0.42
+      },
+      {
+        "kind": "role",
+        "match": "floor",
+        "scope": "equipment",
+        "alpha": 0.0
+      }
+    ],
+    "never": [
+      "frame",
+      "graphite",
+      "machined",
+      "drive",
+      "robot",
+      "conveyor",
+      "cargo",
+      "vessel"
+    ]
+  }
+}
