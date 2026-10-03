@@ -29,6 +29,9 @@ import { PlaybackClock, type Speed } from '../mapf/playback/clock';
 import { agvColor, paintAgvEntitiesL2, paintAgvOverlayL3, paintAgvPathsL1, phaseAt, taskOfAt, type AgvRenderState } from './agvRender';
 import { AgvTimeline } from './AgvTimeline';
 import { AgvSandbox3D } from './Sandbox3D';
+import { AgvDynamicWizard, type AgvWizardKind } from './DynamicWizard';
+import { withDynamicBlock, type AgvDynamicEventInput } from './dynamic/contractBlock';
+import { AGV_MAX_RUNS, agvRunsGroupable, diffAgvRuns, makeAgvRunRecord, type AgvRunRecord } from './runs';
 import { Segmented } from '../../components/hud';
 
 export interface AgvPanelProps {
@@ -68,6 +71,51 @@ export function AgvPanel(props: AgvPanelProps) {
   const [tool, setTool] = useState<Tool>('select');
   /** 撤销栈变化序号（笔画结算时递增，刷新 ↶/↷ 禁用态与读数）。 */
   const [histNonce, setHistNonce] = useState(0);
+  // —— 运行历史 / 多策略对比（上限 20 条；同 problem_hash 才可对比）——
+  const [runs, setRuns] = useState<AgvRunRecord[]>([]);
+  const runSeqRef = useRef(0);
+  const [compare, setCompare] = useState<{ a: AgvRunRecord; b: AgvRunRecord } | null>(null);
+
+  /** 动态事件向导（回放至 T 时刻进入「动态调度」子模式）。 */
+  const [wizard, setWizard] = useState<{
+    active: boolean;
+    kind: AgvWizardKind;
+    events: AgvDynamicEventInput[];
+    draft: {
+      id: string;
+      pickup: [number, number] | null;
+      dropoff: [number, number] | null;
+      pickupService: number;
+      dropoffService: number;
+      releaseStep: number;
+      priority: number;
+      dueStep: number | null;
+      requiredCapability: string;
+    };
+    targetTask: string;
+    targetVehicle: string;
+    priority: number;
+    until: number | null;
+  }>({
+    active: false,
+    kind: null,
+    events: [],
+    draft: {
+      id: '',
+      pickup: null,
+      dropoff: null,
+      pickupService: 1,
+      dropoffService: 1,
+      releaseStep: 0,
+      priority: 1,
+      dueStep: null,
+      requiredCapability: '',
+    },
+    targetTask: '',
+    targetVehicle: '',
+    priority: 2,
+    until: null,
+  });
   /** 3D 沙盘 / 2D 轻量模式（默认 3D）。 */
   const [view3d, setView3d] = useState(true);
   /** 3D 相机预设：等距 ↔ 正交俯视。 */
@@ -103,6 +151,7 @@ export function AgvPanel(props: AgvPanelProps) {
       maxTasks: get('max_tasks', 128),
       maxCells: get('max_map_cells', 16384),
       maxBudgetMs: get('max_budget_ms', 120_000),
+      maxEvents: get('max_events', 16),
       verified: Boolean(manifest),
     };
   }, [manifest]);
@@ -224,13 +273,14 @@ export function AgvPanel(props: AgvPanelProps) {
   }, []);
 
   // —— 求解 ——
-  const solve = useCallback(async () => {
-    if (!handle) return;
-    if (errors.length > 0) {
-      setNotice(`场景存在 ${errors.length} 项结构性问题，先修复后再求解`);
-      return;
-    }
-    const problemText = serializeAgvScene(scene);
+  const solve = useCallback(
+    async (dynamicProblem?: string) => {
+      if (!handle) return;
+      if (errors.length > 0) {
+        setNotice(`场景存在 ${errors.length} 项结构性问题，先修复后再求解`);
+        return;
+      }
+      const problemText = dynamicProblem ?? serializeAgvScene(scene);
     setSolving(true);
     setBusy(true);
     setNotice(null);
@@ -247,11 +297,11 @@ export function AgvPanel(props: AgvPanelProps) {
       setVerifyChecks(null);
       setViolations([]);
       if (sol?.plan?.vehicles?.length) {
-        setT(0);
         clockRef.current?.setRange(
           sol.plan.vehicles.reduce((m, v) => Math.max(m, (v.timeline?.length ?? 1) - 1), 0),
-          0,
+          dynamicProblem ? Math.min(t, sol.plan.vehicles.reduce((m, v) => Math.max(m, (v.timeline?.length ?? 1) - 1), 0)) : 0,
         );
+        if (!dynamicProblem) setT(0);
         setPrimary(sol.plan.vehicles[0]?.id ?? null);
       }
       if (sol && (sol.plan?.vehicles?.length ?? 0) > 0) {
@@ -264,6 +314,15 @@ export function AgvPanel(props: AgvPanelProps) {
           /* 核验不可用如实显示 */
         }
       }
+      runSeqRef.current += 1;
+      const rec = makeAgvRunRecord(
+        runSeqRef.current,
+        problemText,
+        outcome.raw ?? '',
+        sol ?? ({ status: 'UNKNOWN' } as AgvSolution),
+        `${scene.solver.algorithm}/t=${scene.solver.time_limit_ms}${dynamicProblem ? '/dynamic' : ''}`,
+      );
+      setRuns((rs) => [...rs.slice(-(AGV_MAX_RUNS - 1)), rec]);
       const errList = sol?.errors ?? [];
       if (errList.length) setNotice(`${sol?.status}：${errList[0].code} · ${errList[0].message}`);
     } catch (err) {
@@ -272,7 +331,7 @@ export function AgvPanel(props: AgvPanelProps) {
       setSolving(false);
       setBusy(false);
     }
-  }, [handle, scene, errors.length, setBusy]);
+  }, [handle, scene, errors.length, setBusy, t]);
 
   // —— 地图点击 ——
   const cellOwner = (cell: Cell): { kind: 'vehicle' | 'task' | 'station'; id: string } | null => {
@@ -296,6 +355,29 @@ export function AgvPanel(props: AgvPanelProps) {
 
   const onCellClick = useCallback(
     (cell: Cell) => {
+      // 动态向导优先：点选的格子直接变成事件
+      if (wizard.active && wizard.kind) {
+        setWizard((w) => {
+          if (w.kind === 'obstacle_add' || w.kind === 'obstacle_remove') {
+            return {
+              ...w,
+              events:
+                w.kind === 'obstacle_add'
+                  ? [...w.events, { kind: 'obstacle_add', cell: [cell.x, cell.y], until: w.until }]
+                  : [...w.events, { kind: 'obstacle_remove', cell: [cell.x, cell.y] }],
+            };
+          }
+          if (w.kind === 'task_add') {
+            const draft = { ...w.draft };
+            if (!draft.pickup) draft.pickup = [cell.x, cell.y];
+            else if (!draft.dropoff) draft.dropoff = [cell.x, cell.y];
+            if (!draft.id) draft.id = `T-dyn-${scene.tasks.length + 1}`;
+            return { ...w, draft };
+          }
+          return w;
+        });
+        return;
+      }
       const blocked = isAgvBlocked(scene, cell.x, cell.y);
       switch (tool) {
         case 'select': {
@@ -384,7 +466,7 @@ export function AgvPanel(props: AgvPanelProps) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, scene, primary, activeTask, exec, limits.maxVehicles],
+    [tool, scene, primary, activeTask, exec, limits.maxVehicles, wizard.active, wizard.kind, wizard.until, scene.tasks.length],
   );
 
   const onCellDrag = useCallback(
@@ -660,6 +742,26 @@ export function AgvPanel(props: AgvPanelProps) {
                   适配
                 </button>
               )}
+              {solution && !wizard.active && (
+                <button
+                  type="button"
+                  className="btn tiny"
+                  title="在回放当前时刻注入动态事件并重调度"
+                  onClick={() =>
+                    setWizard((w) => ({
+                      ...w,
+                      active: true,
+                      kind: null,
+                      events: [],
+                      targetTask: scene.tasks[0]?.id ?? '',
+                      targetVehicle: scene.vehicles[0]?.id ?? '',
+                      draft: { ...w.draft, id: `T-dyn-${scene.tasks.length + 1}`, pickup: null, dropoff: null },
+                    }))
+                  }
+                >
+                  ⚡ 注入动态事件
+                </button>
+              )}
               <span style={{ width: 6 }} />
               <Segmented
                 ariaLabel="视图模式"
@@ -701,6 +803,84 @@ export function AgvPanel(props: AgvPanelProps) {
             <div className="mapf-readout muted small">
               {hover ? `(${hover.x}, ${hover.y}) · ${isAgvBlocked(scene, hover.x, hover.y) ? '障碍' : '可通行'}` : '—'}
             </div>
+            {wizard.active && solution && (
+              <AgvDynamicWizard
+                scene={scene}
+                solution={solution}
+                time={t}
+                maxT={maxT}
+                maxEvents={limits.maxEvents}
+                busy={solving}
+                events={wizard.events}
+                kind={wizard.kind}
+                draft={wizard.draft}
+                targetTask={wizard.targetTask}
+                targetVehicle={wizard.targetVehicle}
+                priority={wizard.priority}
+                until={wizard.until}
+                pickLabel={
+                  wizard.kind === 'obstacle_add'
+                    ? '点击地图：选择新障碍格'
+                    : wizard.kind === 'obstacle_remove'
+                      ? '点击地图：选择要移除的障碍格'
+                      : wizard.kind === 'task_add'
+                        ? '点击地图：先点取货点，再点送达点'
+                        : null
+                }
+                onPickKind={(kind) => setWizard((w) => ({ ...w, kind }))}
+                onDraftChange={(patch) => setWizard((w) => ({ ...w, draft: { ...w.draft, ...patch } }))}
+                onTargetTaskChange={(id) => setWizard((w) => ({ ...w, targetTask: id }))}
+                onTargetVehicleChange={(id) => setWizard((w) => ({ ...w, targetVehicle: id }))}
+                onPriorityChange={(n) => setWizard((w) => ({ ...w, priority: n }))}
+                onUntilChange={(n) => setWizard((w) => ({ ...w, until: n }))}
+                onRemoveEvent={(i) => setWizard((w) => ({ ...w, events: w.events.filter((_, j) => j !== i) }))}
+                onAddEvent={() =>
+                  setWizard((w) => {
+                    if (w.kind === 'task_add') {
+                      const d = w.draft;
+                      if (!d.id.trim() || !d.pickup || !d.dropoff) return w;
+                      return {
+                        ...w,
+                        events: [
+                          ...w.events,
+                          {
+                            kind: 'task_add',
+                            taskId: d.id.trim(),
+                            pickup: d.pickup,
+                            dropoff: d.dropoff,
+                            pickupService: d.pickupService,
+                            dropoffService: d.dropoffService,
+                            releaseStep: d.releaseStep,
+                            priority: d.priority,
+                            dueStep: d.dueStep,
+                            requiredCapability: d.requiredCapability.trim() || null,
+                          },
+                        ],
+                        draft: { ...d, id: `T-dyn-${scene.tasks.length + w.events.length + 2}`, pickup: null, dropoff: null },
+                      };
+                    }
+                    if (w.kind === 'task_cancel') {
+                      return w.targetTask ? { ...w, events: [...w.events, { kind: 'task_cancel', task: w.targetTask }] } : w;
+                    }
+                    if (w.kind === 'task_priority') {
+                      return w.targetTask ? { ...w, events: [...w.events, { kind: 'task_priority', task: w.targetTask, priority: w.priority }] } : w;
+                    }
+                    if (w.kind === 'vehicle_pause') {
+                      return w.targetVehicle ? { ...w, events: [...w.events, { kind: 'vehicle_pause', vehicle: w.targetVehicle }] } : w;
+                    }
+                    if (w.kind === 'vehicle_resume') {
+                      return w.targetVehicle ? { ...w, events: [...w.events, { kind: 'vehicle_resume', vehicle: w.targetVehicle }] } : w;
+                    }
+                    return w;
+                  })
+                }
+                onSubmit={(built) => {
+                  setWizard((w) => ({ ...w, active: false, kind: null }));
+                  void solve(withDynamicBlock(serializeAgvScene(scene), built));
+                }}
+                onCancel={() => setWizard((w) => ({ ...w, active: false, kind: null }))}
+              />
+            )}
             <div className="mapf-legend muted small">
               <span>■车 ■载货 ◗服务中</span>
               <span>▲取 ▽送 ▣站泊位 P停车</span>
@@ -810,8 +990,79 @@ export function AgvPanel(props: AgvPanelProps) {
                 </div>
               ))}
             </div>
+            {activeTask && scene.tasks.some((tk) => tk.id === activeTask) && (
+              <TaskParamEditor
+                task={scene.tasks.find((tk) => tk.id === activeTask)!}
+                stations={scene.stations}
+                onChange={(cmd) => exec(cmd)}
+              />
+            )}
           </section>
 
+          {runs.length > 0 && (
+            <section className="rail-group">
+              <h4>运行历史（{runs.length}/{AGV_MAX_RUNS}）</h4>
+              <div className="run-list">
+                {runs.map((r) => (
+                  <div key={r.seq} className="run-row">
+                    <span className="robot-id">#{r.seq}</span>
+                    <span className={`badge ${r.status === 'FEASIBLE' || r.status === 'OPTIMAL' ? 'ok' : 'muted-badge'}`}>{r.status}</span>
+                    <span className="muted small">
+                      {r.paramSummary} · 完成 {r.completedTasks ?? '—'}/{r.totalTasks ?? '—'} · makespan {r.makespan ?? '—'}
+                      {r.dynamic ? ' · 动态' : ''}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      title="选为对比 A"
+                      onClick={() => setCompare((c) => (c ? { ...c, a: r } : { a: r, b: r }))}
+                    >
+                      A
+                    </button>
+                    <button
+                      type="button"
+                      className="btn tiny"
+                      title="选为对比 B"
+                      onClick={() => setCompare((c) => (c ? { ...c, b: r } : { a: r, b: r }))}
+                    >
+                      B
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {compare && (
+                <div className="compare-picker">
+                  <div className="hud-row" style={{ justifyContent: 'space-between' }}>
+                    <span className="muted small">
+                      对比 #{compare.a.seq} vs #{compare.b.seq}
+                      {!agvRunsGroupable(compare.a, compare.b) && '（问题不同，仅供查看）'}
+                    </span>
+                    <button type="button" className="btn tiny" onClick={() => setCompare(null)}>
+                      关闭
+                    </button>
+                  </div>
+                  <table className="data-table small-table">
+                    <thead>
+                      <tr>
+                        <th>指标</th>
+                        <th>#{compare.a.seq}</th>
+                        <th>#{compare.b.seq}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {diffAgvRuns(compare.a, compare.b).map((row) => (
+                        <tr key={row.label}>
+                          <td>{row.label}</td>
+                          <td>{row.a}</td>
+                          <td className={row.verdict === 'better' ? 'ok-text' : row.verdict === 'worse' ? 'bad-text' : ''}>{row.b}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
           {verifyChecks && (
             <section className="rail-group">
               <h4>冲突与核验</h4>
@@ -929,5 +1180,87 @@ export function AgvPanel(props: AgvPanelProps) {
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * 任务参数完整编辑（V2 §5-3）：取/送服务时长、释放步、交期步、优先级、能力要求。
+ * 只改场景文档（契约字段），求解仍由引擎完成。
+ */
+function TaskParamEditor({
+  task,
+  stations,
+  onChange,
+}: {
+  task: AgvScene['tasks'][number];
+  stations: AgvScene['stations'];
+  onChange: (cmd: AgvCommand) => void;
+}) {
+  const locLabel = (loc: AgvScene['tasks'][number]['pickup']): string =>
+    Array.isArray(loc) ? `(${loc[0]},${loc[1]})` : `站点 ${loc.station}`;
+  return (
+    <div className="param-grid" style={{ marginTop: 8 }}>
+      <p className="muted small" style={{ gridColumn: '1 / -1' }}>
+        {task.id}：取 {locLabel(task.pickup)} → 送 {locLabel(task.dropoff)}
+      </p>
+      <label className="field">
+        取货服务
+        <input
+          type="number"
+          min={0}
+          value={task.pickup_service}
+          onChange={(e) => onChange({ type: 'setTaskService', id: task.id, pickup_service: Math.max(0, Number(e.target.value) || 0), dropoff_service: task.dropoff_service })}
+        />
+      </label>
+      <label className="field">
+        送达服务
+        <input
+          type="number"
+          min={0}
+          value={task.dropoff_service}
+          onChange={(e) => onChange({ type: 'setTaskService', id: task.id, pickup_service: task.pickup_service, dropoff_service: Math.max(0, Number(e.target.value) || 0) })}
+        />
+      </label>
+      <label className="field">
+        释放步
+        <input
+          type="number"
+          min={0}
+          value={task.release_step}
+          onChange={(e) => onChange({ type: 'setTaskParams', id: task.id, release_step: Math.max(0, Number(e.target.value) || 0) })}
+        />
+      </label>
+      <label className="field">
+        交期步（可空）
+        <input
+          type="number"
+          min={0}
+          value={task.due_step ?? ''}
+          onChange={(e) => onChange({ type: 'setTaskParams', id: task.id, due_step: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })}
+        />
+      </label>
+      <label className="field">
+        优先级
+        <input
+          type="number"
+          min={1}
+          value={task.priority ?? 1}
+          onChange={(e) => onChange({ type: 'setTaskParams', id: task.id, priority: Math.max(1, Number(e.target.value) || 1) })}
+        />
+      </label>
+      <label className="field">
+        能力要求（可空）
+        <input
+          value={task.required_capability ?? ''}
+          placeholder="如 cold"
+          onChange={(e) => onChange({ type: 'setTaskParams', id: task.id, required_capability: e.target.value.trim() || null })}
+        />
+      </label>
+      {stations.length > 0 && (
+        <p className="muted small" style={{ gridColumn: '1 / -1' }}>
+          可用工作站：{stations.map((st) => `${st.id}（容量 ${st.capacity}）`).join(' · ')}
+        </p>
+      )}
+    </div>
   );
 }

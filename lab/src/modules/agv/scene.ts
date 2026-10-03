@@ -248,6 +248,15 @@ export type AgvCommand =
   | { type: 'setTaskDropoff'; id: string; at: AgvTaskLoc }
   | { type: 'removeTask'; id: string }
   | { type: 'setTaskService'; id: string; pickup_service: number; dropoff_service: number }
+  | {
+      type: 'setTaskParams';
+      id: string;
+      release_step?: number;
+      due_step?: number | null;
+      priority?: number;
+      required_capability?: string | null;
+    }
+  | { type: 'setVehicleCapabilities'; id: string; capabilities: string[] }
   | { type: 'addStationDock'; stationId: string; cell: [number, number] }
   | { type: 'finishStation'; stationId: string; capacity: number }
   | { type: 'removeStation'; id: string }
@@ -296,6 +305,28 @@ export function applyAgvCommand(doc: AgvScene, cmd: AgvCommand): AgvScene {
         ...doc,
         tasks: doc.tasks.map((t) =>
           t.id === cmd.id ? { ...t, pickup_service: cmd.pickup_service, dropoff_service: cmd.dropoff_service } : t,
+        ),
+      };
+    case 'setTaskParams':
+      return {
+        ...doc,
+        tasks: doc.tasks.map((t) =>
+          t.id === cmd.id
+            ? {
+                ...t,
+                ...(cmd.release_step != null ? { release_step: Math.max(0, Math.floor(cmd.release_step)) } : {}),
+                ...(cmd.due_step !== undefined ? { due_step: cmd.due_step == null ? undefined : Math.max(0, Math.floor(cmd.due_step)) } : {}),
+                ...(cmd.priority != null ? { priority: Math.max(1, Math.floor(cmd.priority)) } : {}),
+                ...(cmd.required_capability !== undefined ? { required_capability: cmd.required_capability || undefined } : {}),
+              }
+            : t,
+        ),
+      };
+    case 'setVehicleCapabilities':
+      return {
+        ...doc,
+        vehicles: doc.vehicles.map((v) =>
+          v.id === cmd.id ? { ...v, capabilities: cmd.capabilities.filter((c) => c.trim().length > 0) } : v,
         ),
       };
     case 'addStationDock': {
