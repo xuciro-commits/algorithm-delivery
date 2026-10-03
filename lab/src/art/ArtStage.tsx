@@ -7,13 +7,11 @@
  *   EquipmentModel  —— 上传的产线设备与工位实例
  *   overlay         —— 算法模块从真实解投影出来的路径 / 节点 / 状态光
  *
- * 相机：透视 + OrbitControls（电影感），预设视角由模块传入；
- * 渲染：始终走 SandboxScene，因此继续满足“按需渲染 + active 开关 + 无后处理”的性能红线。
+ * 相机：透视 + SmoothOrbit（预设之间补间飞行 + 可选的跟踪镜头），预设视角由模块传入；
+ * 渲染：始终走 SandboxScene，因此继续满足“按需渲染 + active 开关 + 受控泛光”的性能红线。
  */
 
-import { OrbitControls } from '@react-three/drei';
-import { useThree } from '@react-three/fiber';
-import { Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Suspense, useMemo, type ReactNode } from 'react';
 import { SandboxScene } from '../components/sandbox/SandboxScene';
 import { ART_MODES } from './modes';
 import { useArtStore } from './settings';
@@ -21,6 +19,7 @@ import { ArtFactoryHall } from './ArtFactoryHall';
 import { ArtGroundField, type FloorZone } from './ArtGroundField';
 import { EquipmentModel, type EquipmentPartInfo } from './EquipmentModel';
 import { RenderOnChange } from './RenderOnChange';
+import { SmoothOrbit } from './SmoothOrbit';
 import type { ArtModelPathKey } from './modelPaths';
 
 /** 产线设备实例描述：位置由模块根据真实工艺/算法数据给出。 */
@@ -57,44 +56,13 @@ export interface ArtStageProps {
   overlay?: ReactNode;
   /** 相机预设。 */
   camera: { position: [number, number, number]; target: [number, number, number] };
+  /** 跟踪目标（真实 AGV/机器人位置）；提供后镜头跟随。 */
+  follow?: [number, number, number] | null;
   /** 相机是否需要随预设变化重新定位（预设 id 变化即复位）。 */
   cameraPreset?: string;
   active: boolean;
   /** 厂房构件部件回调（自检用）。 */
   onHallParts?: (parts: EquipmentPartInfo[]) => void;
-}
-
-/** 透视相机 + 阻尼轨道控制：预设变化时复位到指定机位。 */
-function ArtCamera({ preset, position, target, span }: { preset: string; position: [number, number, number]; target: [number, number, number]; span: number }) {
-  const { camera, invalidate } = useThree();
-  const controls = useRef<{ target: { set: (x: number, y: number, z: number) => void }; update: () => void } | null>(null);
-
-  useEffect(() => {
-    camera.position.set(position[0], position[1], position[2]);
-    camera.lookAt(target[0], target[1], target[2]);
-    if ('fov' in camera) {
-      camera.near = Math.max(0.05, span * 0.002);
-      camera.far = span * 40;
-    }
-    camera.updateProjectionMatrix();
-    controls.current?.target.set(target[0], target[1], target[2]);
-    controls.current?.update();
-    invalidate();
-  }, [preset, position, target, camera, invalidate, span]);
-
-  return (
-    <OrbitControls
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ref={controls as any}
-      makeDefault
-      target={target}
-      enableDamping
-      dampingFactor={0.1}
-      minDistance={Math.max(1.5, span * 0.08)}
-      maxDistance={span * 4}
-      maxPolarAngle={Math.PI / 2 - 0.05}
-    />
-  );
 }
 
 export function ArtStage({
@@ -111,6 +79,7 @@ export function ArtStage({
   overlay,
   camera,
   cameraPreset = 'default',
+  follow = null,
   active,
   onHallParts,
 }: ArtStageProps) {
@@ -135,7 +104,14 @@ export function ArtStage({
       cameraPosition={camera.position}
       fov={mode.id === 'C' ? 34 : 30}
     >
-      <ArtCamera preset={cameraPreset} position={camera.position} target={camera.target} span={span} />
+      <SmoothOrbit
+        preset={`${cameraPreset}:${camera.position.join(',')}`}
+        position={camera.position}
+        target={camera.target}
+        span={span}
+        duration={0.85}
+        follow={follow}
+      />
       {/* 按需渲染：相机预设 / 模式 / 布置变化后补几帧，避免离散步切换后画面停在上一帧。 */}
       <RenderOnChange
         watch={`${cameraPreset}|${settings.mode}|${settings.transparentFactory}|${settings.physicalGlass}|${settings.structureAlpha}|${settings.shellAlpha}|${settings.deEmphasize}|${settings.showGrid}|${settings.showScaleMarks}|${settings.showOverlays}|${equipmentList.length}`}
@@ -162,6 +138,7 @@ export function ArtStage({
             position={item.position}
             rotationY={item.rotationY ?? 0}
             scale={item.scale ?? 1}
+            emphasized={Boolean(item.emphasize)}
             dimSecondary={settings.mode === 'C' && !item.emphasize}
           >
             {item.status}

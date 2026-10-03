@@ -3,7 +3,7 @@
 > 由 `lab/scripts/model-structure-audit.mjs` 自动生成，数据来自 `lab/design/assets/**` 的真实 GLB 与 glTF 元数据。
 > 语义规则单一来源：`lab/src/art/part-roles.json`。**不要手工编辑本文件**。
 
-- 生成时间：2026-10-03T21:09:07.332Z
+- 生成时间：2026-10-03T21:32:42.291Z
 - 资产总数：**472** 个 GLB，67.0 MB，合计 2,885,204 三角形（按实例计）
 - 出现的材质名：54 种；未命中规则的材质名：无
 
@@ -12,7 +12,7 @@
 | 类别 | 资产数 | 体积 | 三角形 | 含玻璃 | 含屋顶/墙体 | 含内部机构 | 含可控部件（门窗/护罩） |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | agv-warehouse | 110 | 15.2 MB | 449,064 | 17 | 5 | 5 | 22 |
-| aps-machining | 112 | 10.0 MB | 261,360 | 14 | 14 | 39 | 13 |
+| aps-machining | 112 | 10.0 MB | 261,360 | 14 | 15 | 39 | 13 |
 | assembled-scenes | 13 | 35.0 MB | 1,933,060 | 4 | 8 | 11 | 9 |
 | conveyors-logistics | 123 | 2.2 MB | 62,392 | 1 | 4 | 13 | 2 |
 | lab-cleanroom | 63 | 3.3 MB | 149,136 | 30 | 3 | 4 | 13 |
@@ -53,9 +53,9 @@
 | 5 | `engine-lathe-with-2-4-m-bed` | aps-machining | 58 | 100% | 16,736 | 15 | rubber/steel/cast/enamel/charcoal/cream/red | 2.51×2×1.038 | 0.0% | machine×8 |
 | 6 | `horizontal-metal-cutting-bandsaw` | aps-machining | 57 | 100% | 9,212 | 14 | rubber/steel/enamel/charcoal/cream/red/cast | 1.62×1.6×0.948 | 0.0% | machine×8 |
 | 7 | `pillar-drill-press-floor-standing` | aps-machining | 57 | 100% | 9,260 | 8 | cast/charcoal/steel/enamel/cream/red | 0.846×2.16×0.68 | 0.0% | machine×7 drive×1 |
-| 8 | `welding-bay-and-stores-corner` | agv-warehouse | 56 | 63% | 59,396 | 179 | concrete/charcoal/yellow/cast/glass/steel/cream/red/rubber/enamel/blue/wood | 12.4×7.27×12.44 | 0.1% | machine×62 cargo×61 structure×42 racking×26 workstation×23 |
-| 9 | `parts-washing-cabinet-with-lift-lid` | aps-machining | 56 | 100% | 8,756 | 11 | rubber/steel/enamel/charcoal/cream/red/cast/blue/wood | 0.975×1.32×0.805 | 0.0% | machine×10 |
-| 10 | `trade-counter-and-paint-mixing-area` | agv-warehouse | 55 | 49% | 45,876 | 144 | floor/accent/dark/carcass/surface/metal/glass/soft | 9.07×2.4×6.081 | 4.3% | aperture×40 workstation×28 floor×9 machine×7 racking×6 |
+| 8 | `parts-washing-cabinet-with-lift-lid` | aps-machining | 56 | 100% | 8,756 | 11 | rubber/steel/enamel/charcoal/cream/red/cast/blue/wood | 0.975×1.32×0.805 | 0.0% | machine×10 |
+| 9 | `trade-counter-and-paint-mixing-area` | agv-warehouse | 55 | 49% | 45,876 | 144 | floor/accent/dark/carcass/surface/metal/glass/soft | 9.07×2.4×6.081 | 4.3% | aperture×40 workstation×28 floor×9 machine×7 racking×6 |
+| 10 | `welding-bay-and-stores-corner` | agv-warehouse | 55 | 60% | 59,396 | 179 | concrete/charcoal/yellow/cast/glass/steel/cream/red/rubber/enamel/blue/wood | 12.4×7.27×12.44 | 0.1% | machine×62 cargo×61 structure×50 racking×26 workstation×23 |
 | 11 | `surface-grinder-with-magnetic-chuck` | aps-machining | 55 | 100% | 10,288 | 12 | rubber/steel/enamel/charcoal/cream/red/cast | 1.307×2×1.213 | 0.0% | machine×7 |
 | 12 | `pedestal-bench-grinder` | aps-machining | 54 | 100% | 8,924 | 9 | cast/steel/enamel/charcoal/cream/glass/red | 0.64×1.245×0.48 | 4.6% | workstation×8 |
 | 13 | `bench-lathe-on-a-cabinet-stand` | aps-machining | 53 | 100% | 10,920 | 9 | rubber/steel/enamel/charcoal/cream/red/cast | 1.31×1.49×0.728 | 0.0% | machine×8 |
@@ -76,9 +76,9 @@
 | 资产 | 类别 | 玻璃占比 | roof 部件 | structure 部件 | 三角形 |
 |---|---|---:|---:|---:|---:|
 | `car-assembly-plant-production-line` | assembled-scenes | 2.2% | 56 | 166 | 247,848 |
-| `machine-shop-day-shift-hall` | assembled-scenes | 0.3% | 12 | 110 | 240,952 |
+| `machine-shop-day-shift-hall` | assembled-scenes | 0.3% | 12 | 134 | 240,952 |
 | `parcel-sorting-hub-logistics-hall` | assembled-scenes | 0.4% | 0 | 60 | 25,924 |
-| `welding-bay-and-stores-corner` | agv-warehouse | 0.1% | 8 | 42 | 59,396 |
+| `welding-bay-and-stores-corner` | agv-warehouse | 0.1% | 8 | 50 | 59,396 |
 | `science-laboratory-cleanroom-floor` | assembled-scenes | 19.3% | 12 | 36 | 219,804 |
 | `nuclear-station-central-control-room-plant` | assembled-scenes | 1.4% | 6 | 22 | 308,536 |
 | `container-freight-inspection-yard` | assembled-scenes | 0.0% | 11 | 4 | 206,344 |
@@ -89,12 +89,12 @@
 | `trade-counter-and-paint-mixing-area` | agv-warehouse | 4.3% | 0 | 5 | 45,876 |
 | `hall-steel-column` | aps-machining | 0.0% | 0 | 5 | 96 |
 | `mezzanine-stair` | conveyors-logistics | 0.0% | 0 | 5 | 660 |
+| `gantry-crane-runway-rail-6-m` | aps-machining | 0.0% | 0 | 4 | 120 |
 | `hall-ridge-skylight-bay-6-m` | aps-machining | 5.9% | 4 | 0 | 204 |
 | `hall-ridge-skylight-bay` | aps-machining | 16.7% | 4 | 0 | 144 |
 | `hall-wall-cladding-bay-6-m` | aps-machining | 0.0% | 0 | 4 | 168 |
 | `mezzanine-access-stair-3-m-rise` | aps-machining | 0.0% | 0 | 4 | 432 |
 | `mezzanine-floor-bay-with-handrail-6-m` | aps-machining | 0.0% | 0 | 4 | 252 |
-| `overhead-gantry-crane-bridge-with-trolley` | aps-machining | 0.0% | 4 | 0 | 1,048 |
 
 ## 5. 部件划分审查样例（逐网格明细）
 

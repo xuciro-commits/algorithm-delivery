@@ -4,7 +4,9 @@
  * 变成可执行断言——
  *   1) 需求渲染：不允许裸 `frameloop="always"`，Canvas 一律 `demand`（active 才常驻）；
  *   2) dpr ≤ 2（禁止 dpr={3} / [1,3] 之类）；
- *   3) 禁后处理：不得引入 EffectComposer / Bloom / SMAA / postprocessing 依赖；
+ *   3) 受控泛光（审批后放行）：只允许 ArtBloom.tsx 用 three 自带的 EffectComposer +
+ *      UnrealBloomPass + OutputPass，且必须 ① 只对自发光阈值生效 ② 可完全关闭
+ *      ③ 不引入第三方后处理依赖 ④ 接管渲染但仍受 active/demand 控制；
  *   4) 实例化：障碍场 / 底板必须 InstancedMesh（一格一 mesh 会随地图线性掉帧）；
  *   5) 发光 = 细两层级 Line2（不发丝粗线、不实体粗管）；
  *   6) 每帧零分配：useFrame 回调里不得 new 向量/颜色/几何体；
@@ -55,9 +57,23 @@ check('dpr 不超过 2', badDpr.length === 0, badDpr.map(([f]) => f).join(','));
 const dprOk = /dpr = \[1, 2\]/.test(stripComments(text.get(join(srcDir, 'components/sandbox/SandboxScene.tsx')) ?? ''));
 check('SandboxScene 默认 dpr=[1,2]', dprOk);
 
-// ---- 3) 禁后处理 ----
-const post = /EffectComposer|UnrealBloomPass|@react-three\/postprocessing|SMAA|OutlinePass/.test(all);
-check('未引入后处理/泛光（glow 由 Line2 两层级实现）', !post);
+// ---- 3) 受控泛光：唯一允许的后处理，且必须满足四条约束 ----
+const bloomFile = join(srcDir, 'components/sandbox/ArtBloom.tsx');
+const bloom = code.get(bloomFile) ?? '';
+check('后处理只出现在 ArtBloom.tsx（其它文件不得引入）', (() => {
+  const offenders = [...code.entries()]
+    .filter(([f, t]) => f !== bloomFile && /EffectComposer|UnrealBloomPass|@react-three\/postprocessing|SMAA|OutlinePass/.test(t))
+    .map(([f]) => f);
+  if (offenders.length) console.log(`    offenders: ${offenders.join(', ')}`);
+  return offenders.length === 0;
+})());
+check('未引入第三方后处理依赖（只用 three 自带 examples）', !/@react-three\/postprocessing/.test(all));
+check('泛光可完全关闭（enabled=false 时走 gl.render 默认路径）', /else state\.gl\.render\(scene, camera\)/.test(bloom));
+check('泛光只由自发光阈值驱动（threshold + strength 来自模式）', /threshold/.test(bloom) && /UnrealBloomPass\(new Vector2\(1, 1\), strength, radius, threshold\)/.test(bloom));
+check('泛光接管渲染但仍受 R3F 帧循环控制', /useFrame\(\(state, delta\) => \{[\s\S]*?\}, 1\)/.test(bloom));
+check('泛光在组件卸载时释放（composer.dispose）', /composer\.dispose\(\)/.test(bloom));
+const bloomRisk = [...code.entries()].filter(([f, t]) => /bloom:\s*\{[^}]*strength:\s*(?:[2-9]|\d\d)/.test(t)).map(([f]) => f);
+check('模式里的泛光强度是克制的（< 2）', bloomRisk.length === 0, bloomRisk.join(','));
 
 // ---- 4) 实例化 ----
 const obstacle = text.get(join(srcDir, 'components/sandbox/ObstacleField.tsx')) ?? '';

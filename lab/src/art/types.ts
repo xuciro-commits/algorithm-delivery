@@ -120,6 +120,17 @@ export interface ArtLightConfig {
   envIntensity: number;
 }
 
+/**
+ * 受控泛光（Bloom）：只对超过阈值的**自发光**元素生效（算法路径、状态灯、发光标识），
+ * 普通工业表面（金属、石墨、玻璃的反射）通常低于阈值，因此不会被"泛光糊掉"。
+ * `strength = 0` 表示该模式完全不做后处理。
+ */
+export interface ArtBloomConfig {
+  strength: number;
+  threshold: number;
+  radius: number;
+}
+
 export interface ArtModeConfig {
   id: ArtModeId;
   label: string;
@@ -142,6 +153,8 @@ export interface ArtModeConfig {
   deEmphasis: number;
   /** 发光倍率（路径/节点/状态灯）。 */
   glowScale: number;
+  /** 受控泛光配置（strength = 0 → 该模式不做任何后处理）。 */
+  bloom: ArtBloomConfig;
   /** 地面：网格亮度与反射强度。 */
   ground: { gridColor: string; sectionColor: string; reflectivity: number; tint: string };
   /** 是否使用原始 glTF 材质（模式 A = true，忠实呈现工业原貌）。 */

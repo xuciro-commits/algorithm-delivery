@@ -43,6 +43,7 @@ export function ArtOverlayLayer({ overlay = EMPTY_OVERLAY, flowOffset = 0, highl
           ticks={node.ticks}
           selected={node.selected || node.id === highlightId}
           filled={node.filled}
+          progress={node.progress}
         />
       ))}
       {overlay.statuses.map((status) => (

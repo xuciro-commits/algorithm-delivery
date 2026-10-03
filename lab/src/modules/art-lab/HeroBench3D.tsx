@@ -7,22 +7,24 @@
  *   3. 半透明外壳    —— 外壳/防护罩进入冰蓝半透明，内部机构保持不透明；
  *   4. 内部机构      —— 外壳进一步透明并弱化，机械结构（导轨/主轴/工作台）强化；
  *   5. 部件检查      —— 点选部件清单，被选中部件高亮（发光 + 提高反射）。
+ *
+ * 相机：由设备真实包围盒推导机位，预设之间**补间飞行**（SmoothOrbit），不自动旋转。
  */
 
-import { Suspense, useEffect, useMemo, useRef } from 'react';
-import { useThree } from '@react-three/fiber';
+import { Suspense, useMemo } from 'react';
 import { SandboxScene } from '../../components/sandbox/SandboxScene';
 import { ArtGroundField } from '../../art/ArtGroundField';
 import { RenderOnChange } from '../../art/RenderOnChange';
+import { SmoothOrbit } from '../../art/SmoothOrbit';
 import { EquipmentModel, type EquipmentPartInfo } from '../../art/EquipmentModel';
 import type { ApplyStats } from '../../art/materials';
 import type { PartRole } from '../../art/types';
 import { ART_MODES } from '../../art/modes';
 import { useArtStore } from '../../art/settings';
-import { OrbitControls } from '@react-three/drei';
 import { SB } from '../../components/sandbox/theme';
 
 export type HeroView = 'original' | 'art' | 'shell' | 'mechanism' | 'parts';
+export type HeroCameraPreset = 'threeQuarter' | 'front' | 'side' | 'top' | 'interior';
 
 export const HERO_VIEWS: Array<{ id: HeroView; label: string; hint: string }> = [
   { id: 'original', label: '原始材质', hint: '上传模型的原始材质与配色，作为结构核对基准' },
@@ -32,6 +34,14 @@ export const HERO_VIEWS: Array<{ id: HeroView; label: string; hint: string }> = 
   { id: 'parts', label: '部件检查', hint: '从真实部件清单里选择部件高亮，核对角色判定是否正确' },
 ];
 
+export const HERO_CAMERAS: Array<{ id: HeroCameraPreset; label: string }> = [
+  { id: 'threeQuarter', label: '3/4 视角' },
+  { id: 'front', label: '正面' },
+  { id: 'side', label: '侧面' },
+  { id: 'top', label: '俯视' },
+  { id: 'interior', label: '内部' },
+];
+
 export interface HeroBench3DProps {
   url: string | null;
   view: HeroView;
@@ -39,15 +49,15 @@ export interface HeroBench3DProps {
   emphasizeParts?: string[];
   onParts?: (parts: EquipmentPartInfo[]) => void;
   onStats?: (stats: ApplyStats) => void;
-  /** 相机预设 id（变化即复位机位）。 */
-  cameraPreset?: string;
+  /** 相机预设 id（变化即触发一次补间飞行）。 */
+  cameraPreset?: HeroCameraPreset;
   active: boolean;
   /** 模型真实尺寸（米），用于自适应机位与阴影范围。 */
   sizeMeters?: number[] | null;
 }
 
 /** 由真实尺寸推导的机位（不写死“好看的角度”，而是按设备尺寸取景）。 */
-function heroCameras(size: number[] | null): Record<string, { position: [number, number, number]; target: [number, number, number] }> {
+export function heroCameras(size: number[] | null): Record<HeroCameraPreset, { position: [number, number, number]; target: [number, number, number] }> {
   const [w, h, d] = size && size.length === 3 ? size : [3, 2.4, 2];
   const radius = Math.max(w, d) * 0.5;
   const center: [number, number, number] = [0, h * 0.45, 0];
@@ -72,9 +82,12 @@ export function HeroBench3D({
   sizeMeters = null,
 }: HeroBench3DProps) {
   const settings = useArtStore();
-  const mode = ART_MODES[settings.mode];
-  /** 实验台始终以模式 B 的材质语言展示艺术化结果，除非全局模式是 C（算法观察）。 */
+  /**
+   * 实验台的材质语言恒为 B（除非全局切到 C）：这样"原始材质 ↔ 工业科技材质"的对照
+   * 永远成立，不会因为全局模式被切到 A 而让对照视图失去意义。
+   */
   const benchMode = settings.mode === 'C' ? 'C' : 'B';
+  const mode = ART_MODES[benchMode];
   const cameras = useMemo(() => heroCameras(sizeMeters), [sizeMeters]);
   const camera = cameras[cameraPreset] ?? cameras.threeQuarter;
 
@@ -99,7 +112,15 @@ export function HeroBench3D({
       cameraPosition={camera.position}
       fov={30}
     >
-      <HeroCamera preset={cameraPreset} position={camera.position} target={camera.target} />
+      <SmoothOrbit
+        preset={`${cameraPreset}:${(sizeMeters ?? []).join(',')}`}
+        position={camera.position}
+        target={camera.target}
+        span={14}
+        duration={0.7}
+        minDistanceFactor={0.09}
+        maxDistanceFactor={3.4}
+      />
 
       {/* 实验台底板：小尺寸科技地坪，让设备像摆在实验台上的实物 */}
       <group position={[-4, 0, -4]}>
@@ -110,7 +131,7 @@ export function HeroBench3D({
         watch={`${view}|${cameraPreset}|${benchMode}|${url ?? 'none'}|${settings.physicalGlass}|${settings.contactShadow}|${settings.showScaleMarks}|${emphasizeParts.join(',')}`}
         frames={4}
       />
-      {/* 机位参考环：标出设备占地（真实包围盒的一半），不是装饰光 */}
+      {/* 占地参考环：直径来自真实包围盒，不是装饰光 */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]}>
         <ringGeometry args={[Math.max(1.6, (sizeMeters?.[0] ?? 3) * 0.62), Math.max(1.66, (sizeMeters?.[0] ?? 3) * 0.62) + 0.035, 64]} />
         <meshBasicMaterial color={SB.plateLine} transparent opacity={0.5} depthWrite={false} />
@@ -139,41 +160,5 @@ export function HeroBench3D({
         </mesh>
       )}
     </SandboxScene>
-  );
-}
-
-/**
- * 英雄实验台相机：预设变化时复位机位（不自动旋转——场景按需渲染，静止时零 GPU 负载）。
- * 使用命令式写入，避免 OrbitControls 与 R3F 相机状态互相覆盖。
- */
-function HeroCamera({ preset, position, target }: { preset: string; position: [number, number, number]; target: [number, number, number] }) {
-  const { camera, invalidate } = useThree();
-  const controls = useRef<{ target: { set: (x: number, y: number, z: number) => void }; update: () => void } | null>(null);
-
-  useEffect(() => {
-    camera.position.set(position[0], position[1], position[2]);
-    camera.lookAt(target[0], target[1], target[2]);
-    if ('fov' in camera) {
-      camera.near = 0.05;
-      camera.far = 400;
-    }
-    camera.updateProjectionMatrix();
-    controls.current?.target.set(target[0], target[1], target[2]);
-    controls.current?.update();
-    invalidate();
-  }, [preset, position, target, camera, invalidate]);
-
-  return (
-    <OrbitControls
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ref={controls as any}
-      makeDefault
-      target={target}
-      enableDamping
-      dampingFactor={0.1}
-      minDistance={1.2}
-      maxDistance={40}
-      maxPolarAngle={Math.PI / 2 - 0.03}
-    />
   );
 }

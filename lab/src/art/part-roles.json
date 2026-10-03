@@ -629,6 +629,11 @@
     {
       "match": "boiler",
       "group": "utilities"
+    },
+    {
+      "match": "crane-rail",
+      "group": "structure",
+      "note": "吊车轨道 = 厂房结构件（审批结论；handrail 仍按护栏处理）"
     }
   ],
   "transparencyPolicy": {

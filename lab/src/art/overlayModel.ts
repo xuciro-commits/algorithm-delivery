@@ -32,6 +32,8 @@ export interface OverlayNodeItem {
   ticks?: number;
   selected?: boolean;
   filled?: boolean;
+  /** 在制工序的真实完成度 0–1（引擎起止时刻推导）；未定义 = 不画进度弧。 */
+  progress?: number;
 }
 
 export interface OverlayStatusItem {

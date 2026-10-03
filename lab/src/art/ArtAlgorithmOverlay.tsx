@@ -114,10 +114,21 @@ export interface ArtNodeProps {
   y?: number;
   /** 携带的文本标记数量（例如该工作站排队的任务数）——不绘制文字，只用刻度环。 */
   ticks?: number;
+  /** 在制工序完成度 0–1：以真实时间轴推导的进度弧（不是循环动画）。 */
+  progress?: number;
 }
 
 /** 半透明空间节点：细环 + 内核光点 + 柔和外晕（绝不是传统图钉）。 */
-export function ArtNode({ position, color = GLOW.active, radius = 0.34, selected = false, filled = true, y = 0.11, ticks = 0 }: ArtNodeProps) {
+export function ArtNode({
+  position,
+  color = GLOW.active,
+  radius = 0.34,
+  selected = false,
+  filled = true,
+  y = 0.11,
+  ticks = 0,
+  progress,
+}: ArtNodeProps) {
   const [x, , z] = position;
   return (
     <group position={[x, y, z]}>
@@ -136,6 +147,13 @@ export function ArtNode({ position, color = GLOW.active, radius = 0.34, selected
         <mesh position={[0, 0.01, 0]}>
           <sphereGeometry args={[radius * 0.3, 16, 12]} />
           <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.1} roughness={0.3} metalness={0.1} />
+        </mesh>
+      )}
+      {/* 在制工序进度弧：角度由引擎的起止时刻推导（无数据则不画） */}
+      {typeof progress === 'number' && progress > 0.01 && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]}>
+          <ringGeometry args={[radius * 1.02, radius * 1.12, 56, 1, -Math.PI / 2, Math.min(1, progress) * Math.PI * 2]} />
+          <meshBasicMaterial color={GLOW.active} transparent opacity={0.92} depthWrite={false} side={2} />
         </mesh>
       )}
       {/* 计数刻度环：任务数 / 容量占用（真实数量，不是装饰） */}

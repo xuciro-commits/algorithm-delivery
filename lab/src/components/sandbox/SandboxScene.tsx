@@ -17,6 +17,7 @@ import { Color, PCFSoftShadowMap, ACESFilmicToneMapping, SRGBColorSpace } from '
 import { useEffect, useRef, type ReactNode } from 'react';
 import { SB } from './theme';
 import { ArtLightRig, ArtSceneEnvironment } from '../../art/ArtLightRig';
+import { ArtBloom } from './ArtBloom';
 import { ART_MODES } from '../../art/modes';
 import { useArtStore } from '../../art/settings';
 import type { ArtModeId } from '../../art/tokens';
@@ -35,7 +36,7 @@ export interface SandboxSceneProps {
   active?: boolean;
   /** 'legacy' = 既有沙盘灯光（默认，保持兼容）；'art' = 艺术化灯光（模式驱动）。 */
   lighting?: 'legacy' | 'art';
-  /** 艺术化模式覆盖（默认跟随全局 ArtModeBar 的选择）。 */
+  /** 艺术化模式覆盖（默认跟随应用顶栏的全局视觉模式）。 */
   artMode?: ArtModeId;
   /** true（默认）= 正交等距；false = 透视（英雄设备/近距离观察）。 */
   orthographic?: boolean;
@@ -67,12 +68,21 @@ export function SandboxScene({
   hdri = true,
 }: SandboxSceneProps) {
   const span = Math.max(width, height, 8);
-  // 全局视觉模式（App 壳里的 ArtModeBar）：既有沙盘不传 artMode 时跟随全局；
+  // 全局视觉模式（应用顶栏的模式簇）：既有沙盘不传 artMode 时跟随全局；
   // 模式 A 保持原有的 legacy 灯光与原始材质——行为与之前完全一致。
   const globalMode = useArtStore((state) => state.mode);
+  const bloomEnabled = useArtStore((state) => state.bloomEnabled);
+  const bloomStrength = useArtStore((state) => state.bloomStrength);
   const modeId = artMode ?? globalMode;
   const mode = ART_MODES[modeId];
   const artLighting = lighting === 'art' || globalMode !== 'A';
+  // 受控泛光：模式配置给出阈值与上限，全局开关与强度倍率由用户控制（0 = 完全关闭）。
+  const bloom = {
+    enabled: artLighting && bloomEnabled && mode.bloom.strength > 0 && bloomStrength > 0.02,
+    strength: mode.bloom.strength * bloomStrength,
+    threshold: mode.bloom.threshold,
+    radius: mode.bloom.radius,
+  };
   return (
     <div
       className={className}
@@ -102,6 +112,7 @@ export function SandboxScene({
           gl.domElement.dataset.webglVersion = gl.capabilities.isWebGL2 ? '2' : '1';
           gl.domElement.dataset.artLighting = artLighting ? 'art' : 'legacy';
           gl.domElement.dataset.artMode = modeId;
+          gl.domElement.dataset.artBloom = bloom.enabled ? 'on' : 'off';
         }}
       >
         {hdri && <Environment files={warehouseHdri} resolution={256} background={false} />}
@@ -114,6 +125,7 @@ export function SandboxScene({
           <SceneRig span={span} width={width} height={height} />
         )}
         {children}
+        <ArtBloom enabled={bloom.enabled} strength={bloom.strength} threshold={bloom.threshold} radius={bloom.radius} />
         <SceneHealthProbe />
       </Canvas>
     </div>

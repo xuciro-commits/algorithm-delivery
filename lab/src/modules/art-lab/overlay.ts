@@ -43,6 +43,33 @@ function taskColor(status: string | undefined): string {
   }
 }
 
+/**
+ * 把回放位置拆成"整数步 + 步内插值"。
+ *
+ * 引擎输出的是**离散时间步**（车辆在第 k 步位于某格），这里不改变任何离散事实，
+ * 只是在相邻两步之间做缓动插值用于绘制——所以"丝滑"来自渲染，不来自编造数据。
+ */
+function splitStep(step: number): { index: number; eased: number } {
+  const clamped = Number.isFinite(step) ? Math.max(0, step) : 0;
+  const index = Math.floor(clamped);
+  const fraction = clamped - index;
+  // smoothstep：两端慢、中间快，比线性插值更像真实机械起停。
+  return { index, eased: fraction * fraction * (3 - 2 * fraction) };
+}
+
+/** 两个格坐标之间的世界坐标插值（用于车辆/机器人当前位置光）。 */
+function lerpWorld(
+  mapping: ReturnType<typeof createGridMapping>,
+  from: [number, number] | undefined,
+  to: [number, number] | undefined,
+  f: number,
+  y = 0,
+): [number, number, number] {
+  const a = from ? cellToWorld(mapping, from, y) : [0, y, 0];
+  const b = to ? cellToWorld(mapping, to, y) : a;
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+
 export interface AgvOverlayInput {
   problem: AgvProblemLite;
   solution: AgvSolution;
@@ -62,11 +89,13 @@ export function buildAgvOverlay({ problem, solution, step, selectedTask = null }
   const statuses: OverlayStatusItem[] = [];
   const marks: AlgoOverlay['marks'] = [];
 
+  const { index: agvIndex, eased: agvEase } = splitStep(step);
+
   vehicles.forEach((vehicle, index) => {
     const timeline = vehicle.timeline ?? [];
     if (timeline.length < 2) return;
     const color = sbRobotColor(index);
-    const executedTo = Math.max(0, Math.min(step, timeline.length - 1));
+    const executedTo = Math.max(0, Math.min(agvIndex, timeline.length - 1));
     routes.push({
       id: `agv-${vehicle.id}`,
       color,
@@ -74,9 +103,10 @@ export function buildAgvOverlay({ problem, solution, step, selectedTask = null }
       executedTo,
       y: 0.06,
     });
-    const mission = (vehicle.missions ?? []).find((m) => step >= m.from && step <= m.to);
-    const cell = timeline[executedTo] ?? timeline[0];
-    statuses.push({ id: `agv-status-${vehicle.id}`, position: cellToWorld(mapping, cell, 0), tone: agvPhaseTone(mission?.phase) });
+    const mission = (vehicle.missions ?? []).find((m) => agvIndex >= m.from && agvIndex <= m.to);
+    // 车辆当前位置：在第 executedTo 与下一步之间缓动（画出来是连续运动，数据仍是离散步）。
+    const position = lerpWorld(mapping, timeline[executedTo], timeline[Math.min(executedTo + 1, timeline.length - 1)], agvEase, 0.02);
+    statuses.push({ id: `agv-status-${vehicle.id}`, position, tone: agvPhaseTone(mission?.phase) });
   });
 
   const nodes: OverlayNodeItem[] = [];
@@ -119,7 +149,9 @@ export function buildAgvOverlay({ problem, solution, step, selectedTask = null }
   const done = tasks.filter((t) => t.status === 'DONE').length;
   return {
     label: `AGV 调度 · ${problem.id ?? '问题'} · ${vehicles.length} 车 / ${tasks.length} 任务`,
-    status: `${solution.status}${solution.verified ? ' · 已独立核验' : ''} · 完成 ${done}/${tasks.length} · 当前步 ${step}`,
+    status: `${solution.status}${solution.verified ? ' · 已独立核验' : ''} · 完成 ${done}/${tasks.length} · 当前步 ${agvIndex}${
+      agvEase > 0.01 ? `（+${agvEase.toFixed(2)} 步内插值）` : ''
+    }`,
     routes,
     nodes,
     statuses,
@@ -132,7 +164,7 @@ export function buildAgvOverlay({ problem, solution, step, selectedTask = null }
       { color: GLOW.done, text: '已完成任务点' },
       { color: GLOW.alert, text: '超期（引擎 lateness>0）' },
     ],
-    mapping: `格阵 ${grid.width}×${grid.height} 等比映射到作业区 ${mapping.scale.toFixed(2)} m/格（保持正交与相对间距）`,
+    mapping: `格阵 ${grid.width}×${grid.height} 等比映射到作业区 ${mapping.scale.toFixed(2)} m/格（保持正交与相对间距）；步间为缓动插值，仅用于绘制`,
   };
 }
 
@@ -153,11 +185,13 @@ export function buildMapfOverlay({ problem, solution, step, selectedRobot = null
   const nodes: OverlayNodeItem[] = [];
   const projections: AlgoOverlay['projections'] = [];
 
+  const { index: mapfIndex, eased: mapfEase } = splitStep(step);
+
   solution.robots.forEach((robot, index) => {
     const path = robot.path ?? [];
     if (path.length === 0) return;
     const color = sbRobotColor(index);
-    const executedTo = Math.max(0, Math.min(step, path.length - 1));
+    const executedTo = Math.max(0, Math.min(mapfIndex, path.length - 1));
     if (path.length >= 2) {
       routes.push({
         id: `mapf-${robot.id}`,
@@ -168,8 +202,9 @@ export function buildMapfOverlay({ problem, solution, step, selectedRobot = null
         y: 0.07,
       });
     }
-    const current = path[executedTo] ?? path[0];
-    statuses.push({ id: `mapf-status-${robot.id}`, position: cellToWorld(mapping, current, 0), tone: executedTo >= path.length - 1 ? 'done' : 'running' });
+    // 机器人当前位置：同一步内缓动（与 AGV 完全一致的空间语汇）。
+    const position = lerpWorld(mapping, path[executedTo], path[Math.min(executedTo + 1, path.length - 1)], mapfEase, 0.02);
+    statuses.push({ id: `mapf-status-${robot.id}`, position, tone: executedTo >= path.length - 1 ? 'done' : 'running' });
     nodes.push({ id: `mapf-goal-${robot.id}`, position: cellToWorld(mapping, robot.goal, 0), color, radius: 0.28, filled: false });
     projections.push({ id: `mapf-goalproj-${robot.id}`, position: cellToWorld(mapping, robot.goal, 0), color, radius: mapping.scale * 0.75 });
   });
@@ -177,7 +212,9 @@ export function buildMapfOverlay({ problem, solution, step, selectedRobot = null
   const madeSpan = typeof solution.makespan === 'number' ? solution.makespan : null;
   return {
     label: `MAPF 路径规划 · ${problem.id ?? '问题'} · ${solution.robots.length} 机器人`,
-    status: `${solution.status}${solution.optimality_proven ? '（已证明最优）' : ''}${solution.verified ? ' · 已独立核验' : ''}${madeSpan != null ? ` · makespan ${madeSpan}` : ''} · 当前步 ${step}`,
+    status: `${solution.status}${solution.optimality_proven ? '（已证明最优）' : ''}${solution.verified ? ' · 已独立核验' : ''}${
+      madeSpan != null ? ` · makespan ${madeSpan}` : ''
+    } · 当前步 ${mapfIndex}`,
     routes,
     nodes,
     statuses,
@@ -188,7 +225,7 @@ export function buildMapfOverlay({ problem, solution, step, selectedRobot = null
       { color: GLOW.planned, text: '剩余路径（虚线）' },
       { color: GLOW.done, text: '已到达目标' },
     ],
-    mapping: `格阵 ${grid.width}×${grid.height} 等比映射到作业区 ${mapping.scale.toFixed(2)} m/格`,
+    mapping: `格阵 ${grid.width}×${grid.height} 等比映射到作业区 ${mapping.scale.toFixed(2)} m/格；步间为缓动插值，仅用于绘制`,
   };
 }
 
@@ -210,6 +247,7 @@ export function buildApsOverlay({ operations, machineStations, nowMs, verify }: 
   const marks: OverlayMarkList = [];
 
   const perStation = new Map<string, number>();
+  const runningProgress = new Map<string, number>();
   for (const op of operations) {
     const station = machineStations.get(op.machine_id);
     if (!station) continue;
@@ -217,12 +255,24 @@ export function buildApsOverlay({ operations, machineStations, nowMs, verify }: 
     const end = parseIsoMs(op.end_at);
     perStation.set(op.machine_id, (perStation.get(op.machine_id) ?? 0) + 1);
     const tone = nowMs >= end ? 'done' : nowMs >= start ? 'running' : 'idle';
+    // 在制工序的真实完成度（0–1）：只由引擎的起止时刻推导，用于画进度弧。
+    if (tone === 'running' && end > start) {
+      runningProgress.set(op.machine_id, Math.max(0, Math.min(1, (nowMs - start) / (end - start))));
+    }
     statuses.push({ id: `aps-${op.machine_id}-${op.operation_id}`, position: [station.x, 0, station.z], tone });
   }
 
   for (const [machineId, count] of perStation) {
     const station = machineStations.get(machineId)!;
-    nodes.push({ id: `aps-station-${machineId}`, position: [station.x, 0, station.z], color: GLOW.planned, radius: 0.42, ticks: count, filled: false });
+    nodes.push({
+      id: `aps-station-${machineId}`,
+      position: [station.x, 0, station.z],
+      color: GLOW.planned,
+      radius: 0.42,
+      ticks: count,
+      filled: false,
+      progress: runningProgress.get(machineId),
+    });
   }
 
   // 同订单工序先后 = 真实工艺流转（相邻工序之间连一条细线）。

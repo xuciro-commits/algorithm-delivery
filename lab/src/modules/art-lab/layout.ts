@@ -90,24 +90,40 @@ export interface StationPad {
   x: number;
   z: number;
   label: string;
+  /** 该泊位对应的产线设备 key（`LINE_EQUIPMENT`）——用于把算法使用的设备强调出来。 */
+  equipment?: string;
 }
 
 export const STATION_PADS: StationPad[] = [
-  { id: 'pad-1', x: 4.6, z: 9.0, label: '工位 1 · 加工中心' },
-  { id: 'pad-2', x: 8.4, z: 9.0, label: '工位 2 · 车削' },
-  { id: 'pad-3', x: 12.0, z: 9.0, label: '工位 3 · 铣削' },
-  { id: 'pad-4', x: 15.0, z: 9.0, label: '工位 4 · 压装' },
-  { id: 'pad-5', x: 18.4, z: 9.6, label: '工位 5 · 焊接' },
-  { id: 'pad-6', x: 21.4, z: 7.2, label: '工位 6 · 喷涂/装配' },
-  { id: 'pad-7', x: 4.6, z: 4.6, label: '工位 7 · 备料' },
-  { id: 'pad-8', x: 8.4, z: 4.6, label: '工位 8 · 备料' },
-  { id: 'pad-9', x: 12.0, z: 4.6, label: '工位 9 · 备料' },
-  { id: 'pad-10', x: 15.0, z: 4.6, label: '工位 10 · 备料' },
+  { id: 'pad-1', x: 4.6, z: 9.0, label: '工位 1 · 加工中心', equipment: 'cnc-a' },
+  { id: 'pad-2', x: 8.4, z: 9.0, label: '工位 2 · 车削', equipment: 'lathe-a' },
+  { id: 'pad-3', x: 12.0, z: 9.0, label: '工位 3 · 铣削', equipment: 'mill-a' },
+  { id: 'pad-4', x: 15.0, z: 9.0, label: '工位 4 · 压装', equipment: 'press-a' },
+  { id: 'pad-5', x: 18.4, z: 9.6, label: '工位 5 · 焊接', equipment: 'robot-weld' },
+  { id: 'pad-6', x: 21.4, z: 7.2, label: '工位 6 · 喷涂/装配', equipment: 'robot-paint' },
+  // 备料泊位没有固定设备：AGV/机器人在此取放料（真实语义，不硬凑一个设备上去）。
+  { id: 'pad-7', x: 4.6, z: 4.6, label: '备料泊位 7' },
+  { id: 'pad-8', x: 8.4, z: 4.6, label: '备料泊位 8' },
+  { id: 'pad-9', x: 12.0, z: 4.6, label: '备料泊位 9' },
+  { id: 'pad-10', x: 15.0, z: 4.6, label: '备料泊位 10' },
 ];
 
 /** APS 机器下标 → 泊位（确定性；超出泊位数时如实报告，不做重叠摆放）。 */
 export function stationForMachine(index: number): StationPad | null {
   return STATION_PADS[index] ?? null;
+}
+
+/**
+ * 本次排程里被使用的设备 key（用于在沙盘上强调这些设备）。
+ * 只做"机器 → 泊位 → 设备"的确定性映射；没有映射的机器不会让任何设备亮起。
+ */
+export function equipmentKeysForMachines(machines: readonly string[]): string[] {
+  const keys = new Set<string>();
+  machines.forEach((_, index) => {
+    const pad = stationForMachine(index);
+    if (pad?.equipment) keys.add(pad.equipment);
+  });
+  return [...keys];
 }
 
 /**

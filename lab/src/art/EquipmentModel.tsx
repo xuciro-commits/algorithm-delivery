@@ -17,7 +17,7 @@ import { ART_MODES } from './modes';
 import type { ArtModeId } from './tokens';
 import { ArtMaterialLibrary, applyArtMaterials, restoreOriginalMaterials, type ApplyStats } from './materials';
 import { classifyMesh } from './roles';
-import { useArtStore } from './settings';
+import { effectiveAlphaScales, useArtStore } from './settings';
 import type { PartGroup, PartRole } from './types';
 import { artAssetUrl } from './manifest';
 
@@ -103,6 +103,7 @@ export function EquipmentModel({
   hiddenGroups,
   hiddenParts,
   isolateRoles,
+  emphasized = false,
   dimSecondary = false,
   emphasizeParts,
   modeOverride,
@@ -123,6 +124,12 @@ export function EquipmentModel({
   const activeModeId = modeOverride ?? settings.mode;
   const mode = ART_MODES[activeModeId];
   const enabled = !mode.originalMaterials && !forceOriginals;
+  /**
+   * 有效透明强度 = 模式强度 × 用户系数（建筑层还要乘以"透明厂房"开关）。
+   * 这是"中等透明"得以生效的唯一入口：面板上的两条滑杆最终作用在这里，
+   * 而英雄实验台的显式覆盖（shellScaleOverride / structureScaleOverride）优先级更高。
+   */
+  const effective = effectiveAlphaScales(mode, settings);
   const library = useMemo(() => artLibraryFor(activeModeId, settings.physicalGlass), [activeModeId, settings.physicalGlass]);
 
   const hiddenKey = (hiddenGroups ?? []).join(',');
@@ -145,8 +152,8 @@ export function EquipmentModel({
     const emphasize = (emphasizeParts ?? []).map((p) => p.toLowerCase());
 
     const stats = applyArtMaterials(root, library, mode, settings, {
-      structureScale: structureScaleOverride ?? mode.structureTransparency,
-      shellScale: shellScaleOverride ?? mode.shellTransparency,
+      structureScale: structureScaleOverride ?? effective.structure,
+      shellScale: shellScaleOverride ?? effective.shell,
       dim: (object) => {
         const mesh = object as THREE.Mesh;
         const name = mesh.name.toLowerCase();
@@ -158,6 +165,7 @@ export function EquipmentModel({
         return dimSecondary;
       },
       emphasis: (object) => {
+        if (emphasized) return true;
         const name = (object as THREE.Mesh).name.toLowerCase();
         return emphasize.some((p) => name.includes(p));
       },
@@ -198,7 +206,7 @@ export function EquipmentModel({
     }
     // 依赖刻意使用序列化后的键：数组身份变化不应触发重算，内容变化才重算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, settings, enabled, library, url, hiddenKey, hiddenPartsKey, isolateKey, emphasizeKey, dimSecondary, shellScaleOverride, structureScaleOverride]);
+  }, [mode, settings, enabled, library, url, hiddenKey, hiddenPartsKey, isolateKey, emphasizeKey, emphasized, dimSecondary, shellScaleOverride, structureScaleOverride]);
 
   // 卸载时还原原始材质，保证 useGLTF 缓存与后续实例干净。
   useEffect(() => {

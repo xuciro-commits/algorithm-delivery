@@ -4,7 +4,7 @@
 > 原模型始终保留在 `lab/design/assets/**`，同步只是复制到 `lab/public/models/**`（构建产物，不入库）。
 
 - 模型数：**43**（去重后），合计 3.12 MB / 78,160 三角形
-- 生成时间：2026-10-03T21:18:20.668Z
+- 生成时间：2026-10-03T21:32:41.622Z
 
 ## hero（6）
 
@@ -31,7 +31,7 @@
 | `hall-roller-door-bay` | 卷帘门（物流出入口） | aps-machining | 22 KB | 408 | 4 | 5.6×8×0.52 | 0.0% | aperture×6 |
 | `hall-personnel-door-bay` | 人行门 | aps-machining | 17 KB | 300 | 6 | 5.6×8×0.471 | 4.0% | aperture×8 |
 | `high-bay-light-fitting` | 高棚工厂灯（工业局部光源的实体依据） | aps-machining | 15 KB | 284 | 3 | 0.6×1.25×0.585 | 0.0% | lighting×4 |
-| `gantry-crane-runway-rail-6-m` | 天车轨道 | aps-machining | 8 KB | 120 | 3 | 6.12×0.53×0.2 | 0.0% | guard×4 |
+| `gantry-crane-runway-rail-6-m` | 天车轨道 | aps-machining | 8 KB | 120 | 3 | 6.12×0.53×0.2 | 0.0% | structure×4 |
 | `mezzanine-floor-bay-with-handrail-6-m` | 夹层平台（次要结构的弱化对象） | aps-machining | 13 KB | 252 | 3 | 6×4.005×3.04 | 0.0% | structure×4 |
 
 ## equipment（23）

@@ -16,10 +16,12 @@ import { ArtLabPanel } from './ArtLabPanel';
 export const artLabModule: AlgorithmModule = {
   id: 'art-lab',
   name: '三维实验室',
-  tagline: '上传工业模型的 C4D 风格艺术化重构与真实算法空间呈现',
+  tagline: '三个实验室：英雄设备 · 透明厂房 · 算法观察',
   category: '工业可视化',
   status: 'ready',
   problemKind: '复用 AGV / MAPF / APS 既有问题结构',
-  engine: 'three.js 实时渲染 + APS/MAPF/AGV WASM 引擎',
+  engine: 'three.js 实时渲染（受控泛光）+ APS/MAPF/AGV WASM 引擎',
   Panel: ArtLabPanel,
 };
+
+export { ART_LABS, ART_ALGOS } from './ArtLabPanel';

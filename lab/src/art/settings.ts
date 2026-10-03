@@ -34,20 +34,29 @@ export interface ArtSettings {
   deEmphasize: boolean;
   /** 比例标尺与坐标参考（沙盘标注）。 */
   showScaleMarks: boolean;
+  /** 受控泛光总开关（审批：允许受控使用，但必须可以关掉）。 */
+  bloomEnabled: boolean;
+  /** 泛光强度倍率 0–1（0 = 完全关闭后处理）。 */
+  bloomStrength: number;
 }
 
 export const DEFAULT_ART_SETTINGS: ArtSettings = {
-  mode: 'A',
+  // 主目标形态是模式 B；模式 A / C 在界面上随时可切（几何与算法数据完全共用）。
+  mode: 'B',
   transparentFactory: true,
-  hideRoof: false,
-  structureAlpha: 1,
-  shellAlpha: 1,
+  // 审批：模式 B/C 默认把屋面隐去（透明厂房），模式 A 一律保留原貌。
+  hideRoof: true,
+  // 中等透明：外壳与建筑保留可读的实体感，机械细节优先。
+  structureAlpha: 0.85,
+  shellAlpha: 0.8,
   physicalGlass: false,
   showGrid: true,
   contactShadow: true,
   showOverlays: true,
   deEmphasize: true,
   showScaleMarks: true,
+  bloomEnabled: true,
+  bloomStrength: 0.6,
 };
 
 interface ArtStore extends ArtSettings {
@@ -65,9 +74,9 @@ export const useArtStore = create<ArtStore>((set) => ({
 
 /** 便捷读取（非 React 环境 / 事件回调里使用）。 */
 export function artSettingsSnapshot(): ArtSettings {
-  const { mode, transparentFactory, hideRoof, structureAlpha, shellAlpha, physicalGlass, showGrid, contactShadow, showOverlays, deEmphasize, showScaleMarks } =
+  const { mode, transparentFactory, hideRoof, structureAlpha, shellAlpha, physicalGlass, showGrid, contactShadow, showOverlays, deEmphasize, showScaleMarks, bloomEnabled, bloomStrength } =
     useArtStore.getState();
-  return { mode, transparentFactory, hideRoof, structureAlpha, shellAlpha, physicalGlass, showGrid, contactShadow, showOverlays, deEmphasize, showScaleMarks };
+  return { mode, transparentFactory, hideRoof, structureAlpha, shellAlpha, physicalGlass, showGrid, contactShadow, showOverlays, deEmphasize, showScaleMarks, bloomEnabled, bloomStrength };
 }
 
 /** 由设置推导出的最终透明强度（模式本身也会把强度置 0 —— 模式 A 不做任何透明）。 */
