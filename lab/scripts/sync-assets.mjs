@@ -186,10 +186,13 @@ for (const role of ['hero', 'hall', 'equipment', 'vehicle']) {
 lines.push('## 运行时加载策略（性能红线）');
 lines.push('');
 lines.push('- 英雄设备：同屏只载入当前选中的一台（切换时 dispose，材质复用共享库）；');
-lines.push('- 厂房与产线：按模块复用（同一个 GLB 只解析一次，实例通过 `<primitive object={...} clone>`? 不 —— 使用 drei `useGLTF` 缓存 + 每实例 `<primitive object={scene.clone(true)} />`，几何共享）；');
+lines.push('- 厂房与产线：drei `useGLTF` 缓存保证同一个 GLB 只解析一次，每实例 `scene.clone(true)` 共享几何、独立节点，绝不改动缓存本身；');
 lines.push('- 所有模型的四边形/三角形数上限由结构审查报告给出，禁止把 10 万三角形级的整合场景直接塞进实时画面。');
 lines.push('');
-writeFileSync(resolve(assetsDir, 'ART-LAB-MODEL-SET.md'), `${lines.join('\n')}\n`);
+// 校验模式只读：不重写清单文档（否则每次 `--check` 都会因为生成时间变化而弄脏工作区）
+if (!check) {
+  writeFileSync(resolve(assetsDir, 'ART-LAB-MODEL-SET.md'), `${lines.join('\n')}\n`);
+}
 
 if (problems.length) {
   console.error(`✗ sync-assets 失败 ${problems.length} 项：`);

@@ -2,6 +2,33 @@
 
 本仓库用于独立管理算法模块的规格说明、接口契约、Mock 数据、验收工具与可运行演示。算法核心与主业务系统物理隔离；浏览器演示在本地运行算法，不依赖常驻业务后端。
 
+## 这个仓库的设计思路
+
+1. **规格先行、契约冻结**：每个算法先有 SRS，再有 JSON Schema 契约与 Mock，然后才是实现；
+   `check_contracts.py` / 验收套件（S01–S08、M01–M12、A01–A16）跑在 CI 上，防止"实现偷偷改契约"。
+2. **算法与业务系统物理隔离**：引擎是可以单独编译、单独验收、单独发版的 Rust 库 + CLI + WASM，
+   不依赖常驻服务端；浏览器里跑的是同一份 WASM，不是"前端重写一遍算法"。
+3. **一个站点、多套模型**：不对每个算法单独建演示站。各算法保留自己的问题结构与引擎，
+   只共享"外壳"（导航、引擎状态条、错误边界）与**工业科技美术语言**（`lab/src/art`）。
+4. **引擎是唯一真相**：指标、约束核验、路径、状态都取自引擎输出，前端不做二次计算，
+   也不渲染占位假数据——没实现的算法就标"待接入"。
+5. **生成物不入库**：WASM、Worker 胶水、Mock、模型副本都由 `npm run sync` 生成并有自检；
+   仓库里只有单一来源（`*/rust`、`*/mock`、`lab/design/assets`）。
+6. **能量化的约束都写成断言**：性能红线、透明策略、文档链接、JSX 配平都由
+   `lab/scripts/*.mjs` 在 CI 里持续检查，避免"文档写一套、代码跑一套"。
+
+## 文档地图（建议阅读顺序）
+
+| 想了解 | 读这个 |
+| --- | --- |
+| 项目全貌与本地跑通 | 本文件 + [lab/README.md](lab/README.md) |
+| 算法需求（规格） | [aps/APS-SRS.md](aps/APS-SRS.md)、[mapf/MAPF-SRS.md](mapf/MAPF-SRS.md)、[agv/AGV-SRS.md](agv/AGV-SRS.md) |
+| 引擎怎么用、怎么集成 | `*/rust/docs/USAGE.md`、`*/rust/docs/INTEGRATION.md`、`*/rust/docs/CONFORMANCE.md` |
+| 实验室怎么接新算法 | [lab/README.md §7](lab/README.md) |
+| 三维美术方向与落地记录 | [lab/design/README.md](lab/design/README.md)（索引）→ 方向 / 蓝图 / 落地台账 |
+| 视觉验收现状（哪些结论没拿到） | [lab/design/VISUAL-ACCEPTANCE.md](lab/design/VISUAL-ACCEPTANCE.md) |
+| 素材从哪来、许可如何 | [lab/design/assets/ASSET-REGISTER.md](lab/design/assets/ASSET-REGISTER.md) |
+
 ## 模块
 
 ### APS 高级计划与排程引擎
@@ -27,7 +54,11 @@
 
 ### 统一算法实验室（Lab）
 
-`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 **APS 排程**、**MAPF 路径规划（Visual Lab：地图优先编辑器 + 时空回放 + 动态事件 + 运行对比）** 与 **AGV 调度（地图编辑 + 任务相位回放 + 工作站容量 + 动态重调度汇总）** 三个模块可运行；库位优化和密集立库会先以“待接入”标记展示，不显示虚构结果。
+`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 **APS 排程**、**MAPF 路径规划（Visual Lab：地图优先编辑器 + 时空回放 + 动态事件 + 运行对比）**、**AGV 调度（地图编辑 + 任务相位回放 + 工作站容量 + 动态重调度汇总）** 与 **三维实验室（`#art-lab`：英雄设备 / 透明厂房 / 算法观察三个实验室，模式 A 工业原貌 / B 工业科技艺术化 / C 算法观察）** 四个模块可运行；库位优化和密集立库会先以“待接入”标记展示，不显示虚构结果。
+
+三维实验室建立在**已上传的工业模型**之上（`lab/design/assets/**` 只读，禁止覆盖），
+通过 `npm run sync:assets` 同步 43 件入选模型到运行时目录；艺术化只改材质、可见性与分层透明，
+不重建几何、不替换设备。三种视觉模式共用同一份几何与同一份真实算法数据。
 
 - 实验室说明、开发与模块接入指南：[lab/README.md](lab/README.md)
 - **在线预览地址（首次启用 Pages 并完成部署后）：** <https://xuciro-commits.github.io/algorithm-delivery/>
@@ -88,7 +119,14 @@ bash scripts/build_wasm.sh                # 末尾自动跑 ABI 冒烟
 node scripts/test_worker_cancel.mjs
 ```
 
-实验室前端全量测试（场景内核 / 回放时钟 / 运行历史 / AGV 集成 / 渲染 / 产物 / Pages 子路径）：
+实验室静态检查（不需要 Rust、不需要浏览器，受限环境也能跑；含三维美术契约、性能红线、文档一致性）：
+
+```bash
+cd lab
+npm run test:static
+```
+
+实验室前端全量测试（场景内核 / 回放时钟 / 运行历史 / AGV 集成 / AGV 动态 / APS 产线映射 / 渲染 / 产物 / Pages 子路径）：
 
 ```bash
 cd lab

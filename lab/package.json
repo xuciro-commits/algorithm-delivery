@@ -20,7 +20,7 @@
     "test:render": "node scripts/test-render.mjs",
     "test:dist": "node scripts/check-dist.mjs",
     "test:pages": "node scripts/check-pages.mjs",
-    "test:all": "npm run build && npm run test:art && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run audit:perf && npm run test:dist && npm run test:pages",
+    "test:all": "npm run build && npm run test:post-build",
     "build:all": "bash scripts/build-all.sh",
     "sync:aps": "node scripts/sync-engine.mjs",
     "sync:mapf": "node scripts/sync-mapf.mjs",
@@ -35,7 +35,10 @@
     "test:visual": "node scripts/visual-acceptance.mjs",
     "sync:assets": "node scripts/sync-assets.mjs",
     "audit:models": "node scripts/model-structure-audit.mjs",
-    "test:art": "node scripts/test-art-system.mjs"
+    "test:art": "node scripts/test-art-system.mjs",
+    "test:static": "node scripts/check-docs.mjs && npm run test:art && npm run audit:perf",
+    "test:post-build": "npm run test:static && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run test:dist && npm run test:pages",
+    "check:docs": "node scripts/check-docs.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.3",
@@ -59,5 +62,8 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

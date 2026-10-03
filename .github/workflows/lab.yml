@@ -203,18 +203,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Lab 冒烟、Worker 生命周期、渲染与产物检查
-        run: |
-          npm run test:art
-          npm run test:core
-          npm run test:runner
-          npm run test:render
-          npm run test:mapf:scene
-          npm run test:mapf:playback
-          npm run test:mapf:runs
-          npm run test:agv
-          npm run test:dist
-          npm run test:pages
+      - name: Lab 静态检查、集成测试与产物校验
+        # 统一入口：test:post-build = test:static（文档/美术契约/性能红线）
+        # + 全部 Lab 集成测试 + 产物与 Pages 子路径仿真。
+        # 新增检查请改 lab/package.json 的 test:post-build，不要在 CI 里另起一份清单，
+        # 否则 CI 与本地 `npm run test:all` 会悄悄漂移。
+        run: npm run test:post-build
 
       - name: 准备 GitHub Pages 部署产物
         if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
