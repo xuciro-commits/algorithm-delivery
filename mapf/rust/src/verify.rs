@@ -155,7 +155,7 @@ struct Facts {
     height: u64,
     /// 静态障碍（行主序）。
     blocked: Vec<bool>,
-    robots: Vec<(String, (u64, u64), (u64, u64))>,
+    robots: Vec<RobotSpec>,
     declared_horizon: Option<u64>,
     /// (cell_index, from, until_opt)
     obs_add: Vec<(u64, u64, Option<u64>)>,
@@ -171,7 +171,12 @@ struct FrozenRobot {
     path: Vec<(u64, u64)>,
     frozen_end: u64,
 }
+/// 机器人静态定义在核验期的紧凑形态：id / 起点 / 终点（栅格坐标）。
+type RobotSpec = (String, (u64, u64), (u64, u64));
+
 struct FrozenSnapshot {
+    /// 快照时刻（解析期已校验取值域；核验逻辑经由各车 `frozen_end` 间接使用）
+    #[allow(dead_code)]
     time: u64,
     robots: Vec<FrozenRobot>,
 }
@@ -468,7 +473,7 @@ fn extract_facts(problem: &Json) -> Facts {
                 .unwrap_or(0)
                 .max(0) as u64;
             let mut frozen = Vec::new();
-            let mut path_map: Vec<((String), Vec<(u64, u64)>)> = Vec::new();
+            let mut path_map: Vec<(String, Vec<(u64, u64)>)> = Vec::new();
             let mut frozen_map: Vec<(String, u64)> = Vec::new();
             if let Some(ps) = snap_obj.iter().find(|(k, _)| k == "paths").map(|(_, v)| v) {
                 if let Some(fields) = ps.as_obj() {
@@ -612,11 +617,9 @@ fn extract_facts(problem: &Json) -> Facts {
                 let goal = goal_for(&f, id, *g);
                 let mut frozen_end = (time + extra).min(path.len() as u64 - 1);
                 // 目标未变且快照路径已驻留终点 ⇒ 冻结至核验时域
-                if goal_is_unchanged(&f, id, *g) {
-                    if path.last().copied() == Some(goal) {
-                        // 前缀尾已停在（未变更的）目标上：冻结延伸至整个已提供路径
-                        frozen_end = frozen_end.max(path.len() as u64 - 1);
-                    }
+                if goal_is_unchanged(&f, id, *g) && path.last().copied() == Some(goal) {
+                    // 前缀尾已停在（未变更的）目标上：冻结延伸至整个已提供路径
+                    frozen_end = frozen_end.max(path.len() as u64 - 1);
                 }
                 frozen.push(FrozenRobot {
                     id: id.clone(),
@@ -642,7 +645,7 @@ fn goal_for(f: &Facts, id: &str, original: (u64, u64)) -> (u64, u64) {
     f.goal_change
         .iter()
         .filter(|(rid, _, _)| rid == id)
-        .last()
+        .next_back()
         .map(|(_, g, _)| *g)
         .unwrap_or(original)
 }
@@ -867,7 +870,7 @@ pub fn verify_json(problem: &Json, solution: &Json, strict: bool) -> VerifyRepor
                     format!("机器人 `{id}` 路径起点与问题 start 不一致"),
                 )
                 .of(&[id.as_str()])
-                .cmp_vals(format!("{:?}", fstart), format!("{:?}", path_json[0])),
+                .cmp_vals(format!("{fstart:?}"), format!("{:?}", path_json[0])),
             );
         }
         // 每步合法性 + 障碍

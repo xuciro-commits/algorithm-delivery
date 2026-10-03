@@ -46,7 +46,7 @@ cd rust && ./target/release/mapf bench --manifest ../bench/manifest.json \
 
 # 实验室（同步产物 → 类型检查 → 构建）
 cd ../lab
-node scripts/sync-mapf.mjs && npm run typecheck && npx vite build
+npm run sync:mapf && npm run typecheck && npx vite build   # 一键复现 CI 全链：bash lab/scripts/build-all.sh
 ```
 
 ## 交付状态（本分支实测）
@@ -77,7 +77,24 @@ Moving AI 基准（`bench/`）来自 movingai.com，Open Data Commons Attributio
 引用：Stern et al., *Multi-Agent Pathfinding: Definitions, Variants, and Benchmarks*,
 SoCS 2019, pp. 151–158. 详见 `bench/UPSTREAM.md`。
 
-## 后续（PR 计划内）
+## 文档与验收产物
 
-- `MAPF-SRS.md`（需求说明书）与 `rust/docs/{USAGE,MODEL-MATH,CONFORMANCE,INTEGRATION,BENCHMARKS,ERROR-CODES,CAPABILITIES}.md`；
-- `mapf acceptance --report` 机器可读产物 + `mapf.yml`（CI：fmt/clippy/test/wasm/契约/基准快跑）。
+- `MAPF-SRS.md`（需求说明书 + §9 需求追溯矩阵，每条需求钉到实现与可执行证据）；
+- `rust/docs/`：USAGE · MODEL-MATH（数学规范）· CONFORMANCE（契约符合性等级）·
+  INTEGRATION（CLI/Rust/浏览器/实验室/CI 集成）· BENCHMARKS（硬件/预算矩阵/未解决场景全披露）·
+  ERROR-CODES（全量错误码）· CAPABILITIES（档位限额）；
+- 机器可读验收：`mapf acceptance --report docs/ACCEPTANCE.md --json docs/acceptance-results.json`
+  （`all_passed` 供 CI 门禁；两份报告文件随仓库发布）。
+
+## CI / Release
+
+- `mapf-quality.yml`：fmt → clippy `-D warnings` → `cargo test --release --locked` →
+  **acceptance --json 全过** → 契约检查 → 基准快跑（`verification_failures==0` 且
+  empty-8-8@1s 解出率 ≥70% 硬门）→ wasm 构建+冒烟 → Worker 取消回归 →
+  产物 `mapf-engine-artifacts`（CLI + wasm + 验收 JSON）；
+- `mapf-rust.yml`：push/PR（触及 `mapf/**` 或 `aps/rust/**`）触发质量门；
+- `lab.yml`：`build-lab` 同时依赖 APS 与 MAPF 质量门产物；`npm run sync` 自动装配两引擎
+  （新检出仓库无需任何手工复制），Pages 子路径仿真中两引擎分别用**页面同源字节**实例化并求解；
+- `release.yml`：`v*` 标签同批发布两算法约定产物
+  （`mapf-linux-x86_64/aarch64-unknown-linux-gnu.tar.gz`、
+  `mapf-engine-wasm32-unknown-unknown.wasm`，与 APS 产物合并 SHA256SUMS）。

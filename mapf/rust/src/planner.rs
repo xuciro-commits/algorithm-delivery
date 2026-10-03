@@ -142,16 +142,14 @@ pub fn plan(
     if blocked_now {
         return None;
     }
-    if start == goal {
-        if goal_park_ok(start_t) {
-            return Some(LowPlan {
-                positions: vec![start],
-                start_t,
-                arrival: start_t,
-            });
-        }
-        // 起点=终点但驻留被封锁：需先离开再回来（继续走通用搜索）。
+    if start == goal && goal_park_ok(start_t) {
+        return Some(LowPlan {
+            positions: vec![start],
+            start_t,
+            arrival: start_t,
+        });
     }
+    // 起点=终点但驻留被封锁：需先离开再回来（继续走通用搜索）。
 
     let mut g_score: HashMap<u64, u32> = HashMap::new();
     let mut came: HashMap<u64, u64> = HashMap::new();
@@ -286,6 +284,7 @@ impl PartialOrd for Node {
 mod tests {
     use super::*;
 
+    #[allow(clippy::type_complexity)] // 测试夹具三元组，别名反而绕
     fn empty3() -> (MapData, Vec<Vec<(u32, u32)>>, Vec<Vec<(u32, u32)>>) {
         let m = MapData {
             width: 3,

@@ -3,7 +3,7 @@
  * 渲染冒烟（无需浏览器）：把 `App` 在 Node 里以 SSR 方式渲染出来，断言：
  *   - 外壳可渲染：标题、模块导航、已接入/待接入模块都在；
  *   - 引擎未就绪时给出可操作提示（而不是白屏或抛错）；
- *   - 切到 planned 模块（如 #path-planning）显示路线图说明，且**不渲染任何假数据**；
+ *   - ready 模块（#path-planning 已接入 MAPF）渲染真面板；planned 模块（#agv-dispatch）显示路线图说明，且**不渲染任何假数据**；
  *   - 各算法模块 Panel 缺省（未传引擎上下文）时不崩溃。
  *
  * 说明：这里覆盖不了“浏览器里点运行”的完整交互（那部分由 test:core / test:runner /
@@ -64,9 +64,9 @@ const { render } = await import(pathToFileURL(join(tmp, 'render.mjs')).href);
 // ---- 1) 默认（APS）----
 let html = render('');
 check('外壳标题与副标题渲染', html.includes('算法实验室') && html.includes('统一实验'), '');
-check('模块导航含 APS 与四个待接入模块',
-  ['APS 计划排程', '路径规划', 'AGV 调度', '库位优化', '密集立库'].every((n) => html.includes(n)));
-check('模块导航标记“待接入”', (html.match(/待接入/g) ?? []).length >= 4);
+check('模块导航含 APS、路径规划（已就绪）与三个待接入模块',
+  ['APS 计划排程', 'MAPF 路径规划', 'AGV 调度', '库位优化', '密集立库'].every((n) => html.includes(n)));
+check('模块导航标记“待接入”（仅未接入的 3 个）', (html.match(/待接入/g) ?? []).length >= 3);
 check('引擎未就绪时给出等待提示', html.includes('引擎尚未就绪') || html.includes('正在加载引擎产物'));
 check('参数区渲染完整（种子/时间/目标/规则/迭代/修复/严格核验）',
   ['种子 seed', '求解时间（ms）', '优化目标', '搜索规则', '迭代上限', '局部修复', '严格核验'].every((t) => html.includes(t)));
@@ -76,9 +76,15 @@ check('标准 benchmark 与 JSON 导入入口可见',
   html.includes('选择文件') && html.includes('FJSPLib / Brandimarte') && html.includes('OR-Library JSSP'));
 check('结果区为空态而非假数据', html.includes('还没有结果'));
 
-// ---- 2) planned 模块 ----
+// ---- 2) path-planning 已就绪：渲染 MAPF 面板（引擎横幅），且不含任何假数据 ----
 html = render('#path-planning');
-check('切到路径规划：显示待接入说明', html.includes('路径规划') && html.includes('待接入'));
+check('切到路径规划：渲染 MAPF 面板（引擎装载状态提示）',
+  html.includes('MAPF 引擎') && (html.includes('引擎装载中') || html.includes('引擎未就绪')));
+check('MAPF 面板在引擎就绪前不显示任何结果/图表', !html.includes('gantt-bar') && !html.includes('mapf-canvas'));
+
+// ---- 2b) 仍未接入的 planned 模块：显示路线图说明，不渲染假界面 ----
+html = render('#agv-dispatch');
+check('切到 AGV 调度：显示待接入说明', html.includes('AGV 调度') && html.includes('待接入'));
 check('planned 页面不含任何运行结果/甘特图', !html.includes('gantt-bar') && !html.includes('还没有结果'));
 
 // ---- 3) 未知 hash 回退到首个 ready 模块 ----

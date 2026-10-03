@@ -290,10 +290,9 @@ pub fn parse_problem(text: &str, profile: Profile) -> Result<Problem, ParseFailu
     };
     let mut v = Validator::new();
     let p = build_problem(&root, profile, &mut v);
-    let mut issues = std::mem::take(&mut v.issues);
+    let issues = std::mem::take(&mut v.issues);
     let unsup = v.unsupported;
     // 结构问题优先于语义结果：只要存在 error 级 Issue 就拒绝。
-    issues.retain(|i| true);
     if issues.iter().any(|i| i.severity == Severity::Error) || unsup {
         return Err(if unsup {
             ParseFailure::unsupported(issues)
@@ -703,7 +702,7 @@ fn parse_map(j: Option<&Json>, v: &mut Validator) -> Result<MapData, ()> {
             let mut strs: Vec<String> = Vec::with_capacity(rows.len());
             for (ri, r) in rows.iter().enumerate() {
                 let s = match r.as_str() {
-                    Some(s) => s.clone(),
+                    Some(s) => s,
                     None => {
                         v.err(
                             codes::MAP_SHAPE,
@@ -812,6 +811,9 @@ fn parse_map(j: Option<&Json>, v: &mut Validator) -> Result<MapData, ()> {
 }
 
 /// `blocked: [[x,y], ...]` + width/height。
+/// `blocked_list` 输出：障碍位图 + 归一化后的宽高 + 校验出的单元格数（可空）。
+type DimsOut = (Vec<bool>, Option<i64>, Option<i64>);
+
 fn blocked_list(
     bl: &Json,
     mut w: Option<i64>,
@@ -819,7 +821,7 @@ fn blocked_list(
     v: &mut Validator,
     obj: &Json,
     path: &str,
-) -> Result<(Vec<bool>, Option<i64>, Option<i64>), ()> {
+) -> Result<DimsOut, ()> {
     if w.is_none() || h.is_none() {
         v.err(
             codes::MISSING_FIELD,
@@ -1134,8 +1136,10 @@ fn parse_solver(
     profile: Profile,
     horizon_auto: bool,
 ) -> Result<SolverCfg, ()> {
-    let mut cfg = SolverCfg::default();
-    cfg.horizon_auto = horizon_auto;
+    let mut cfg = SolverCfg {
+        horizon_auto,
+        ..SolverCfg::default()
+    };
     let Some(obj) = j else { return Ok(cfg) };
     if obj.is_null() {
         return Ok(cfg);
@@ -1237,9 +1241,7 @@ fn parse_bench(j: Option<&Json>, v: &mut Validator, robots: &[Robot]) -> Option<
     if obj.is_null() {
         return None;
     }
-    let Some(obj) = expect_obj(v, obj, "$.benchmark") else {
-        return None;
-    };
+    let obj = expect_obj(v, obj, "$.benchmark")?;
     v.check_unknown(
         obj,
         &[
@@ -1283,14 +1285,14 @@ fn parse_bench(j: Option<&Json>, v: &mut Validator, robots: &[Robot]) -> Option<
         ("map_sha256", &meta.map_sha256),
         ("scen_sha256", &meta.scen_sha256),
     ] {
-        if !field.is_empty() && !field.starts_with("sha256:") || field.len() != 71 {
-            if !field.is_empty() {
-                v.err(
-                    codes::BENCH_HASH_MISMATCH,
-                    format!("$.benchmark.{k}"),
-                    "哈希必须使用 `sha256:<64hex>` 形式",
-                );
-            }
+        if (!field.is_empty() && !field.starts_with("sha256:") || field.len() != 71)
+            && !field.is_empty()
+        {
+            v.err(
+                codes::BENCH_HASH_MISMATCH,
+                format!("$.benchmark.{k}"),
+                "哈希必须使用 `sha256:<64hex>` 形式",
+            );
         }
     }
     Some(meta)
@@ -1591,7 +1593,7 @@ fn parse_dynamic(
         prior_paths: given_paths,
         events,
     };
-    dyn_.events.sort_by_key(|e| event_time(e));
+    dyn_.events.sort_by_key(event_time);
     finalize_dynamic(&mut dyn_, map, robots, horizon, v)?;
     Ok(Some(dyn_))
 }
@@ -1660,7 +1662,7 @@ fn finalize_dynamic(
                     v.err(
                         codes::DUP_GOAL,
                         "$.dynamic.events",
-                        format!("新终点与另一台机器人的有效目标重复"),
+                        "新终点与另一台机器人的有效目标重复".to_string(),
                     );
                     return Err(());
                 }

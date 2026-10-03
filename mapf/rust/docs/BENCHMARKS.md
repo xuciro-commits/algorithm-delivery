@@ -10,6 +10,15 @@
   L. Cohen, T. Kumar, E. Boyarski, R. Barták. *Multi-Agent Pathfinding: Definitions,
   Variants, and Benchmarks*. SOCS 2019, pp. 151–158.
 
+## 测试环境与产物
+
+- 硬件：Intel Xeon @ 2.60 GHz · **2 vCPU** · 3.8 GiB RAM · x86_64 · Linux（Arena 沙箱，无独占保障）；
+- 构建：`cargo build --release --locked`（rustc 1.8x，`opt-level=3` 默认），`seed=42`；
+- **完整原始结果**随仓库发布：`mapf/bench/results/bench-2026-10-03.json`
+  （132 行逐实例：状态/目标值/下界/差距/编译·求解·首解·核验各阶段耗时/展开数/峰值内存/
+  `problem_hash`/`semantic_digest`），本文档所有数字均可由该文件复算；
+- 未解决场景（17 次 UNKNOWN）在“UNKNOWN 归因”一节**逐格列出**，不做隐去处理。
+
 ## 运行方式
 
 ```bash
@@ -98,5 +107,5 @@ soc 下界追平难，多数实例以 FEASIBLE + 有界差距交付。这正是 
 - `mapf/bench/results/bench-2026-10-03.json` —— 本表全部数字的来源（rows/summary）；
 - `mapf/bench/maps/`、`mapf/bench/scen/` —— 上游数据 + 每文件 sha256（见清单）。
 
-> 环境说明：以上测自 Arena 沙箱（x86-64 共享 vCPU）。CI/本地复跑时耗时列会变，
+> 环境说明：以上测自本文“测试环境”一节声明的沙箱机器（共享 vCPU）。CI/本地复跑时耗时列会变，
 > 解出率与核验结论不应变——若变了，优先怀疑确定性/种子处理而非机器差异。

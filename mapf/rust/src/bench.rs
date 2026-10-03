@@ -459,12 +459,10 @@ fn summarize(rows: &[Json]) -> Json {
             "INFEASIBLE" => a.infeasible += 1,
             _ => a.invalid += 1,
         }
-        if a.ok > 0 || true {
-            if let Some(false) = r.get("verified").and_then(|v| v.as_bool()) {
-                let st = r.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                if st == "OPTIMAL" || st == "FEASIBLE" {
-                    a.verified_fail += 1;
-                }
+        if let Some(false) = r.get("verified").and_then(|v| v.as_bool()) {
+            let st = r.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            if st == "OPTIMAL" || st == "FEASIBLE" {
+                a.verified_fail += 1;
             }
         }
         if let Some(s) = r.get("soc").and_then(|v| v.as_i64()) {

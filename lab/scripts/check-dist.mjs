@@ -118,7 +118,8 @@ if (existsSync(mapfManifestPath)) {
   console.log('· 未发现 mapf-manifest.json：跳过 MAPF 产物校验（如需装配请运行 lab/scripts/sync-mapf.mjs）');
 }
 
-// 运行时是否真的会走子路径：构建产物里应出现 `${base}engine-manifest.json`const assetsDir = join(distDir, 'assets');
+// 运行时是否真的会走子路径：构建产物里应出现 `${base}engine-manifest.json`
+const assetsDir = join(distDir, 'assets');
 let jsText = '';
 if (existsSync(assetsDir)) {
   for (const f of readdirSync(assetsDir).filter((f) => f.endsWith('.js'))) {

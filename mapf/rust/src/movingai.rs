@@ -234,14 +234,12 @@ pub fn build_problem(
     scen: &[ScenLine],
     opt: &ConvertOptions,
 ) -> Result<Json, String> {
-    let mut k = opt.agents;
+    let k = opt.agents;
     let mut lines_used: Vec<usize> = Vec::new();
     let conversion;
     // 标准读法：行内 pairs ≥ k 的行（Moving AI 原始 -even/-random.scen）
     if let Some(pos) = scen.iter().position(|l| l.pairs.len() >= k) {
-        for p in 0..k {
-            lines_used.push(pos);
-        }
+        lines_used.extend(std::iter::repeat(pos).take(k));
         conversion = format!("standard:line#{pos}");
     } else if k <= scen.len() {
         // 累加读法：前 k 行，每行取第一对（“add one agent at a time”）
@@ -264,7 +262,7 @@ pub fn build_problem(
         taken_pairs.extend(scen[pos].pairs.iter().take(k).cloned());
     } else {
         for l in scen.iter().take(k) {
-            taken_pairs.push(l.pairs[0].clone());
+            taken_pairs.push(l.pairs[0]);
         }
     }
     // 上游 Moving AI 数据里偶见“起点=终点”的退化行（官方 solvers 惯例是直接跳过：

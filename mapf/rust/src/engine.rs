@@ -139,7 +139,7 @@ fn gate(p: &Problem, profile: Profile) -> Result<(), Vec<Issue>> {
 
 #[allow(clippy::too_many_arguments)]
 fn run_pipeline(
-    mut p: Problem,
+    p: Problem,
     opts: &SolveOptions,
     cancel: &CancelToken,
     root: &Json,
@@ -352,7 +352,7 @@ fn run_pipeline(
         &paths_json,
         &last,
         horizon_used,
-        &mut notes,
+        &notes,
         &errors,
         dyn_metrics_json,
         (
@@ -488,7 +488,7 @@ fn build_solution(
     paths_json: &Json,
     last: &ecbs::EcbsResult,
     horizon_used: u32,
-    notes: &mut Vec<String>,
+    notes: &[String],
     errors: &[Issue],
     dyn_json: Option<Json>,
     timings: (f64, f64, Option<f64>, f64),
@@ -586,7 +586,7 @@ fn build_solution(
         ),
     ]);
     let mut obj: Vec<(String, Json)> = Vec::new();
-    let mut add = |k: &str, v: Json, obj: &mut Vec<(String, Json)>| obj.push((k.to_string(), v));
+    let add = |k: &str, v: Json, obj: &mut Vec<(String, Json)>| obj.push((k.to_string(), v));
     add(
         "schema_version",
         Json::str(crate::errors::SCHEMA_VERSION_SOLUTION),
@@ -718,7 +718,7 @@ fn build_solution(
     }
     add("dynamic", dyn_json.unwrap_or(Json::Null), &mut obj);
     add("errors", problem::issues_to_json(errors), &mut obj);
-    add("notes", Json::strings(notes.clone()), &mut obj);
+    add("notes", Json::strings(notes.to_vec()), &mut obj);
     Json::Obj(obj)
 }
 
@@ -822,8 +822,7 @@ fn error_outcome(
 ) -> Outcome {
     let mut v: Vec<(String, Json)> = Vec::new();
     {
-        let mut add =
-            |k: &str, val: Json, v: &mut Vec<(String, Json)>| v.push((k.to_string(), val));
+        let add = |k: &str, val: Json, v: &mut Vec<(String, Json)>| v.push((k.to_string(), val));
         add(
             "schema_version",
             Json::str(crate::errors::SCHEMA_VERSION_SOLUTION),

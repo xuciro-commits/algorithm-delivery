@@ -153,6 +153,37 @@ try {
     solved.status === 'FEASIBLE' || solved.status === 'OPTIMAL',
     `${solved.status} · ${solved.solution?.operations?.length ?? 0} 工序`,
   );
+
+  // ---- 4) MAPF 引擎：Pages 上同样必须真实可跑（存在清单即全链路校验） ----
+  const mapfManifestRes = await fetch(`${baseUrl}mapf-manifest.json`);
+  if (mapfManifestRes.ok) {
+    const mm = await mapfManifestRes.json();
+    check('子路径下 mapf-manifest.json 可访问', true, `${mm.engine} v${mm.version}`);
+    const mWasmRes = await fetch(`${baseUrl}${mm.wasm.file}`);
+    const mWasmBytes = new Uint8Array(await mWasmRes.arrayBuffer());
+    check('子路径下 MAPF wasm 可访问且 MIME 正确', mWasmRes.ok && (mWasmRes.headers.get('content-type') ?? '').includes('wasm'));
+    const mDigest = createHash('sha256').update(mWasmBytes).digest('hex');
+    check('页面取到的 MAPF wasm 与清单 sha256 一致', mDigest === mm.wasm.sha256, mDigest.slice(0, 16) + '…');
+    const mWorkerRes = await fetch(`${baseUrl}${mm.worker.file}`);
+    check('MAPF Worker 入口以 JS MIME 提供', mWorkerRes.ok && (mWorkerRes.headers.get('content-type') ?? '').includes('javascript'));
+    for (const mock of (mm.mocks ?? []).slice(0, 4)) {
+      const res = await fetch(`${baseUrl}${mock.file}`);
+      check(`MAPF 数据文件可访问 ${mock.file}`, res.ok, `HTTP ${res.status}`);
+    }
+    const mGlue = await import(`${pathToFileURL(join(mounted, 'wasm', 'mapf-worker.js')).href}?t=${Date.now()}`);
+    const mEngine = await mGlue.createEngine(mWasmBytes);
+    check('MAPF：页面字节可实例化', typeof mEngine.version === 'string', `v${mEngine.version}`);
+    const m01Entry = (mm.mocks ?? []).find((m) => m.file.includes('m01'));
+    const m01 = JSON.parse(readFileSync(join(mounted, m01Entry.file), 'utf8'));
+    const mSolved = mEngine.solve(JSON.stringify(m01));
+    check(
+      'MAPF：端到端求解成功（页面同源数据 → WASM → 解，OPTIMAL 且内嵌核验通过）',
+      (mSolved.status === 'OPTIMAL' || mSolved.status === 'FEASIBLE') && mSolved.solution?.verified === true,
+      `${mSolved.status} · soc=${mSolved.solution?.soc}`,
+    );
+  } else {
+    console.log('· 站点未部署 mapf-manifest.json：跳过 MAPF 运行时校验');
+  }
 } finally {
   server.close();
   rmSync(siteRoot, { recursive: true, force: true });

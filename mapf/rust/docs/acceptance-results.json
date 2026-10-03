@@ -1,0 +1,310 @@
+{
+  "schema_version": "mapf-acceptance/1.0",
+  "engine": "rust-ecbs-cbs",
+  "engine_version": "1.0.0",
+  "total": 14,
+  "passed": 14,
+  "failed": 0,
+  "all_passed": true,
+  "cases": [
+    {
+      "id": "M01",
+      "title": "单车基础（5×5 无障碍，对角 6 步）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=OPTIMAL（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "objective.value=6（实际 Some(6)）",
+          "ok": true
+        },
+        {
+          "name": "soc=6（实际 Some(6)）",
+          "ok": true
+        },
+        {
+          "name": "makespan=6（实际 Some(6)）",
+          "ok": true
+        },
+        {
+          "name": "optimality_proven=true",
+          "ok": true
+        },
+        {
+          "name": "verified=true（独立核验）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M02",
+      "title": "交叉冲突（中心单元争用）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=OPTIMAL（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "soc=5（实际 Some(5)）",
+          "ok": true
+        },
+        {
+          "name": "verified=true",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M03",
+      "title": "头对头走廊交换（侧袋让行）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status∈{OPTIMAL,FEASIBLE}（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "soc≤12（实际 Some(11)）",
+          "ok": true
+        },
+        {
+          "name": "verified=true（含边冲突=0 重算）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M04",
+      "title": "窄通道排队（1 宽走廊 + 3 侧袋）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status∈{OPTIMAL,FEASIBLE}（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "verified=true",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M05",
+      "title": "四车环形让行（2×2 同步旋转合法）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=OPTIMAL（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "soc=4（实际 Some(4)）",
+          "ok": true
+        },
+        {
+          "name": "makespan=1（实际 Some(1)）",
+          "ok": true
+        },
+        {
+          "name": "verified=true（环流未被误判为冲突）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M06",
+      "title": "目标占用（等前车让位）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=OPTIMAL（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "soc=4（实际 Some(4)）",
+          "ok": true
+        },
+        {
+          "name": "verified=true",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M07",
+      "title": "非法输入拒绝（重复起点 + 越界坐标）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=INVALID_INPUT（实际 Some(\"INVALID_INPUT\")）",
+          "ok": true
+        },
+        {
+          "name": "errors 含 E-ROBOT-DUP-START（实际 [\"E-ROBOT-COORD-RANGE\", \"E-ROBOT-DUP-START\", \"E-ROBOT-DUP-GOAL\"]）",
+          "ok": true
+        },
+        {
+          "name": "errors 含 E-ROBOT-COORD-RANGE",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M07b",
+      "title": "能力外请求拒绝（对角移动）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=UNSUPPORTED（实际 Some(\"UNSUPPORTED\")）",
+          "ok": true
+        },
+        {
+          "name": "errors 含 E-CAP-UNSUPPORTED-FEATURE（实际 [\"E-CAP-UNSUPPORTED-FEATURE\", \"E-CAP-UNSUPPORTED-FEATURE\"]）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M08a",
+      "title": "不可达目标（孤立单元）⇒ INFEASIBLE",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=INFEASIBLE（实际 Some(\"INFEASIBLE\")）",
+          "ok": true
+        },
+        {
+          "name": "search.finish=exhausted（证明来源：穷尽而非超时）",
+          "ok": true
+        },
+        {
+          "name": "robots 为空（INFEASIBLE 不携带路径）",
+          "ok": true
+        },
+        {
+          "name": "objective.value=null（无解不声明目标值）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M08b",
+      "title": "预算/扩展上限耗尽 ⇒ UNKNOWN",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status=UNKNOWN（实际 Some(\"UNKNOWN\")）",
+          "ok": true
+        },
+        {
+          "name": "robots 为空（无在途合法方案可交付）",
+          "ok": true
+        },
+        {
+          "name": "optimality_proven=false",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M09",
+      "title": "20+ 车竞争瓶颈（13×13，24 台）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status∈{OPTIMAL,FEASIBLE}（实际 Some(\"FEASIBLE\")）",
+          "ok": true
+        },
+        {
+          "name": "robots=24（实际 Some(24)）",
+          "ok": true
+        },
+        {
+          "name": "verified=true（全部方案通过独立核验）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M10",
+      "title": "动态障碍 + 目标变更 + 路径作废（t=2 快照）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "status∈{OPTIMAL,FEASIBLE}（实际 Some(\"OPTIMAL\")）",
+          "ok": true
+        },
+        {
+          "name": "verified=true（含冻结前缀/快照一致性检查）",
+          "ok": true
+        },
+        {
+          "name": "verify.checks 全部通过（含 snap/frozen）",
+          "ok": true
+        },
+        {
+          "name": "dynamic.replan=true",
+          "ok": true
+        },
+        {
+          "name": "dynamic.affected_agents≥1（实际 1）",
+          "ok": true
+        },
+        {
+          "name": "frozen_prefix_covered≥3（实际 3）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M11",
+      "title": "篡改方案拒绝（墙侵入/顶点冲突/谎报 SOC）",
+      "ok": true,
+      "checks": [
+        {
+          "name": "verify.ok=false（实际 false）",
+          "ok": true
+        },
+        {
+          "name": "violations 含 E-WALL-ENTRY（实际 [\"E-WALL-ENTRY\", \"E-WALL-ENTRY\", \"E-CONFLICT-VERTEX\", \"E-OBJ-SOC\", \"E-OBJ-SOC\"]）",
+          "ok": true
+        },
+        {
+          "name": "violations 含 E-CONFLICT-VERTEX（实际 [\"E-WALL-ENTRY\", \"E-WALL-ENTRY\", \"E-CONFLICT-VERTEX\", \"E-OBJ-SOC\", \"E-OBJ-SOC\"]）",
+          "ok": true
+        },
+        {
+          "name": "violations 含 E-OBJ-SOC（实际 [\"E-WALL-ENTRY\", \"E-WALL-ENTRY\", \"E-CONFLICT-VERTEX\", \"E-OBJ-SOC\", \"E-OBJ-SOC\"]）",
+          "ok": true
+        },
+        {
+          "name": "M11 问题本体合法（status=Some(\"OPTIMAL\")）",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "id": "M12",
+      "title": "运行中取消 → 恢复重解",
+      "ok": true,
+      "checks": [
+        {
+          "name": "取消后 status=CANCELLED（实际 Some(\"CANCELLED\")）",
+          "ok": true
+        },
+        {
+          "name": "恢复后 status∈{OPTIMAL,FEASIBLE}（实际 Some(\"FEASIBLE\")）",
+          "ok": true
+        },
+        {
+          "name": "恢复后 verified=true",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}
+

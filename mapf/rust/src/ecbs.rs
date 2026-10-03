@@ -11,7 +11,7 @@
 //!   - open.min ≥ UB（w=1）⇒ `OPTIMAL`；
 //!   - open.min ≥ UB/w（w>1）⇒ 有界次优（gap ≤ w，如实报告，不宣称最优）；
 //!   - open 穷尽且无解 ⇒ 声明时域内 `INFEASIBLE`（自动时域不享有该资格）。
-//!   推导与完整证明骨架见 `docs/MODEL-MATH.md` §5–§6。
+//!     推导与完整证明骨架见 `docs/MODEL-MATH.md` §5–§6。
 //! * **底层**：`(cell, t)` 时空图上的 A*（`planner.rs`），启发 = 曼哈顿距离（可采纳）；
 //!   分支时只对“被加约束的那台车”做增量重规划。
 //! * **首解**：Prioritized Planning（距离降序 + seed 打散的确定性优先序）给出可行
@@ -57,6 +57,7 @@ pub struct Instance<'a> {
 }
 
 impl<'a> Instance<'a> {
+    #[allow(clippy::too_many_arguments)] // 场景装配参数天然成组，拆分反而割裂借用语义
     pub fn new(
         map: &'a crate::problem::MapData,
         blocked: &'a [Vec<(u32, u32)>],
@@ -180,6 +181,7 @@ enum ConflictKind {
 }
 
 /// 执行联合搜索。`deadline_ms` 为单调时钟绝对毫秒。
+#[allow(clippy::too_many_arguments)] // 预算/取消/统计上下文打包成参会稀释调用点的可读性
 pub fn solve(
     inst: &Instance<'_>,
     w: f64,
@@ -202,8 +204,7 @@ pub fn solve(
         cancel: cancel.clone(),
         expansions_cap: 0,
     };
-    let mut root_lb = 0i64;
-    {
+    let root_lb = {
         let mut sum = 0i64;
         let mut mx = 0i64;
         for i in 0..inst.n {
@@ -211,11 +212,11 @@ pub fn solve(
             sum += d;
             mx = mx.max(d);
         }
-        root_lb = match inst.objective {
+        match inst.objective {
             Objective::Soc => sum,
             Objective::Makespan => mx,
-        };
-    }
+        }
+    };
 
     macro_rules! out {
         ($solution:expr, $best_cost:expr, $lower_bound:expr, $proven_optimal:expr, $finish:expr, $fsm:expr $(,)?) => {
@@ -235,7 +236,7 @@ pub fn solve(
     // —— 根节点：各车单独最早到达 ——
     let cons = vec![AgentConstraints::new(); inst.n];
     let mut root_paths: Vec<AgentPath> = Vec::with_capacity(inst.n);
-    for i in 0..inst.n {
+    for (i, con) in cons.iter().enumerate() {
         let mut expired = false;
         let mut ls = LowStats::default();
         let Some(s) = planner::plan(
@@ -243,7 +244,7 @@ pub fn solve(
             inst.start_cell(i),
             inst.prefix_end(i),
             inst.goals[i],
-            &cons[i],
+            con,
             &mut expired,
             &mut ls,
         ) else {
@@ -521,8 +522,8 @@ fn find_conflict(
     let mut edges: HashMap<(Cell, Cell), usize> = HashMap::with_capacity(n * 2);
     for t in 0..=m {
         occ.clear();
-        for i in 0..n {
-            let c = paths[i].pos_at(t);
+        for (i, p) in paths.iter().enumerate() {
+            let c = p.pos_at(t);
             if let Some(&j) = occ.get(&c) {
                 stats.conflicts_checked += 1;
                 return Some((j, i, t, ConflictKind::Vertex));
@@ -531,9 +532,9 @@ fn find_conflict(
         }
         if t < m {
             edges.clear();
-            for i in 0..n {
-                let a = paths[i].pos_at(t);
-                let b = paths[i].pos_at(t + 1);
+            for (i, p) in paths.iter().enumerate() {
+                let a = p.pos_at(t);
+                let b = p.pos_at(t + 1);
                 if a == b {
                     continue;
                 }
@@ -606,6 +607,8 @@ pub fn prioritized_planning(
     let mut paths: Vec<Option<AgentPath>> = vec![None; inst.n];
 
     // 锁定车先占用时空
+    // （i 同时索引 prefixes/goals/paths 多个集合，保持下标写法最清晰）
+    #[allow(clippy::needless_range_loop)]
     for i in 0..inst.n {
         if !inst.is_locked(i) {
             continue;
@@ -618,10 +621,9 @@ pub fn prioritized_planning(
             } else {
                 goal
             };
-            let is_goal_park = (t as usize) >= pfx.len();
-            for j in 0..inst.n {
-                if j != i && !(is_goal_park && j == i) {
-                    vertex_keys[j].insert(AgentConstraints::vertex_key(t, cell));
+            for (j, vk) in vertex_keys.iter_mut().enumerate() {
+                if j != i {
+                    vk.insert(AgentConstraints::vertex_key(t, cell));
                 }
             }
         }
@@ -679,9 +681,9 @@ pub fn prioritized_planning(
         // 的前车”相撞（M09 自检拒收的根因）。
         for t in 0..=inst.horizon {
             let c = p.pos_at(t);
-            for j in 0..inst.n {
+            for (j, vk) in vertex_keys.iter_mut().enumerate() {
                 if j != i {
-                    vertex_keys[j].insert(AgentConstraints::vertex_key(t, c));
+                    vk.insert(AgentConstraints::vertex_key(t, c));
                 }
             }
         }
@@ -689,18 +691,18 @@ pub fn prioritized_planning(
             let a = p.pos_at(t);
             let b = p.pos_at(t + 1);
             if a != b {
-                for j in 0..inst.n {
+                for (j, ek) in edge_keys.iter_mut().enumerate() {
                     if j != i {
-                        edge_keys[j].insert(AgentConstraints::encode_edge(t, a, b, n_cells));
-                        edge_keys[j].insert(AgentConstraints::encode_edge(t, b, a, n_cells));
+                        ek.insert(AgentConstraints::encode_edge(t, a, b, n_cells));
+                        ek.insert(AgentConstraints::encode_edge(t, b, a, n_cells));
                     }
                 }
             }
         }
         for t in p.arrival + 1..=inst.horizon {
-            for j in 0..inst.n {
+            for (j, vk) in vertex_keys.iter_mut().enumerate() {
                 if j != i {
-                    vertex_keys[j].insert(AgentConstraints::vertex_key(t, p.goal));
+                    vk.insert(AgentConstraints::vertex_key(t, p.goal));
                 }
             }
         }

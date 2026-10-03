@@ -6,13 +6,17 @@ on:
     paths:
       - "lab/**"
       - "aps/**"
+      - "mapf/**"
       - ".github/workflows/aps-quality.yml"
+      - ".github/workflows/mapf-quality.yml"
       - ".github/workflows/lab.yml"
   pull_request:
     paths:
       - "lab/**"
       - "aps/**"
+      - "mapf/**"
       - ".github/workflows/aps-quality.yml"
+      - ".github/workflows/mapf-quality.yml"
       - ".github/workflows/lab.yml"
   workflow_dispatch:
     inputs:
@@ -33,9 +37,13 @@ jobs:
     name: APS 质量门
     uses: ./.github/workflows/aps-quality.yml
 
+  mapf-quality:
+    name: MAPF 质量门
+    uses: ./.github/workflows/mapf-quality.yml
+
   build-lab:
     name: 构建与验证 Lab
-    needs: aps-quality
+    needs: [aps-quality, mapf-quality]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,6 +52,7 @@ jobs:
       LAB_BASE: /algorithm-delivery/
       LAB_BENCH_SIZES: 240,c48
       LAB_APS_BIN: ../aps/rust/target/release/aps
+      MAPF_BIN: ../mapf/rust/target/release/mapf
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +72,22 @@ jobs:
           test -s aps/rust/dist/aps_engine.wasm || { echo "未找到 aps_engine.wasm" >&2; ls -laR aps/rust; exit 1; }
           chmod +x aps/rust/target/release/aps 2>/dev/null || true
 
+      - name: 下载 MAPF 质量门产物
+        uses: actions/download-artifact@v4
+        with:
+          name: mapf-engine-artifacts
+          path: mapf/rust
+
+      - name: 整理 MAPF 质量门产物路径
+        working-directory: .
+        run: |
+          mkdir -p mapf/rust/dist mapf/rust/target/release
+          if [ -d "mapf/rust/mapf/rust" ]; then
+            cp -r mapf/rust/mapf/rust/* mapf/rust/
+          fi
+          test -s mapf/rust/dist/mapf_engine.wasm || { echo "未找到 mapf_engine.wasm" >&2; ls -laR mapf/rust; exit 1; }
+          chmod +x mapf/rust/target/release/mapf 2>/dev/null || true
+
       - name: 准备正式 Release 引擎（手动选择时）
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.engine_tag != '' }}
         working-directory: .
@@ -75,12 +100,18 @@ jobs:
             *) echo "engine_tag 必须是 v* 标签，例如 v1.0.0" >&2; exit 1 ;;
           esac
           release_dir="$RUNNER_TEMP/lab-engine-release"
-          mkdir -p "$release_dir"
+          mapf_dir="$RUNNER_TEMP/lab-mapf-release"
+          mkdir -p "$release_dir" "$mapf_dir"
           gh release download "$ENGINE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "aps-linux-x86_64-unknown-linux-gnu.tar.gz" \
             --pattern "aps-engine-wasm32-unknown-unknown.wasm" \
             --dir "$release_dir"
+          gh release download "$ENGINE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "mapf-linux-x86_64-unknown-linux-gnu.tar.gz" \
+            --pattern "mapf-engine-wasm32-unknown-unknown.wasm" \
+            --dir "$mapf_dir"
           tar -xzf "$release_dir/aps-linux-x86_64-unknown-linux-gnu.tar.gz" -C "$release_dir"
           test -x "$release_dir/aps"
           test -s "$release_dir/aps-engine-wasm32-unknown-unknown.wasm"
@@ -90,6 +121,17 @@ jobs:
             echo "LAB_SOURCE=release:$ENGINE_TAG"
             echo "LAB_GIT_TAG=$ENGINE_TAG"
           } >> "$GITHUB_ENV"
+          if [ -f "$mapf_dir/mapf-linux-x86_64-unknown-linux-gnu.tar.gz" ]; then
+            tar -xzf "$mapf_dir/mapf-linux-x86_64-unknown-linux-gnu.tar.gz" -C "$mapf_dir"
+            test -x "$mapf_dir/mapf"
+            test -s "$mapf_dir/mapf-engine-wasm32-unknown-unknown.wasm"
+            {
+              echo "MAPF_BIN=$mapf_dir/mapf"
+              echo "MAPF_WASM=$mapf_dir/mapf-engine-wasm32-unknown-unknown.wasm"
+              echo "MAPF_SOURCE=release:$ENGINE_TAG"
+              echo "MAPF_GIT_TAG=$ENGINE_TAG"
+            } >> "$GITHUB_ENV"
+          fi
 
       - name: 安装 Node.js 20
         uses: actions/setup-node@v4

@@ -5,7 +5,7 @@
 //! * 退出码：0 = OPTIMAL/FEASIBLE/INFEASIBLE（都是“有效结论”）；2 = INVALID_INPUT/UNSUPPORTED；
 //!   3 = UNKNOWN/CANCELLED；1 = 用法/IO 错误；`verify` 子命令 ok ⇒ 0、违规 ⇒ 1。
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -400,7 +400,34 @@ fn cmd_acceptance(args: &[String]) -> ExitCode {
         }
     }
     if let Some(p) = get(args, "--json") {
-        let json = mapf_engine::acceptance::to_json(&results).to_pretty();
+        let cases = mapf_engine::acceptance::to_json(&results);
+        let passed = results.iter().filter(|r| r.ok()).count();
+        let envelope = aps_engine::json::Json::obj(vec![
+            (
+                "schema_version",
+                aps_engine::json::Json::str("mapf-acceptance/1.0"),
+            ),
+            (
+                "engine",
+                aps_engine::json::Json::str(mapf_engine::ENGINE_NAME),
+            ),
+            (
+                "engine_version",
+                aps_engine::json::Json::str(mapf_engine::ENGINE_VERSION),
+            ),
+            ("total", aps_engine::json::Json::int(results.len() as i64)),
+            ("passed", aps_engine::json::Json::int(passed as i64)),
+            (
+                "failed",
+                aps_engine::json::Json::int((results.len() - passed) as i64),
+            ),
+            (
+                "all_passed",
+                aps_engine::json::Json::Bool(passed == results.len()),
+            ),
+            ("cases", cases),
+        ]);
+        let json = envelope.to_pretty();
         if let Err(e) = std::fs::write(&p, format!("{json}\n")) {
             eprintln!("写 JSON 失败：{e}");
         } else {

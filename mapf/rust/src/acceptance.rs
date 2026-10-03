@@ -142,7 +142,7 @@ pub fn run_all() -> Vec<CaseResult> {
             let soc = s_num(&o.solution, &["soc"]);
             c.push(Check(
                 format!("soc≤12（实际 {soc:?}）"),
-                soc.map_or(false, |v| v <= 12),
+                soc.is_some_and(|v| v <= 12),
             ));
             c.push(Check(
                 "verified=true（含边冲突=0 重算）".into(),

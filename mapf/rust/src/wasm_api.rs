@@ -37,7 +37,6 @@ use aps_engine::json::Json;
 
 use crate::capabilities::Profile;
 use crate::engine::{self, SolveOptions};
-use crate::errors::Status;
 
 struct State {
     result: Vec<u8>,
