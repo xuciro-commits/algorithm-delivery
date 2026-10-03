@@ -18,4 +18,4 @@ export { MachineUnit } from './MachineUnit';
 export { smoothPath, cellsToWorld, stepInterp } from './smoothPath';
 export { cellFromWorld, cellChanged } from './picking';
 export type { Pt3 } from './smoothPath';
-export { SB, SB_ROBOT_COLORS, SB_PHASE_COLOR, sbRobotColor } from './theme';
+export { SB, SB_ROBOT_COLORS, SB_PHASE_COLOR, sbRobotColor } from '../../art/tokens';

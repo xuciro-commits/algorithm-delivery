@@ -1,6 +1,6 @@
-# Algorithm Lab V2 组件设计（视觉方向确认后的实施蓝图）
+# Algorithm Lab 组件设计（视觉方向确认后的实施蓝图）
 
-> 前置：`VISUAL-DIRECTION-V2.md`（方向）+ `concepts/*.png`（已确认概念图）。
+> 前置：`VISUAL-DIRECTION.md`（方向）+ `concepts/*.png`（已确认概念图）。
 > 本文定义组件结构、渲染管线、交互与性能约束，是三个实验室前端重做的实施基准。
 
 ## 1. 技术栈与新增依赖
@@ -43,7 +43,7 @@ lab/src/components/sandbox/          # 共享 3D 原语（MAPF/AGV 复用，无�
   AgvUnit.tsx          AGV 小车：车身/轮舱/载货托盘/警示灯/朝向轴（程序化几何，共享 geometry）
   StationPad.tsx       工作站泊位：发光垫面 + 容量灯条（占用/空闲）
   picking.ts           射线拾取 → 格坐标（编辑器事件桥，3D 与 2D 同一回调协议）
-  theme.ts             V2 色板：iceBlue/cyan/teal/violet/amber/coral + 石墨材质色
+  theme.ts             色板转出（唯一来源在 src/art/tokens.ts：iceBlue/cyan/teal/violet/amber/coral + 石墨材质色）
 lab/src/components/hud/              # 悬浮玻璃面板体系（三实验室共用）
   HudPanel.tsx / HudSection.tsx / StatChip.tsx / ToolButton.tsx / ModeTabs.tsx
 lab/src/modules/mapf/Sandbox3D.tsx   # MAPF 面板装配：SceneDoc + solution → 沙盘

@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
@@ -585,6 +586,22 @@ check('透明策略与角色表自洽', () => {
   assert.deepEqual(unknownPolicyRoles, [], `清单里出现 unknown 角色：${unknownPolicyRoles.join(', ')}`);
 });
 
+check('单一来源：色板只在 art/tokens.ts，sandbox/theme.ts 仅转出', () => {
+  const shim = read('src/components/sandbox/theme.ts');
+  assert.ok(!/#[0-9a-fA-F]{3,8}/.test(shim), 'theme.ts 不应再定义颜色常量（应转出 art/tokens）');
+  assert.match(shim, /from '\.\.\/\.\.\/art\/tokens'/, 'theme.ts 必须从 art/tokens 转出');
+  const tokens = read('src/art/tokens.ts');
+  assert.match(tokens, /export const SB = \{/, 'SB 色板必须定义在 art/tokens.ts');
+});
+
+check('单一来源：运行历史/对比骨架只有 core/runs 一份', () => {
+  const mapf = read('src/modules/mapf/runs/runs.ts');
+  const agv = read('src/modules/agv/runs.ts');
+  assert.match(mapf, /from '\.\.\/\.\.\/\.\.\/core\/runs'/, 'MAPF 运行历史必须复用 core/runs 骨架');
+  assert.match(agv, /from '\.\.\/\.\.\/core\/runs'/, 'AGV 运行历史必须复用 core/runs 骨架');
+  assert.ok(!/if \(a === b\) return 'same';/.test(mapf + agv), '方向判定不应再各自手写（用 core/runs 的 lowerBetter/higherBetter）');
+});
+
 check('阶段一对照视图齐全', () => {
   const bench = read('src/modules/art-lab/HeroBench3D.tsx');
   for (const view of ['original', 'art', 'shell', 'mechanism', 'parts']) {
@@ -606,18 +623,16 @@ check('叠加层只消费真实解（无装饰性数据源）', () => {
 });
 
 check('阶段一文档存在', () => {
-  assert.ok(existsSync(join(labDir, 'design/ART-PIPELINE-V2.md')), '缺少 lab/design/ART-PIPELINE-V2.md');
-  const doc = read('design/ART-PIPELINE-V2.md');
+  assert.ok(existsSync(join(labDir, 'design/ART-PIPELINE.md')), '缺少 lab/design/ART-PIPELINE.md');
+  const doc = read('design/ART-PIPELINE.md');
   assert.ok(doc.length > 1500, '阶段一文档内容过短');
   for (const section of ['透明', '模式 A', '模式 B', '模式 C', '审批']) {
     assert.ok(doc.includes(section), `文档缺少章节关键词：${section}`);
   }
 });
 
-console.log('');
-if (failures.length) {
-  console.log(`✗ ${failures.length} 项检查失败（共 ${checks} 项）`);
-  for (const failure of failures) console.log(`  - ${failure}`);
-  process.exit(1);
-}
-console.log(`✓ 全部通过（${checks} 项检查）`);
+// 报告出口统一到共享 harness（退出码与汇总格式与其它脚本一致）
+const harness = createHarness('art-lab 静态一致性检查');
+for (const failure of failures) harness.failures.push(failure);
+harness.note(`共 ${checks} 项检查`);
+harness.finish('全部通过');

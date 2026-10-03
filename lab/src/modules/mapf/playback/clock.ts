@@ -13,7 +13,7 @@ export interface ClockListener {
 }
 
 /**
- * 帧监听器（V2 §三-3 / COMPONENT-DESIGN-V2 §3）：每一动画帧回调，携带
+ * 帧监听器（V2 §三-3 / COMPONENT-DESIGN §3）：每一动画帧回调，携带
  * 「当前离散步 t」与「步内插值系数 frac ∈ [0,1)」。
  *
  * 红线：frac 只用于在引擎算出的相邻两步之间做视觉插值

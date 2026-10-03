@@ -93,6 +93,68 @@ export const GLOW = {
 } as const;
 
 /**
+ * 既有 2D / 沙盘色板（深海军蓝体系）。
+ *
+ * 历史背景：这套色板原先是 `components/sandbox/theme.ts` 的独立来源，与上面的
+ * 石墨体系（GRAPHITE/COOL/WARM）并存，导致"两套单一来源"。现在**唯一来源是本文件**，
+ * `components/sandbox/theme.ts` 只做转出（re-export），不再自己定义颜色。
+ *
+ * 用途：2D Canvas 回退渲染器（grid-map）与部分三维单元（底板、障碍、机器人识别色）
+ * 仍然按深海军蓝体系取色，保持与三维场景的对比关系；新的艺术化材质请用上面的语义令牌。
+ */
+export const SB = {
+  bg: '#0a1220',
+  bgDeep: '#070d18',
+  fog: '#0a1220',
+  /** 底板 / 建筑材质（石墨灰、冷灰蓝、深金属）。 */
+  plate: '#101a2c',
+  plateEdge: '#1d2b44',
+  plateLine: '#22334e',
+  obstacle: '#2c3a52',
+  obstacleEdge: '#3d5273',
+  obstacleCold: '#33445f',
+  rack: '#26334a',
+  /** 轨迹主色：冰蓝 / 青 / 青绿 / 紫罗兰 / 琥珀。 */
+  ice: '#7fd7ff',
+  cyan: '#3fe0d4',
+  teal: '#4fe3a7',
+  violet: '#a78bfa',
+  amber: '#ffb454',
+  coral: '#ff6f6f',
+  inactive: '#5d6d84',
+  text: '#edf4ff',
+} as const;
+
+/** 机器人/车辆识别色序列（主：冰蓝青系；次：紫绿琥珀）。 */
+export const SB_ROBOT_COLORS: readonly string[] = [
+  SB.ice,
+  SB.cyan,
+  SB.violet,
+  SB.amber,
+  SB.teal,
+  '#f78fb3',
+  '#67c2ff',
+  '#ffd479',
+  '#8ef0c6',
+  '#c9a2ff',
+];
+
+export function sbRobotColor(i: number): string {
+  return SB_ROBOT_COLORS[i % SB_ROBOT_COLORS.length];
+}
+
+/** 相位 → 颜色（AGV 任务相位着色，语义与 2D 模式一致）。 */
+export const SB_PHASE_COLOR: Record<string, string> = {
+  to_pickup: SB.ice,
+  servicing_pickup: '#1f5f8f',
+  to_dropoff: SB.amber,
+  servicing_dropoff: '#a5652a',
+  relocating: SB.violet,
+  parking: SB.inactive,
+  idle: SB.inactive,
+};
+
+/**
  * 环境光颜色（用于 HDRI 之外的方向性补充）：
  * 主光偏暖白、补光偏冰蓝、轮廓光偏青，形成克制的冷暖渐变。
  */

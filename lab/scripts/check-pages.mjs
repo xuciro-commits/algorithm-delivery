@@ -21,6 +21,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
@@ -35,11 +36,7 @@ function arg(name, fallback) {
 const base = arg('base', process.env.LAB_BASE ?? '/algorithm-delivery/');
 const distDir = resolve(labDir, 'dist');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('Pages 子路径仿真');
 
 if (!existsSync(distDir)) {
   console.error(`✗ 找不到 dist：${distDir}（先运行 npm run build）`);
@@ -228,8 +225,4 @@ try {
   rmSync(siteRoot, { recursive: true, force: true });
 }
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log(`\n✓ Pages 子路径仿真通过（base=${base}）`);
+finish(`✓ Pages 子路径仿真通过（base=${base}）`);

@@ -23,11 +23,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
 const repoRoot = resolve(labDir, '..');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('运行器生命周期测试');
 
 // Node 的 Worker 协议与 Web Worker 不同，用适配器对齐
 class NodeWorkerAdapter {
@@ -127,6 +123,7 @@ writeFileSync(
   `
 import { parentPort, workerData } from 'node:worker_threads';
 import { installWorker } from ${JSON.stringify(pathToFileURL(workerPath).href)};
+import { createHarness } from './lib/harness.mjs';
 globalThis.self = {
   onmessage: null,
   postMessage: (m) => parentPort.postMessage(m),
@@ -222,8 +219,4 @@ check('取消错误类型可区分', new SolveCancelledError('x') instanceof Err
 const badParams = core.validateParams({ ...core.DEFAULT_PARAMS, timeLimitMs: 0 });
 check('非法参数在运行前被拦截（不进入引擎）', badParams.length > 0, badParams.join('；'));
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log('\n✓ 运行器生命周期测试全部通过');
+finish('✓ 运行器生命周期测试全部通过');

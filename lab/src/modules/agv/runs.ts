@@ -1,14 +1,31 @@
 /**
- * AGV 运行历史与多策略对比（V2 §5-2 / COMPONENT-DESIGN-V2 §5）。
- * 与 MAPF 的 runs.ts 同构但独立实现（AGV 指标集不同）：
+ * AGV 运行历史与多策略对比（设计蓝本 §5-2）。
+ *
+ * 与 MAPF 的 runs.ts 共用 `core/runs` 的骨架（上限、可比性、方向语义、格式化），
+ * 这里只保留 AGV 自己的指标集：
  *   RunRecord{algorithm, time_limit_ms, seed, status, metrics 子集, fingerprint,
  *   problem_hash, at}；只有同一问题（problem_hash 相同）的两次运行才可对比。
  * 纯 TS，Node 可直接测。
  */
 
 import type { AgvSolution } from '../../core/agv/types';
+import {
+  MAX_RUNS,
+  asNumber,
+  fmtMB,
+  fmtNum,
+  fmtVerified,
+  higherBetter,
+  lowerBetter,
+  row,
+  sameProblem,
+  sameWhenEqual,
+  type RunDiffRow,
+} from '../../core/runs';
 
-export const AGV_MAX_RUNS = 20;
+/** 会话内保留的运行上限（与 MAPF/APS 同一个骨架）。 */
+export const AGV_MAX_RUNS = MAX_RUNS;
+export type AgvRunDiffRow = RunDiffRow;
 
 export interface AgvRunRecord {
   seq: number;
@@ -34,7 +51,7 @@ export interface AgvRunRecord {
   solution: AgvSolution;
 }
 
-const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const num = asNumber;
 
 export function makeAgvRunRecord(
   seq: number,
@@ -71,14 +88,7 @@ export function makeAgvRunRecord(
 
 /** 同一问题的两次运行才可对比（problem_hash 相同；null 视为不可比）。 */
 export function agvRunsGroupable(a: AgvRunRecord, b: AgvRunRecord): boolean {
-  return Boolean(a.problemHash && a.problemHash === b.problemHash);
-}
-
-export interface AgvRunDiffRow {
-  label: string;
-  a: string;
-  b: string;
-  verdict: '' | 'better' | 'worse' | 'same';
+  return sameProblem(a, b);
 }
 
 /**
@@ -87,35 +97,20 @@ export interface AgvRunDiffRow {
  *   - 耗时与内存只展示，不给方向（硬件噪声）。
  */
 export function diffAgvRuns(a: AgvRunRecord, b: AgvRunRecord): AgvRunDiffRow[] {
-  const show = (x: number | null, digits = 0): string => (x == null ? '—' : digits ? x.toFixed(digits) : String(x));
-  const lowerBetter = (x: number | null, y: number | null): AgvRunDiffRow['verdict'] => {
-    if (x == null || y == null) return '';
-    if (x === y) return 'same';
-    return y < x ? 'better' : 'worse';
-  };
-  const higherBetter = (x: number | null, y: number | null): AgvRunDiffRow['verdict'] => {
-    if (x == null || y == null) return '';
-    if (x === y) return 'same';
-    return y > x ? 'better' : 'worse';
-  };
+  const show = fmtNum;
   return [
-    { label: '参数', a: a.paramSummary, b: b.paramSummary, verdict: a.paramSummary === b.paramSummary ? 'same' : '' },
-    { label: '状态', a: a.status, b: b.status, verdict: a.status === b.status ? 'same' : '' },
-    { label: '完成/总任务', a: `${show(a.completedTasks)}/${show(a.totalTasks)}`, b: `${show(b.completedTasks)}/${show(b.totalTasks)}`, verdict: higherBetter(a.completedTasks, b.completedTasks) },
-    { label: 'Makespan', a: show(a.makespan), b: show(b.makespan), verdict: lowerBetter(a.makespan, b.makespan) },
-    { label: '总流时', a: show(a.totalFlowTime), b: show(b.totalFlowTime), verdict: lowerBetter(a.totalFlowTime, b.totalFlowTime) },
-    { label: '总延期', a: show(a.totalLateness), b: show(b.totalLateness), verdict: lowerBetter(a.totalLateness, b.totalLateness) },
-    { label: '交期违约', a: show(a.deadlineViolations), b: show(b.deadlineViolations), verdict: lowerBetter(a.deadlineViolations, b.deadlineViolations) },
-    { label: '空驶步数', a: show(a.emptyTravelSteps), b: show(b.emptyTravelSteps), verdict: lowerBetter(a.emptyTravelSteps, b.emptyTravelSteps) },
-    { label: '平均利用率', a: show(a.avgUtilization, 3), b: show(b.avgUtilization, 3), verdict: higherBetter(a.avgUtilization, b.avgUtilization) },
-    { label: '求解 ms', a: show(a.solveMs), b: show(b.solveMs), verdict: '' },
-    {
-      label: '峰值内存 MB',
-      a: a.peakMemoryBytes == null ? '—' : (a.peakMemoryBytes / 1048576).toFixed(1),
-      b: b.peakMemoryBytes == null ? '—' : (b.peakMemoryBytes / 1048576).toFixed(1),
-      verdict: '',
-    },
-    { label: '核验', a: a.verified == null ? '—' : a.verified ? '✓' : '✗', b: b.verified == null ? '—' : b.verified ? '✓' : '✗', verdict: a.verified === b.verified ? 'same' : '' },
-    { label: '动态重调度', a: a.dynamic ? '是' : '否', b: b.dynamic ? '是' : '否', verdict: '' },
+    row('参数', a.paramSummary, b.paramSummary, sameWhenEqual(a.paramSummary, b.paramSummary)),
+    row('状态', a.status, b.status, sameWhenEqual(a.status, b.status)),
+    row('完成/总任务', `${show(a.completedTasks)}/${show(a.totalTasks)}`, `${show(b.completedTasks)}/${show(b.totalTasks)}`, higherBetter(a.completedTasks, b.completedTasks)),
+    row('Makespan', show(a.makespan), show(b.makespan), lowerBetter(a.makespan, b.makespan)),
+    row('总流时', show(a.totalFlowTime), show(b.totalFlowTime), lowerBetter(a.totalFlowTime, b.totalFlowTime)),
+    row('总延期', show(a.totalLateness), show(b.totalLateness), lowerBetter(a.totalLateness, b.totalLateness)),
+    row('交期违约', show(a.deadlineViolations), show(b.deadlineViolations), lowerBetter(a.deadlineViolations, b.deadlineViolations)),
+    row('空驶步数', show(a.emptyTravelSteps), show(b.emptyTravelSteps), lowerBetter(a.emptyTravelSteps, b.emptyTravelSteps)),
+    row('平均利用率', show(a.avgUtilization, 3), show(b.avgUtilization, 3), higherBetter(a.avgUtilization, b.avgUtilization)),
+    row('求解 ms', show(a.solveMs), show(b.solveMs)),
+    row('峰值内存 MB', fmtMB(a.peakMemoryBytes), fmtMB(b.peakMemoryBytes)),
+    row('核验', fmtVerified(a.verified), fmtVerified(b.verified), sameWhenEqual(a.verified, b.verified)),
+    row('动态重调度', a.dynamic ? '是' : '否', b.dynamic ? '是' : '否'),
   ];
 }

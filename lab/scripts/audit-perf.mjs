@@ -16,14 +16,11 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcDir = resolve(here, '..', 'src');
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('性能红线审计');
 
 function walk(dir) {
   const out = [];
@@ -123,9 +120,4 @@ check('存在 3D 沙盘装配（MAPF/AGV/APS）', stages.length >= 3, `${stages.
 const panels = ['modules/mapf/MapfPanel.tsx', 'modules/agv/AgvPanel.tsx'].map((p) => text.get(join(srcDir, p)) ?? '');
 check('MAPF/AGV 保留 2D 回退（MapStage）', panels.every((t) => /MapStage/.test(t)) && /view3d/.test(panels[0]) && /view3d/.test(panels[1]));
 
-console.log('');
-if (failures.length) {
-  console.error(`✗ 性能红线审计失败 ${failures.length} 项：${failures.join('；')}`);
-  process.exit(1);
-}
-console.log(`✓ V2 性能红线审计通过（扫描 ${files.length} 个源文件）`);
+finish(`✓ V2 性能红线审计通过（扫描 ${files.length} 个源文件）`);

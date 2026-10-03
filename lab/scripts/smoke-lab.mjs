@@ -16,16 +16,13 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
 const repoRoot = resolve(labDir, '..');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('实验室核心冒烟');
 
 async function loadCore() {
   const tmp = join(labDir, 'node_modules', '.lab-smoke');
@@ -257,14 +254,11 @@ async function main() {
   check('注册表：重复 id 报错（避免模块互覆盖）', dup);
   core.__resetRegistry();
 
-  if (failures.length > 0) {
-    console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-    process.exit(1);
-  }
-  console.log('\n✓ 实验室核心冒烟全部通过');
+finish('✓ 实验室核心冒烟全部通过');
 }
 
 await main().catch((err) => {
-  console.error(`✗ 冒烟异常：${err?.stack ?? err}`);
-  process.exit(1);
+  // 异常也走统一出口：退出码与非零判定由 harness 负责
+  failures.push(`冒烟异常：${err?.stack ?? err}`);
+  finish('实验室核心冒烟');
 });

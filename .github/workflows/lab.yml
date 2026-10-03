@@ -57,6 +57,7 @@ jobs:
     outputs:
       production_ready: ${{ steps.upload-preview.outcome == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: lab
@@ -66,10 +67,10 @@ jobs:
       LAB_APS_BIN: ../aps/rust/target/release/aps
       MAPF_BIN: ../mapf/rust/target/release/mapf
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 下载 APS 质量门产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aps-engine-artifacts
           path: aps/rust
@@ -85,7 +86,7 @@ jobs:
           chmod +x aps/rust/target/release/aps 2>/dev/null || true
 
       - name: 下载 MAPF 质量门产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mapf-engine-artifacts
           path: mapf/rust
@@ -101,7 +102,7 @@ jobs:
           chmod +x mapf/rust/target/release/mapf 2>/dev/null || true
 
       - name: 下载 AGV 质量门产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: agv-engine-artifacts
           path: agv/rust
@@ -179,10 +180,10 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
-      - name: 安装 Node.js 20
-        uses: actions/setup-node@v4
+      - name: 安装 Node.js 24
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: lab/package-lock.json
 
@@ -193,10 +194,12 @@ jobs:
         id: production-build
         run: npm run build
 
-      - name: 上传临时预览产物（保留 14 天）
+      # 只有 main 与手动触发才需要这份 preview（视觉验收 job 消费它）；
+      # 迭代分支与 PR 不再上传，省 runner 时间与 artifact 存储。
+      - name: 上传临时预览产物（保持 14 天）
         id: upload-preview
-        if: ${{ always() && steps.production-build.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.production-build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/upload-artifact@v6
         with:
           name: lab-preview
           path: lab/dist
@@ -212,21 +215,26 @@ jobs:
 
       - name: 准备 GitHub Pages 部署产物
         if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: lab/dist
 
   visual-acceptance:
     name: 三维视觉验收（真实 WebGL）
     needs: build-lab
-    if: ${{ always() && needs.build-lab.outputs.production_ready == 'true' }}
+    # 真实浏览器验收很贵（Playwright + Chromium 下载）：只在 main 与手动触发时跑。
+    # PR / 迭代分支靠 test:post-build 的静态与集成检查把关；需要时手动触发本工作流。
+    if: ${{ always() && needs.build-lab.outputs.production_ready == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
     uses: ./.github/workflows/lab-visual-acceptance.yml
 
   deploy-pages:
     name: 部署 GitHub Pages
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    # 视觉验收可能被跳过（见上），所以不能用“needs 全部成功”的默认语义：
+    # 只要 build-lab 成功、没被取消，就允许部署。
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.build-lab.result == 'success' }}
     needs: [build-lab, visual-acceptance]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pages: write
@@ -237,4 +245,4 @@ jobs:
     steps:
       - name: 发布 Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

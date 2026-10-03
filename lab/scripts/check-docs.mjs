@@ -20,20 +20,17 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHarness } from './lib/harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
 const designDir = resolve(here, '..', 'design');
 
-const failures = [];
-const warnings = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(`${name}${detail ? `（${detail}）` : ''}`);
-};
-const warn = (name, detail = '') => {
-  console.log(`⚠ ${name}${detail ? ` — ${detail}` : ''}`);
-  warnings.push(`${name}${detail ? `（${detail}）` : ''}`);
+const { check, warn, finish, failures } = createHarness('文档检查');
+let warnings = 0;
+const warnOnce = (name, detail = '') => {
+  warn(name, detail);
+  warnings += 1;
 };
 
 // ---- 收集被跟踪的 Markdown ----
@@ -70,7 +67,7 @@ for (const file of docs) {
 }
 check('文档相对链接可达', !failures.some((f) => f.startsWith('链接不可达')), `${linkCount} 条相对链接`);
 if (assetDrift.length) {
-  warn('素材清单与磁盘存在差异（需要重新下载或重新生成清单）', `${assetDrift.length} 条：${assetDrift.slice(0, 3).join('；')}${assetDrift.length > 3 ? ' …' : ''}`);
+  warnOnce('素材清单与磁盘存在差异（需要重新下载或重新生成清单）', `${assetDrift.length} 条：${assetDrift.slice(0, 3).join('；')}${assetDrift.length > 3 ? ' …' : ''}`);
 }
 
 // ---- 2) 设计文档索引完整 ----
@@ -98,15 +95,10 @@ const scriptsInReadme = Object.keys(packageJson.scripts)
   .filter((s) => !readme.includes(`npm run ${s}`));
 check('lab/README.md 覆盖全部 npm 脚本', scriptsInReadme.length === 0, scriptsInReadme.join('、'));
 
-const modeDoc = readFileSync(join(designDir, 'ART-PIPELINE-V2.md'), 'utf8');
+const modeDoc = readFileSync(join(designDir, 'ART-PIPELINE.md'), 'utf8');
 const modesSource = readFileSync(join(repoRoot, 'lab/src/art/modes.ts'), 'utf8');
 const modeIds = [...modesSource.matchAll(/^\s{2}(\w+):\s*\{/gm)].map((m) => m[1]);
 const documentedModes = ['A', 'B', 'C'].filter((m) => !modeDoc.includes(`模式 ${m}`));
 check('视觉模式文档与实现一致（模式 A/B/C）', documentedModes.length === 0 && modeIds.length >= 3, documentedModes.join('、'));
 
-console.log('');
-if (failures.length) {
-  console.error(`✗ 文档检查失败 ${failures.length} 项：\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log(`✓ 文档与仓库一致（${docs.length} 份 Markdown、${linkCount} 条相对链接${warnings.length ? `、${warnings.length} 条提示` : ''}）`);
+finish(`文档与仓库一致（${docs.length} 份 Markdown、${linkCount} 条相对链接${warnings ? `、${warnings} 条提示` : ''}）`);

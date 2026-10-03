@@ -36,9 +36,10 @@
     "sync:assets": "node scripts/sync-assets.mjs",
     "audit:models": "node scripts/model-structure-audit.mjs",
     "test:art": "node scripts/test-art-system.mjs",
-    "test:static": "node scripts/check-docs.mjs && npm run test:art && npm run audit:perf",
+    "test:static": "npm run check:docs && npm run check:workflows && npm run test:art && npm run audit:perf",
     "test:post-build": "npm run test:static && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run test:dist && npm run test:pages",
-    "check:docs": "node scripts/check-docs.mjs"
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:workflows": "node scripts/check-workflows.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.3",

@@ -9,9 +9,9 @@
 
 | # | 文档 | 性质 | 它回答的问题 | 谁改它 |
 | --- | --- | --- | --- | --- |
-| 1 | [`VISUAL-DIRECTION-V2.md`](VISUAL-DIRECTION-V2.md) | **权威**（视觉基准） | 三个实验室要做成什么气质？颜色、发光线条、空间语言的红线是什么？ | 需审批后改 |
-| 2 | [`COMPONENT-DESIGN-V2.md`](COMPONENT-DESIGN-V2.md) | **权威**（实施蓝图） | 用什么技术栈、哪些组件、性能红线、里程碑怎么切？ | 需审批后改 |
-| 3 | [`ART-PIPELINE-V2.md`](ART-PIPELINE-V2.md) | 落地记录 + 决策台账 | 三维实验室每一轮改了什么？审批意见落在哪个文件哪一行？还有哪些待确认？ | 每轮追加 |
+| 1 | [`VISUAL-DIRECTION.md`](VISUAL-DIRECTION.md) | **权威**（视觉基准） | 三个实验室要做成什么气质？颜色、发光线条、空间语言的红线是什么？ | 需审批后改 |
+| 2 | [`COMPONENT-DESIGN.md`](COMPONENT-DESIGN.md) | **权威**（实施蓝图） | 用什么技术栈、哪些组件、性能红线、里程碑怎么切？ | 需审批后改 |
+| 3 | [`ART-PIPELINE.md`](ART-PIPELINE.md) | 落地记录 + 决策台账 | 三维实验室每一轮改了什么？审批意见落在哪个文件哪一行？还有哪些待确认？ | 每轮追加 |
 | 4 | [`VISUAL-ACCEPTANCE.md`](VISUAL-ACCEPTANCE.md) | 流程 + 状态 | 真实浏览器验收怎么做、当前**通过到什么程度**、哪些结论**没有**拿到？ | 每次验收后更新 |
 | 5 | [`assets/README.md`](assets/README.md) | **生成物**（勿手改） | 上传素材总目录：分类、尺寸、面数、推荐用途 | `scripts/generate-assets-doc.py` |
 | 6 | [`assets/ASSET-CATALOG.json`](assets/ASSET-CATALOG.json) | 数据 | 每件素材的元数据（程序读这个，不读 Markdown） | 下载脚本 |
@@ -25,13 +25,13 @@
 | 事实 | 权威来源 | 文档的角色 |
 | --- | --- | --- |
 | 颜色 / 材质语义 | `src/art/tokens.ts`、`src/art/materials.ts` | 记录设计意图，数值不复制 |
-| 三种视觉模式的参数 | `src/art/modes.ts` | `ART-PIPELINE-V2.md` 列出当前实现值，改代码要同步改表 |
+| 三种视觉模式的参数 | `src/art/modes.ts` | `ART-PIPELINE.md` 列出当前实现值，改代码要同步改表 |
 | 透明策略（哪些部件可透明） | `src/art/part-roles.json` + `src/art/roles.ts` | 只描述规则，不复制 95 条明细 |
 | 运行时用哪些模型 | `art-lab-selection.json` + `public/models/art-manifest.json` | `ART-LAB-MODEL-SET.md` 由脚本生成 |
 | 上传素材本身 | `lab/design/assets/**`（**只读**） | `assets/README.md` 是它的目录说明 |
-| 算法数据 | Rust/WASM 引擎输出 | 三维实验室只做投影；`ART-PIPELINE-V2.md` 记录字段映射 |
+| 算法数据 | Rust/WASM 引擎输出 | 三维实验室只做投影；`ART-PIPELINE.md` 记录字段映射 |
 
-**三条不变式**（任何一轮改造都不得破坏，见 `ART-PIPELINE-V2.md` 第一节）：
+**三条不变式**（任何一轮改造都不得破坏，见 `ART-PIPELINE.md` 第一节）：
 几何只来自上传资产、三种模式共用同一份几何与数据、算法可视化只来自真实引擎输出。
 
 ## 3. 已知未闭环项

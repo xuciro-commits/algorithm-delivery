@@ -197,5 +197,8 @@ cd lab && npm run test:post-build            # 构建后的全部 Lab 检查（C
 2. **把 `#art-lab` 纳入视觉验收**：为三维实验室加一条"只取场景截图 + 模式 A/B/C 对照截图"的 Playwright 步骤。
 3. **时间轴书签**：算法观察实验室跳转到关键事件（超期、违规、到达、重调度）。
 4. **多跨厂房 + 完整产线全时段回放**：需要先解决限制 2（实例化 / LOD）。
-5. **美术语言收口**：把 `components/sandbox/theme.ts`（V2 深海军蓝）与 `art/tokens.ts`（石墨体系）
-   合成单一色板来源，消除两套颜色并存的同步成本。
+5. ~~**美术语言收口**~~：已完成 —— `art/tokens.ts` 是唯一色板来源，`components/sandbox/theme.ts`
+   只做转出；`test-art-system.mjs` 断言二者不得再各自定义颜色。
+6. **运行历史/方案对比骨架收口**：已完成 —— `src/core/runs/` 提供 `RunDiffRow` / `sameProblem` /
+   `lowerBetter` / `higherBetter` 等公共件，MAPF 与 AGV 只保留各自指标集（APS 有自己的状态机，暂不合并）。
+7. **脚本外壳收口**：已完成 —— `scripts/lib/harness.mjs` 统一 `check / note / warn / finish` 与退出码。

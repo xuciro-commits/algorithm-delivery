@@ -69,6 +69,9 @@ npm run dev          # http://localhost:5173/ （默认 base=/algorithm-delivery
 LAB_BASE=/ npm run dev
 ```
 
+根目录有 `Makefile` 作为"我现在该跑什么"的入口（`make help` 看全部）：
+`make static`（秒级的静态检查）、`make dev`、`make test`、`make engine-aps|mapf|agv`、`make ci`。
+
 一条命令跑完 CI 的完整链路（wasm 构建 → 同步 → 构建 → 全部测试 → Pages 仿真）：
 
 ```bash
@@ -112,9 +115,12 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
   步内插值只发生在绘制阶段，面板同时显示"当前步 / +x 步内插值"。
 - **性能红线**（`npm run audit:perf` 持续断言）：`dpr ≤ 2`；`frameloop` 只在 `active` 时 `always`；
   `useFrame` 内零分配；发光线为两层细线；障碍场与底坪实例化。
+- **单一来源**：色板只有 `src/art/tokens.ts` 一处（`components/sandbox/theme.ts` 只是转出）；
+  运行历史 / 方案对比的公共骨架只有 `src/core/runs/` 一处（MAPF 与 AGV 各自的指标集留在自己模块里）。
+  这两条由 `test-art-system.mjs` 断言，防止再长出第二份。
 
 设计依据与冲突时的权威来源见 [`design/README.md`](design/README.md)；
-每轮落地记录与审批台账见 [`design/ART-PIPELINE-V2.md`](design/ART-PIPELINE-V2.md)；
+每轮落地记录与审批台账见 [`design/ART-PIPELINE.md`](design/ART-PIPELINE.md)；
 真实浏览器验收流程与当前状态见 [`design/VISUAL-ACCEPTANCE.md`](design/VISUAL-ACCEPTANCE.md)。
 
 ## 3. 常用脚本
@@ -134,7 +140,11 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run typecheck` | 只做类型检查（需要 `npm i` 后的 typescript） |
 | `npm run build:all` | 构建三引擎 WASM → 同步 → 构建 → 全量 Lab 检查 → Pages 仿真 |
 
-测试与审计（**前四项不需要浏览器 / 不需要 Rust**，可在受限环境直接跑）：
+> 所有检查脚本都是纯 Node（`.mjs`），没有测试框架依赖。新脚本请用共享外壳
+> `scripts/lib/harness.mjs`（`check / note / warn / finish`，退出码与汇总格式统一），
+> 不要再手写一遍 `failures` 数组与 `process.exit(1)`。
+
+测试与审计（**前五项不需要浏览器 / 不需要 Rust**，可在受限环境直接跑）：
 
 | 命令 | 作用 |
 | --- | --- |
@@ -142,7 +152,8 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run audit:perf` | 性能红线审计：按需渲染、dpr、受控泛光四条约束、实例化、每帧零分配 |
 | `npm run audit:models` | 472 件上传资产的结构审查（材质、层级、部件可分离性、透明策略命中） |
 | `npm run check:docs` | 文档一致性：相对链接可达、设计文档索引完整、生成物未被提交、README 覆盖全部脚本 |
-| `npm run test:static` | 上面第 1、3 条的组合（`check:docs && test:art && audit:perf`） |
+| `npm run check:workflows` | CI 工作流自检：YAML 结构、job 超时、触发范围收敛、action 是否支持 Node 24 |
+| `npm run test:static` | 上面第 1、2、3、8 条的组合（文档 + 工作流 + 美术契约 + 性能红线，秒级） |
 | `npm run test:imports` | 不依赖 Rust/WASM：内置数据回退、PlanProblem 导入与标准 JSSP/FJSP 格式适配 |
 | `npm run test:core` | 核心冒烟：加载真实 WASM 求解，并断言实验室纯逻辑（30+ 项） |
 | `npm run test:runner` | 运行器生命周期：取消（终止 Worker）→ 自动重建 → 再求解；`dispose()` |
@@ -223,14 +234,19 @@ MAPF 与 AGV 模块同样遵循"引擎唯一真相"：结果、指标、核验�
 
 ```
 GitHub Actions: lab.yml + lab-visual-acceptance.yml
-  push/PR（lab/**、*/rust/web/**、*/mock/** …）
-    → 构建三引擎 WASM（或下载指定 Release 的产物）
-    → npm ci → sync（自检）→ build（tsc + vite）
-    → 上传本次 production `lab-preview`（14 天）
+  push（main / arena/**）或 PR（lab/**、*/rust/web/**、*/mock/** …）
+    → 三个 Rust 质量门并行（只跑变更分支；main 与 arena/** 上由 lab.yml 统一触发，
+      其它分支由 *-rust.yml 兜底，避免同一套门跑两遍）
+    → npm ci → sync（自检）→ build（tsc + vite）        # runner 使用 Node 24
     → npm run test:post-build（静态检查 + 全部 Lab 检查 + Pages 仿真）
-    → 独立 Ubuntu Playwright job 消费同一份 dist，真实 WebGL + 引擎运行检查，上传视觉 Artifact（30 天）
+    → 仅 main / 手动触发：上传 `lab-preview`（14 天）→ 独立 Ubuntu Playwright job
+      消费同一份 dist，真实 WebGL + 引擎运行检查，上传视觉 Artifact（30 天）
     → push 到 main 且质量门通过时：部署到 GitHub Pages
 ```
+
+迭代优先：PR 与迭代分支不跑真实浏览器验收（它最贵），需要时手动触发 `lab.yml`；
+所有 job 都有 `timeout-minutes` 上限，避免挂死占用 runner。工作流本身的约定由
+`npm run check:workflows` 断言（Node 24 版 action、触发范围收敛、超时）。
 
 - **子路径**：GitHub Pages 项目站点在 `https://<owner>.github.io/algorithm-delivery/`，
   因此 `vite.config.ts` 的 `base` 默认就是 `/algorithm-delivery/`，页面里所有资源

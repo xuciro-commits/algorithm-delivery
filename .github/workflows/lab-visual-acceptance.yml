@@ -10,11 +10,12 @@ jobs:
   visual-acceptance:
     name: APS / MAPF / AGV · production WebGL
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: lab
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 预建证据目录并复制仓库内概念参考图
         run: |
@@ -24,20 +25,26 @@ jobs:
           cp design/concepts/agv-lab-concept.png artifacts/visual/references/
 
       - name: 下载同一次 Lab production build（lab-preview）
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lab-preview
           path: lab/dist
 
-      - name: 安装 Node.js 20
-        uses: actions/setup-node@v4
+      - name: 安装 Node.js 24
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: lab/package-lock.json
 
       - name: 安装锁定依赖（Playwright + 像素分析）
         run: npm ci --no-audit --no-fund
+
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('lab/package-lock.json') }}
 
       - name: 安装 Chromium 与 Ubuntu 系统依赖
         run: npx playwright install --with-deps chromium
@@ -50,7 +57,7 @@ jobs:
 
       - name: 上传截图、参考图、console 日志与验收报告（保留 30 天）
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: lab-visual-acceptance-${{ github.run_id }}
           path: lab/artifacts/visual

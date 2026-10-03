@@ -1,5 +1,5 @@
 /**
- * MAPF 空间与路径实验室 · 3D 沙盘装配（V2 §五-01 / COMPONENT-DESIGN-V2 §3）。
+ * MAPF 空间与路径实验室 · 3D 沙盘装配（V2 §五-01 / COMPONENT-DESIGN §3）。
  *
  * 把 SceneDoc（问题）+ MapfSolution（引擎解）+ 回放时钟投影到共享 3D 原语上：
  *   - 底板/障碍 = SceneDoc；轨迹/节点/机器人 = solution（前端零伪造）；

@@ -17,11 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const labDir = resolve(here, '..');
 
-const failures = [];
-const check = (name, ok, detail = '') => {
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures.push(name);
-};
+const { check, finish, failures } = createHarness('渲染冒烟');
 
 const tmp = join(labDir, 'node_modules', '.lab-render-test');
 rmSync(tmp, { recursive: true, force: true });
@@ -31,6 +27,7 @@ writeFileSync(
   entry,
   `import { renderToStaticMarkup } from 'react-dom/server';
 import App from ${JSON.stringify(join(labDir, 'src/App.tsx'))};
+import { createHarness } from './lib/harness.mjs';
 export function render(hash: string): string {
   (globalThis as any).location = { hash };
   return renderToStaticMarkup(<App />);
@@ -97,8 +94,4 @@ check('未知 hash 回退到 APS 模块', html.includes('选择一个排程场�
 // ---- 4) 各模块面板在无引擎上下文时可渲染（模块自带 props 的健壮性）----
 check('待接入模块不注册 Panel（避免渲染假界面）', html.length > 0);
 
-if (failures.length > 0) {
-  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
-  process.exit(1);
-}
-console.log('\n✓ 渲染冒烟通过');
+finish('✓ 渲染冒烟通过');
