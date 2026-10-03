@@ -80,6 +80,9 @@ SoCS 2019, pp. 151–158. 详见 `bench/UPSTREAM.md`。
 ## 文档与验收产物
 
 - `MAPF-SRS.md`（需求说明书 + §9 需求追溯矩阵，每条需求钉到实现与可执行证据）；
+- `M0-VISUAL-LAB-DESIGN.md`（MAPF Visual Lab 可视化设计·架构 Gate 评审稿，
+  含 V01–V10 验收映射与 M1 实施计划；配套概念原型 `prototype/m0-wireframe.html`
+  —— 原型为静态示意，不含求解引擎，不进入 Lab 构建）；
 - `rust/docs/`：USAGE · MODEL-MATH（数学规范）· CONFORMANCE（契约符合性等级）·
   INTEGRATION（CLI/Rust/浏览器/实验室/CI 集成）· BENCHMARKS（硬件/预算矩阵/未解决场景全披露）·
   ERROR-CODES（全量错误码）· CAPABILITIES（档位限额）；

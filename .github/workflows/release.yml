@@ -17,9 +17,13 @@ jobs:
     name: MAPF 质量门
     uses: ./.github/workflows/mapf-quality.yml
 
+  agv-quality:
+    name: AGV 质量门
+    uses: ./.github/workflows/agv-quality.yml
+
   build-cli:
     name: Native CLI · ${{ matrix.asset }}
-    needs: [aps-quality, mapf-quality]
+    needs: [aps-quality, mapf-quality, agv-quality]
     strategy:
       fail-fast: false
       matrix:
@@ -77,7 +81,7 @@ jobs:
 
   build-wasm:
     name: WebAssembly
-    needs: [aps-quality, mapf-quality]
+    needs: [aps-quality, mapf-quality, agv-quality]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -107,7 +111,7 @@ jobs:
 
   build-mapf-cli:
     name: MAPF Native CLI · ${{ matrix.asset }}
-    needs: [aps-quality, mapf-quality]
+    needs: [aps-quality, mapf-quality, agv-quality]
     strategy:
       fail-fast: false
       matrix:
@@ -161,7 +165,7 @@ jobs:
 
   build-mapf-wasm:
     name: MAPF WebAssembly
-    needs: [aps-quality, mapf-quality]
+    needs: [aps-quality, mapf-quality, agv-quality]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,9 +193,92 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-agv-cli:
+    name: AGV Native CLI · ${{ matrix.asset }}
+    needs: [aps-quality, mapf-quality, agv-quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: linux-x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset: linux-aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ARM64 Linux 交叉链接器
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: 安装 Rust 1.88 与目标平台
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustup target add "${{ matrix.target }}" --toolchain 1.88.0
+          rustc --version && cargo --version
+
+      - name: 构建 CLI
+        working-directory: agv/rust
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --locked --release --target "${{ matrix.target }}" --bin agv
+
+      - name: 打包
+        working-directory: agv/rust
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET: ${{ matrix.asset }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/release-assets" "$RUNNER_TEMP/agv-package"
+          cp "target/$TARGET/release/agv" "$RUNNER_TEMP/agv-package/agv"
+          chmod +x "$RUNNER_TEMP/agv-package/agv"
+          tar -C "$RUNNER_TEMP/agv-package" -czf             "$GITHUB_WORKSPACE/release-assets/agv-$ASSET.tar.gz" agv
+
+      - name: 上传平台产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-agv-${{ matrix.asset }}
+          path: release-assets/agv-${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  build-agv-wasm:
+    name: AGV WebAssembly
+    needs: [aps-quality, mapf-quality, agv-quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 1.88 与 wasm32 目标
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+
+      - name: 构建 WASM
+        working-directory: agv/rust
+        run: bash scripts/build_wasm.sh
+
+      - name: 准备 Release 产物
+        run: |
+          mkdir -p release-assets
+          cp agv/rust/dist/agv_engine.wasm release-assets/agv-engine-wasm32-unknown-unknown.wasm
+
+      - name: 上传 WASM 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-agv-wasm32-unknown-unknown
+          path: release-assets/agv-engine-wasm32-unknown-unknown.wasm
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: 发布 GitHub Release
-    needs: [build-cli, build-wasm, build-mapf-cli, build-mapf-wasm]
+    needs: [build-cli, build-wasm, build-mapf-cli, build-mapf-wasm, build-agv-cli, build-agv-wasm]
     runs-on: ubuntu-latest
     permissions:
       contents: write

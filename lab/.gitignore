@@ -18,3 +18,7 @@ node_modules/.lab-smoke/
 # sync-mapf 生成物（来源：mapf/rust 与 mapf/mock）
 src/vendor/mapf-worker.js
 public/mapf-manifest.json
+
+# sync-agv 生成物（来源：agv/rust 与 agv/mock）
+src/vendor/agv-worker.js
+public/agv-manifest.json

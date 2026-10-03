@@ -7,16 +7,20 @@ on:
       - "lab/**"
       - "aps/**"
       - "mapf/**"
+      - "agv/**"
       - ".github/workflows/aps-quality.yml"
       - ".github/workflows/mapf-quality.yml"
+      - ".github/workflows/agv-quality.yml"
       - ".github/workflows/lab.yml"
   pull_request:
     paths:
       - "lab/**"
       - "aps/**"
       - "mapf/**"
+      - "agv/**"
       - ".github/workflows/aps-quality.yml"
       - ".github/workflows/mapf-quality.yml"
+      - ".github/workflows/agv-quality.yml"
       - ".github/workflows/lab.yml"
   workflow_dispatch:
     inputs:
@@ -41,9 +45,13 @@ jobs:
     name: MAPF 质量门
     uses: ./.github/workflows/mapf-quality.yml
 
+  agv-quality:
+    name: AGV 质量门
+    uses: ./.github/workflows/agv-quality.yml
+
   build-lab:
     name: 构建与验证 Lab
-    needs: [aps-quality, mapf-quality]
+    needs: [aps-quality, mapf-quality, agv-quality]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -87,6 +95,22 @@ jobs:
           fi
           test -s mapf/rust/dist/mapf_engine.wasm || { echo "未找到 mapf_engine.wasm" >&2; ls -laR mapf/rust; exit 1; }
           chmod +x mapf/rust/target/release/mapf 2>/dev/null || true
+
+      - name: 下载 AGV 质量门产物
+        uses: actions/download-artifact@v4
+        with:
+          name: agv-engine-artifacts
+          path: agv/rust
+
+      - name: 整理 AGV 质量门产物路径
+        working-directory: .
+        run: |
+          mkdir -p agv/rust/dist agv/rust/target/release
+          if [ -d "agv/rust/agv/rust" ]; then
+            cp -r agv/rust/agv/rust/* agv/rust/
+          fi
+          test -s agv/rust/dist/agv_engine.wasm || { echo "未找到 agv_engine.wasm" >&2; ls -laR agv/rust; exit 1; }
+          chmod +x agv/rust/target/release/agv 2>/dev/null || true
 
       - name: 准备正式 Release 引擎（手动选择时）
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.engine_tag != '' }}
@@ -132,6 +156,24 @@ jobs:
               echo "MAPF_GIT_TAG=$ENGINE_TAG"
             } >> "$GITHUB_ENV"
           fi
+          agv_dir="$RUNNER_TEMP/lab-agv-release"
+          mkdir -p "$agv_dir"
+          gh release download "$ENGINE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "agv-linux-x86_64-unknown-linux-gnu.tar.gz" \
+            --pattern "agv-engine-wasm32-unknown-unknown.wasm" \
+            --dir "$agv_dir" || true
+          if [ -f "$agv_dir/agv-linux-x86_64-unknown-linux-gnu.tar.gz" ]; then
+            tar -xzf "$agv_dir/agv-linux-x86_64-unknown-linux-gnu.tar.gz" -C "$agv_dir"
+            test -x "$agv_dir/agv"
+            test -s "$agv_dir/agv-engine-wasm32-unknown-unknown.wasm"
+            {
+              echo "AGV_BIN=$agv_dir/agv"
+              echo "AGV_WASM=$agv_dir/agv-engine-wasm32-unknown-unknown.wasm"
+              echo "AGV_SOURCE=release:$ENGINE_TAG"
+              echo "AGV_GIT_TAG=$ENGINE_TAG"
+            } >> "$GITHUB_ENV"
+          fi
 
       - name: 安装 Node.js 20
         uses: actions/setup-node@v4
@@ -151,6 +193,10 @@ jobs:
           npm run test:core
           npm run test:runner
           npm run test:render
+          npm run test:mapf:scene
+          npm run test:mapf:playback
+          npm run test:mapf:runs
+          npm run test:agv
           npm run test:dist
           npm run test:pages
 

@@ -1,0 +1,698 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/agv/agv-dispatch-problem.schema.json",
+  "title": "AgvDispatchProblem v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "map",
+    "vehicles",
+    "tasks",
+    "objective",
+    "time_model"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "agv-dispatch-problem/1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "map": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "cells"
+          ]
+        }
+      ],
+      "properties": {
+        "cells": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "time_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "horizon"
+      ],
+      "properties": {
+        "timestep": {
+          "const": "discrete"
+        },
+        "horizon": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "const": "auto"
+            }
+          ]
+        }
+      }
+    },
+    "vehicles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "start"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "start": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "[x, y]，x 向右、y 向下，原点左上"
+          },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "status": {
+            "enum": [
+              "available",
+              "paused"
+            ]
+          }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "pickup",
+          "dropoff"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pickup": {
+            "description": "位置：显式格 [x,y]，或工作站引用",
+            "oneOf": [
+              {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "[x, y]，x 向右、y 向下，原点左上"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "station"
+                ],
+                "properties": {
+                  "station": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          },
+          "dropoff": {
+            "description": "位置：显式格 [x,y]，或工作站引用",
+            "oneOf": [
+              {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "[x, y]，x 向右、y 向下，原点左上"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "station"
+                ],
+                "properties": {
+                  "station": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          },
+          "release_step": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pickup_service": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dropoff_service": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "due_step": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required_capability": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "stations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "cells"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cells": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "description": "[x, y]，x 向右、y 向下，原点左上"
+            }
+          },
+          "capacity": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "parking": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": "[x, y]，x 向右、y 向下，原点左上"
+      }
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "lexicographic-weighted"
+        },
+        "weights": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "makespan": {
+              "type": "number",
+              "minimum": 0
+            },
+            "flow_time": {
+              "type": "number",
+              "minimum": 0
+            },
+            "empty_travel": {
+              "type": "number",
+              "minimum": 0
+            },
+            "lateness": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "solver": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "enum": [
+            "auto",
+            "baseline",
+            "insertion-ls"
+          ]
+        },
+        "time_limit_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "frozen_steps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mapf": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planner": {
+              "enum": [
+                "auto",
+                "ecbs",
+                "cbs",
+                "pp"
+              ]
+            },
+            "suboptimality_factor": {
+              "type": "number",
+              "minimum": 1.0,
+              "maximum": 3.0
+            },
+            "time_limit_ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "dynamic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot",
+        "events"
+      ],
+      "properties": {
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "time"
+          ],
+          "properties": {
+            "time": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "vehicles": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "pos"
+                ],
+                "properties": {
+                  "pos": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "description": "[x, y]，x 向右、y 向下，原点左上"
+                  },
+                  "phase": {
+                    "enum": [
+                      "idle",
+                      "to_pickup",
+                      "servicing_pickup",
+                      "to_dropoff",
+                      "servicing_dropoff",
+                      "parking",
+                      "paused"
+                    ]
+                  },
+                  "task": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "path": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "description": "[x, y]，x 向右、y 向下，原点左上"
+                    }
+                  }
+                }
+              }
+            },
+            "tasks": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "pending",
+                      "assigned",
+                      "picked",
+                      "done",
+                      "unassigned",
+                      "leg_infeasible",
+                      "budget",
+                      "cancelled"
+                    ]
+                  },
+                  "assignee": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pickup_dock": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "description": "[x, y]，x 向右、y 向下，原点左上"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dropoff_dock": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "description": "[x, y]，x 向右、y 向下，原点左上"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pickup_arrival": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pickup_done": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dropoff_arrival": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dropoff_done": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "task_add",
+                  "task_cancel",
+                  "task_priority",
+                  "vehicle_pause",
+                  "vehicle_resume",
+                  "obstacle_add",
+                  "obstacle_remove"
+                ]
+              },
+              "task": {
+                "type": "string",
+                "minLength": 1
+              },
+              "task_def": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pickup": {
+                    "description": "位置：显式格 [x,y]，或工作站引用",
+                    "oneOf": [
+                      {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "description": "[x, y]，x 向右、y 向下，原点左上"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "station"
+                        ],
+                        "properties": {
+                          "station": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "dropoff": {
+                    "description": "位置：显式格 [x,y]，或工作站引用",
+                    "oneOf": [
+                      {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "description": "[x, y]，x 向右、y 向下，原点左上"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "station"
+                        ],
+                        "properties": {
+                          "station": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "release_step": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "priority": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "pickup_service": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "dropoff_service": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "due_step": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "required_capability": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              "priority": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "vehicle": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cell": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "[x, y]，x 向右、y 向下，原点左上"
+              }
+            }
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "object"
+    }
+  }
+}

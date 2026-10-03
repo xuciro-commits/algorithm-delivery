@@ -184,6 +184,45 @@ try {
   } else {
     console.log('· 站点未部署 mapf-manifest.json：跳过 MAPF 运行时校验');
   }
+
+  // ---- 5) AGV 引擎：Pages 上同样必须真实可跑（存在清单即全链路校验） ----
+  const agvManifestRes = await fetch(`${baseUrl}agv-manifest.json`);
+  if (agvManifestRes.ok) {
+    const am = await agvManifestRes.json();
+    check('子路径下 agv-manifest.json 可访问', true, `${am.engine} v${am.version}`);
+    const aWasmRes = await fetch(`${baseUrl}${am.wasm.file}`);
+    const aWasmBytes = new Uint8Array(await aWasmRes.arrayBuffer());
+    check('子路径下 AGV wasm 可访问且 MIME 正确', aWasmRes.ok && (aWasmRes.headers.get('content-type') ?? '').includes('wasm'));
+    const aDigest = createHash('sha256').update(aWasmBytes).digest('hex');
+    check('页面取到的 AGV wasm 与清单 sha256 一致', aDigest === am.wasm.sha256, aDigest.slice(0, 16) + '…');
+    const aWorkerRes = await fetch(`${baseUrl}${am.worker.file}`);
+    check('AGV Worker 入口以 JS MIME 提供', aWorkerRes.ok && (aWorkerRes.headers.get('content-type') ?? '').includes('javascript'));
+    for (const mock of (am.mocks ?? []).slice(0, 4)) {
+      const res = await fetch(`${baseUrl}${mock.file}`);
+      check(`AGV 数据文件可访问 ${mock.file}`, res.ok, `HTTP ${res.status}`);
+    }
+    const aGlue = await import(`${pathToFileURL(join(mounted, 'wasm', 'agv-worker.js')).href}?t=${Date.now()}`);
+    const aEngine = await aGlue.createEngine(aWasmBytes);
+    check('AGV：页面字节可实例化', typeof aEngine.version === 'string', `v${aEngine.version}`);
+    const a01Entry = (am.mocks ?? []).find((m) => m.file.includes('a01'));
+    const a01 = JSON.parse(readFileSync(join(mounted, a01Entry.file), 'utf8'));
+    const aSolved = aEngine.solve(JSON.stringify(a01));
+    check(
+      'AGV：端到端求解成功（页面同源数据 → WASM → 解，FEASIBLE 且内嵌核验通过）',
+      aSolved.status === 'FEASIBLE' && aSolved.solution?.verified === true,
+      `${aSolved.status} · completed=${aSolved.solution?.metrics?.completed_tasks}`,
+    );
+    const a10Entry = (am.mocks ?? []).find((m) => m.file.includes('a10-dynamic'));
+    const a10 = JSON.parse(readFileSync(join(mounted, a10Entry.file), 'utf8'));
+    const a10Solved = aEngine.solve(JSON.stringify(a10));
+    check(
+      'AGV：动态重调度端到端成功（快照展开 + 汇总块 + 语义指纹）',
+      a10Solved.status === 'FEASIBLE' && a10Solved.solution?.dynamic?.semantic_digest?.startsWith('sha256:'),
+      `${a10Solved.status} · snapshot_t=${a10Solved.solution?.dynamic?.snapshot_time}`,
+    );
+  } else {
+    console.log('· 站点未部署 agv-manifest.json：跳过 AGV 运行时校验');
+  }
 } finally {
   server.close();
   rmSync(siteRoot, { recursive: true, force: true });

@@ -1,0 +1,26 @@
+name: agv-rust
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "agv/**"
+      - "aps/rust/**"
+      - "mapf/rust/**"
+      - ".github/workflows/agv-rust.yml"
+      - ".github/workflows/agv-quality.yml"
+  pull_request:
+    paths:
+      - "agv/**"
+      - "aps/rust/**"
+      - "mapf/rust/**"
+      - ".github/workflows/agv-rust.yml"
+      - ".github/workflows/agv-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: ./.github/workflows/agv-quality.yml

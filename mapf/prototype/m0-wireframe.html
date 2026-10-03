@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MAPF Visual Lab — M0 概念原型（非真实算法）</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════
+  M0 概念原型 —— 仅用于评审《mapf/M0-VISUAL-LAB-DESIGN.md》的布局与交互手感。
+  · 本页不含求解引擎：回放数据是静态硬编码的、人工核对过的合法解
+    （示例 A 为 8×8 十字交叉的手工构造解；示例 B 为 M02 mock 已验收的
+     OPTIMAL 解，SOC=5）。
+  · “求解”按钮只弹出说明 —— M1 将接入真实 WASM 引擎。
+  · 本文件不进入 Lab 构建、不部署 Pages。
+  ═══════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root {
+    --bg:#0b1020; --surface:#111a2a; --raised:#172235; --deep:#0d1422;
+    --line:rgba(157,180,211,.15); --line2:rgba(157,180,211,.25);
+    --text:#edf4ff; --muted:#91a2b9; --accent:#76e0bf; --blue:#8eb4ff;
+    --good:#6ee0a4; --warn:#f5c879; --bad:#ff818b; --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--text);
+    font:13px/1.55 'DM Sans','Noto Sans SC',ui-sans-serif,system-ui,'Segoe UI',sans-serif; }
+  button { font:inherit; color:inherit; }
+
+  .proto-banner { display:flex; gap:10px; align-items:center; justify-content:center;
+    padding:6px 12px; background:#3a1f24; color:#ffd9dd; border-bottom:1px solid #6b2f3a;
+    font-size:12px; letter-spacing:.02em; }
+  .proto-banner b { color:#ff818b; }
+
+  header.lab { display:flex; align-items:center; gap:14px; padding:10px 16px;
+    background:var(--surface); border-bottom:1px solid var(--line); }
+  .brand { display:flex; gap:10px; align-items:center; }
+  .brand .mark { width:34px; height:34px; border-radius:10px; display:grid; place-items:center;
+    background:linear-gradient(135deg,#76e0bf,#54c9a8); color:#06251c; font-weight:800; }
+  .brand h1 { margin:0; font-size:15px; letter-spacing:.04em; }
+  .brand small { color:var(--muted); display:block; font-weight:400; }
+  header .spacer { flex:1; }
+  .btn { background:var(--raised); border:1px solid var(--line2); border-radius:9px;
+    padding:5px 11px; cursor:pointer; color:var(--text); }
+  .btn:hover { border-color:var(--accent); }
+  .btn.primary { background:var(--accent); color:#06251c; font-weight:700; border-color:transparent; }
+  .btn.tiny { padding:2px 8px; font-size:12px; border-radius:7px; }
+  .btn[disabled] { opacity:.45; cursor:not-allowed; }
+
+  .workspace { display:grid; grid-template-columns:272px 1fr 296px; gap:10px;
+    padding:10px; align-items:start; }
+  .col { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:10px 12px; }
+  .card h3 { margin:0 0 8px; font-size:12px; letter-spacing:.14em; color:var(--muted);
+    text-transform:uppercase; }
+
+  .scene-card { display:block; width:100%; text-align:left; background:var(--raised);
+    border:1px solid var(--line); border-radius:11px; padding:8px 10px; margin-bottom:7px;
+    cursor:pointer; }
+  .scene-card:hover { border-color:var(--accent); }
+  .scene-card.active { border-color:var(--accent); background:#12283a; }
+  .scene-card b { display:block; font-size:13px; }
+  .scene-card span { color:var(--muted); font-size:11.5px; }
+  .pill { float:right; font-size:10px; padding:1px 7px; border-radius:99px;
+    border:1px solid var(--line2); color:var(--muted); }
+  .pill.demo { color:var(--warn); border-color:rgba(245,200,121,.45); }
+
+  .tools { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .tool { border:1px solid var(--line); background:var(--raised); border-radius:9px;
+    padding:6px 2px; text-align:center; cursor:pointer; font-size:11.5px; }
+  .tool i { display:block; font-style:normal; font-size:15px; }
+  .tool.active { border-color:var(--accent); color:var(--accent); background:#12283a; }
+  .tool:hover { border-color:var(--line2); }
+  .hint { color:var(--muted); font-size:11.5px; margin:7px 0 0; }
+
+  .field { display:flex; flex-direction:column; gap:3px; margin-bottom:7px; font-size:12px; }
+  .field .row { display:flex; gap:6px; align-items:center; }
+  select,input[type=number],input[type=range] { width:100%; background:var(--deep);
+    color:var(--text); border:1px solid var(--line2); border-radius:8px; padding:4px 8px; }
+  input[type=range] { padding:0; }
+
+  /* ── 地图工作区 ── */
+  .stage-wrap { position:relative; background:var(--deep); border:1px solid var(--line);
+    border-radius:var(--radius); overflow:hidden; }
+  .stage { position:relative; height:520px; }
+  .stage canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #cvHover { cursor:crosshair; }
+  .stage-toolbar { position:absolute; top:10px; left:10px; display:flex; gap:5px;
+    background:rgba(13,20,34,.85); border:1px solid var(--line2); border-radius:11px;
+    padding:5px; backdrop-filter:blur(4px); z-index:5; }
+  .stage-toolbar .tool { background:transparent; border-color:transparent; padding:4px 8px; }
+  .zoombox { position:absolute; right:10px; bottom:10px; display:flex; gap:5px; z-index:5; }
+  .readout { position:absolute; left:10px; bottom:10px; z-index:5; font-size:11.5px;
+    color:var(--muted); background:rgba(13,20,34,.85); border:1px solid var(--line);
+    border-radius:8px; padding:3px 9px; font-variant-numeric:tabular-nums; }
+  .legend { position:absolute; left:10px; bottom:38px; z-index:5; display:flex; gap:10px;
+    font-size:11px; color:var(--muted); background:rgba(13,20,34,.85);
+    border:1px solid var(--line); border-radius:8px; padding:3px 9px; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px;
+    vertical-align:-1px; font-style:normal; }
+  .toast { position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:9;
+    background:#2a2413; color:var(--warn); border:1px solid rgba(245,200,121,.5);
+    border-radius:10px; padding:7px 14px; font-size:12.5px; max-width:82%;
+    opacity:0; pointer-events:none; transition:opacity .25s; }
+  .toast.show { opacity:1; }
+
+  /* ── 时间轴 ── */
+  .timeline-card { padding:10px 12px; }
+  .transport { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .transport .t-label { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; margin-left:4px; }
+  #tl { width:100%; height:96px; display:block; border-radius:10px; margin-top:8px;
+    background:var(--deep); border:1px solid var(--line); cursor:pointer; touch-action:none; }
+
+  /* ── 底部指标带 ── */
+  .metrics { display:flex; gap:18px; flex-wrap:wrap; align-items:center;
+    padding:9px 16px; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); margin:0 10px; font-size:12.5px; }
+  .metrics b { color:var(--text); }
+  .metrics .m { color:var(--muted); }
+  .badge { font-size:11px; padding:2px 9px; border-radius:99px; font-weight:700; }
+  .badge.ok { background:rgba(110,224,164,.15); color:var(--good); border:1px solid rgba(110,224,164,.4); }
+  .badge.warn { background:rgba(245,200,121,.15); color:var(--warn); border:1px solid rgba(245,200,121,.4); }
+  .badge.mut { background:rgba(145,162,185,.12); color:var(--muted); border:1px solid var(--line2); }
+
+  /* ── 右栏 ── */
+  .robot-row { display:flex; gap:8px; align-items:center; padding:6px 8px; border-radius:9px;
+    cursor:pointer; border:1px solid transparent; }
+  .robot-row:hover { background:var(--raised); }
+  .robot-row.sel { background:#12283a; border-color:var(--accent); }
+  .robot-row .swatch { width:14px; height:14px; border-radius:50%; flex:none; }
+  .robot-row small { color:var(--muted); margin-left:auto; font-variant-numeric:tabular-nums; }
+  .eye { margin-left:6px; opacity:.85; cursor:pointer; }
+  table.steps { width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums; }
+  table.steps th, table.steps td { text-align:left; padding:2px 4px; border-bottom:1px solid var(--line); }
+  table.steps th { color:var(--muted); font-weight:600; }
+  table.steps tr.wait td { color:var(--warn); }
+  table.steps tr.arrive td { color:var(--good); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:12px; }
+  .kv .k { color:var(--muted); }
+  .checks { font-size:12px; }
+  .checks div { padding:2px 0; }
+  .ok-t { color:var(--good); } .bad-t { color:var(--bad); }
+  .layers { display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; font-size:12px; }
+  .layers label { display:flex; gap:6px; align-items:center; color:var(--muted); cursor:pointer; }
+
+  footer { padding:10px 16px 18px; color:var(--muted); font-size:11.5px; }
+  footer code { color:var(--blue); }
+
+  @media (max-width:1180px) {
+    .workspace { grid-template-columns:240px 1fr; }
+    .col.right { grid-column:1 / -1; flex-direction:row; flex-wrap:wrap; }
+    .col.right .card { flex:1 1 260px; }
+  }
+  @media (max-width:820px) {
+    .workspace { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-banner">⚠ <b>M0 概念原型</b> · 静态示意图 —— 回放数据为人工核对的演示解，本页<b>不含求解引擎</b>；M1 将接入真实 WASM 引擎（见 <b>mapf/M0-VISUAL-LAB-DESIGN.md</b>）</div>
+
+<header class="lab">
+  <div class="brand">
+    <div class="mark">AD</div>
+    <div><h1>MAPF VISUAL LAB <small>多机器人路径规划 · 交互实验室（原型）</small></h1></div>
+  </div>
+  <div class="spacer"></div>
+  <span class="badge mut">引擎 wasm-light · v1.0.0（演示）</span>
+  <button class="btn tiny" id="btnImport">导入</button>
+  <button class="btn tiny" id="btnExport">导出场景</button>
+</header>
+
+<div class="workspace">
+
+  <!-- ═══ 左栏 ═══ -->
+  <div class="col left">
+    <div class="card">
+      <h3>场景库</h3>
+      <button class="scene-card" data-scene="cross8">
+        <span class="pill demo">演示解</span><b>8×8 十字交叉</b>
+        <span>双车对向穿越中心 · 含 1 步等待避让</span>
+      </button>
+      <button class="scene-card" data-scene="m02">
+        <span class="pill demo">演示解</span><b>M02 两车交叉（3×3）</b>
+        <span>内置 mock · OPTIMAL SOC=5</span>
+      </button>
+      <button class="scene-card" data-scene="blank">
+        <span class="pill">模板</span><b>空白 8×8</b>
+        <span>从零编辑障碍与机器人</span>
+      </button>
+      <div class="hint">本地场景 / 导入导出在 M1 提供（localStorage + mapf-problem/1.0 文件）。</div>
+    </div>
+
+    <div class="card">
+      <h3>编辑工具</h3>
+      <div class="tools">
+        <div class="tool active" data-tool="select" title="选择 / 平移（拖空白平移，点机器人选中）"><i>↖</i>选择</div>
+        <div class="tool" data-tool="wall"   title="按住拖刷画障碍"><i>▨</i>障碍</div>
+        <div class="tool" data-tool="erase"  title="按住拖刷擦除"><i>▢</i>擦除</div>
+        <div class="tool" data-tool="add"    title="点击空格添加机器人"><i>＋</i>加车</div>
+        <div class="tool" data-tool="start"  title="选中车后点击设起点"><i>◎</i>起点</div>
+        <div class="tool" data-tool="goal"   title="选中车后点击设终点"><i>◆</i>终点</div>
+        <div class="tool" data-tool="del"    title="点击机器人删除"><i>✕</i>删车</div>
+        <div class="tool" id="toolUndo" title="撤销（原型支持障碍/机器人编辑）"><i>↩</i>撤销</div>
+      </div>
+      <p class="hint">预检（重复起终点 / 障碍内 / 越界）在 M1 以红框 + 问题清单呈现。</p>
+    </div>
+
+    <div class="card">
+      <h3>规划参数</h3>
+      <label class="field">目标
+        <select id="pObj"><option value="soc">SOC（总耗时）</option><option value="makespan">Makespan（完时）</option></select>
+      </label>
+      <label class="field">次优上界 w（1–3）<div class="row"><input type="range" id="pW" min="1" max="3" step="0.05" value="1"><span id="pWv" style="width:34px">1.00</span></div></label>
+      <label class="field">规划器
+        <select id="pPlanner"><option>auto</option><option>ecbs</option><option>cbs</option><option>pp</option></select>
+      </label>
+      <div class="field">预算 ms / 种子<div class="row"><input type="number" id="pBudget" value="3000" min="100" max="120000" step="100"><input type="number" id="pSeed" value="42" min="0"></div></div>
+      <p class="hint">原型中参数仅为界面演示；M1 直接绑定 <code>mapf_solve_with_options</code>。</p>
+    </div>
+
+    <div class="card">
+      <h3>求解控制</h3>
+      <button class="btn primary" id="btnSolve" style="width:100%;padding:9px">▶ 求解</button>
+      <button class="btn" id="btnCancel" style="width:100%;margin-top:6px" disabled>取消</button>
+      <p class="hint" id="solveState">未求解 —— 地图与起终点已可直接查看（V01）。</p>
+    </div>
+  </div>
+
+  <!-- ═══ 中央：地图 + 时间轴 ═══ -->
+  <div class="col mid">
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <canvas id="cvBase"></canvas>
+        <canvas id="cvDyn"></canvas>
+        <canvas id="cvHover"></canvas>
+        <div class="stage-toolbar">
+          <div class="tool active" data-tool="select"><i>↖</i></div>
+          <div class="tool" data-tool="wall"><i>▨</i></div>
+          <div class="tool" data-tool="erase"><i>▢</i></div>
+          <div class="tool" id="toolEvent" title="t=3 注入障碍（演示预置的重规划结果）"><i>⚡</i>事件</div>
+        </div>
+        <div class="legend">
+          <span><i style="background:#8eb4ff"></i>移动</span>
+          <span><i style="background:transparent;border:2px solid #f5c879"></i>等待</span>
+          <span><i style="background:transparent;border:2px solid #6ee0a4"></i>到达</span>
+          <span><i style="background:#6ee0a422;border:1px solid #6ee0a4"></i>驻留目标</span>
+        </div>
+        <div class="readout" id="readout">(–, –)</div>
+        <div class="zoombox">
+          <button class="btn tiny" id="zOut">−</button>
+          <button class="btn tiny" id="zFit">适配</button>
+          <button class="btn tiny" id="zIn">＋</button>
+        </div>
+        <div class="toast" id="toast"></div>
+      </div>
+    </div>
+
+    <div class="card timeline-card">
+      <div class="transport">
+        <button class="btn tiny" id="tReset">⏮</button>
+        <button class="btn tiny" id="tPrev">◀</button>
+        <button class="btn tiny primary" id="tPlay">▶</button>
+        <button class="btn tiny" id="tNext">▶</button>
+        <span class="t-label" id="tLabel">t = 0 / 0</span>
+        <span style="flex:1"></span>
+        <span class="t-label">速度</span>
+        <select id="tSpeed" style="width:74px">
+          <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option><option value="2">2×</option>
+          <option value="4">4×</option><option value="8">8×</option>
+        </select>
+      </div>
+      <canvas id="tl" title="时间轴：每车一轨 · 灰段=等待 · ⚡=事件 · 点击/拖动定位"></canvas>
+    </div>
+  </div>
+
+  <!-- ═══ 右栏 ═══ -->
+  <div class="col right">
+    <div class="card">
+      <h3>机器人</h3>
+      <div id="robotList"></div>
+    </div>
+    <div class="card">
+      <h3>选中车详情</h3>
+      <div id="robotDetail"><p class="hint">点击地图或列表中的机器人查看路径明细（V05 联动）。</p></div>
+    </div>
+    <div class="card">
+      <h3>冲突与核验</h3>
+      <div class="checks" id="verifyPanel"></div>
+    </div>
+    <div class="card">
+      <h3>图层</h3>
+      <div class="layers" id="layerPanel">
+        <label><input type="checkbox" data-layer="grid" checked>网格</label>
+        <label><input type="checkbox" data-layer="walls" checked>障碍</label>
+        <label><input type="checkbox" data-layer="ends" checked>起终点</label>
+        <label><input type="checkbox" data-layer="paths" checked>规划路径</label>
+        <label><input type="checkbox" data-layer="trace" checked>已执行</label>
+        <label><input type="checkbox" data-layer="robots" checked>机器人</label>
+        <label><input type="checkbox" data-layer="events" checked>事件标记</label>
+        <label><input type="checkbox" data-layer="oldpath" checked>旧方案参照</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="metrics" id="metrics"></div>
+
+<footer>
+  原型说明：本页仅评审交互概念 —— 求解按钮、指标数值、动态重规划结果均为<b style="color:var(--warn)">静态演示数据</b>（两套演示解均人工核对无顶点/边交换/目标占用冲突）；
+  M1 交付后，同一界面上的路径、冲突与指标将全部来自真实 WASM 引擎输出（设计文档 §2 总则 3）。
+  快捷键：空格 播放/暂停 · ←/→ 单步 · F 适配 · G 网格 · 滚轮缩放 · 拖动平移。
+</footer>
+
+<script>
+'use strict';
+/* ══════════ 演示数据（静态硬编码，人工核对） ══════════
+   示例A：8×8 十字交叉。R1 (0,3)→(7,3) 行进 7 步；R2 (3,0)→(3,7) 先等待 1 步再走，t=3 在 (3,2) 让 R1 先过 (3,3)。
+   事件版：t=3 在 (3,4) 加障碍 → R2 自 (3,3) 起改道右列，冻结前缀 t≤4 不变。 */
+const SCENES = {
+  cross8: {
+    name: '8×8 十字交叉', w: 8, h: 8,
+    grid: ('........\n'.repeat(8)).trim().split('\n'),
+    robots: [
+      { id: 'R1', start: [0,3], goal: [7,3] },
+      { id: 'R2', start: [3,0], goal: [3,7] },
+    ],
+    solution: {
+      status: 'OPTIMAL', soc: 15, makespan: 8, verified: true, lb: 14,
+      paths: {
+        R1: { path: [[0,3],[1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[7,3]], arrival: 7 },
+        R2: { path: [[3,0],[3,0],[3,1],[3,2],[3,3],[3,4],[3,5],[3,6],[3,7]], arrival: 8 },
+      },
+    },
+    eventDemo: {
+      T: 3, frozenSteps: 1, cell: [3,4], at: 3, robot: 'R2',
+      newSolution: {
+        status: 'FEASIBLE', soc: 17, makespan: 10, verified: true, lb: 14,
+        paths: {
+          R1: { path: [[0,3],[1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[7,3],[7,3],[7,3]], arrival: 7, locked: true },
+          R2: { path: [[3,0],[3,0],[3,1],[3,2],[3,3],[4,3],[4,4],[4,5],[4,6],[4,7],[3,7]], arrival: 10 },
+        },
+        dyn: { replan_ms: 0.8, affected_agents: 1, path_change_steps: 6, frozen_prefix_covered: 4 },
+      },
+    },
+  },
+  m02: {
+    name: 'M02 两车交叉（3×3）', w: 3, h: 3,
+    grid: ['...','...','...'],
+    robots: [
+      { id: 'AGV-A', start: [0,1], goal: [2,1] },
+      { id: 'AGV-B', start: [1,0], goal: [1,2] },
+    ],
+    solution: {
+      status: 'OPTIMAL', soc: 5, makespan: 3, verified: true,
+      paths: {
+        'AGV-A': { path: [[0,1],[1,1],[2,1]], arrival: 2 },
+        'AGV-B': { path: [[1,0],[1,0],[1,1],[1,2]], arrival: 3 },
+      },
+    },
+  },
+  blank: {
+    name: '空白 8×8', w: 8, h: 8,
+    grid: ('........\n'.repeat(8)).trim().split('\n'),
+    robots: [], solution: null,
+  },
+};
+const PALETTE = ['#8eb4ff','#ff9d7a','#7fdca4','#f2c14e','#c9a0ff','#6fd6e0','#ff8fb1','#a8c96a','#90a8ff','#e0b48a'];
+
+/* ══════════ 状态 ══════════ */
+const S = {
+  scene: null,            // {key, name, w, h, grid[], robots[], solution}
+  baseSolution: null,     // 事件前的方案（对照）
+  eventApplied: null,     // 事件演示结果
+  solution: null,         // 当前生效方案
+  tool: 'select', selected: null, hidden: new Set(),
+  layers: { grid:true, walls:true, ends:true, paths:true, trace:true, robots:true, events:true, oldpath:true },
+  t: 0, playing: false, speed: 1, lastStepTs: 0,
+  vp: { s: 48, ox: 0, oy: 0 },      // 每格像素 + 原点偏移
+  hover: null, drag: null, undoStack: [], redoStack: [],
+};
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const robotsOf = () => S.scene ? S.scene.robots : [];
+const solPaths = () => S.solution ? S.solution.paths : null;
+const maxT = () => { const p = solPaths(); return p ? Math.max(0, ...Object.values(p).map(r => r.path.length - 1)) : 0; };
+const colorOf = (id) => { const i = robotsOf().findIndex(r => r.id === id); return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]; };
+
+/* ══════════ 场景装载 ══════════ */
+function loadScene(key) {
+  const d = SCENES[key];
+  S.scene = { key, name: d.name, w: d.w, h: d.h, grid: d.grid.slice(), robots: JSON.parse(JSON.stringify(d.robots)) };
+  S.solution = d.solution ? JSON.parse(JSON.stringify(d.solution)) : null;
+  S.baseSolution = S.solution; S.eventApplied = null;
+  S.selected = null; S.hidden.clear(); S.t = 0; S.playing = false;
+  S.undoStack = []; S.redoStack = [];
+  document.querySelectorAll('.scene-card').forEach(c => c.classList.toggle('active', c.dataset.scene === key));
+  $('solveState').textContent = S.solution ? '已载入演示解（静态数据）。' : '未求解 —— 地图与起终点已可直接查看（V01）。';
+  fit(); renderAll();
+  toast(S.solution ? `已载入「${d.name}」及演示解（静态数据）` : `已载入「${d.name}」— 用左侧工具编辑，或点【求解】查看原型说明`);
+}
+function gridGet(x, y) { return (S.scene.grid[y] || '')[x] || '#'; }
+function gridSet(x, y, ch) { const row = S.scene.grid[y].split(''); row[x] = ch; S.scene.grid[y] = row.join(''); }
+function isWallDynamic(x, y, t) { // 事件障碍：at 之后生效
+  if (gridGet(x, y) === '#') return true;
+  const ev = S.eventApplied; return !!(ev && ev.cell[0] === x && ev.cell[1] === y && t >= ev.at);
+}
+
+/* ══════════ 视口与画布 ══════════ */
+const base = $('cvBase'), dyn = $('cvDyn'), hov = $('cvHover');
+const stage = $('stage');
+const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+function sizeCanvases() {
+  const r = stage.getBoundingClientRect(), d = dpr();
+  for (const c of [base, dyn, hov]) { c.width = r.width * d; c.height = r.height * d; }
+}
+function cellRect(x, y) { return { x: S.vp.ox + x * S.vp.s, y: S.vp.oy + y * S.vp.s, w: S.vp.s, h: S.vp.s }; }
+function pxToCell(px, py) { return { x: Math.floor((px - S.vp.ox) / S.vp.s), y: Math.floor((py - S.vp.oy) / S.vp.s) }; }
+function fit() {
+  const r = stage.getBoundingClientRect();
+  const s = Math.min((r.width - 24) / S.scene.w, (r.height - 24) / S.scene.h);
+  S.vp.s = clamp(s, 4, 120);
+  S.vp.ox = (r.width - S.vp.s * S.scene.w) / 2;
+  S.vp.oy = (r.height - S.vp.s * S.scene.h) / 2;
+  drawBase();
+}
+
+/* L0 基底：仅 场景/视口 变化时重绘（分层缓存概念演示） */
+let baseDirty = true;
+function drawBase() {
+  const ctx = base.getContext('2d'), d = dpr(), r = stage.getBoundingClientRect();
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!S.scene) return;
+  const s = S.vp.s;
+  // 可视区裁剪
+  const c0 = pxToCell(0, 0), c1 = pxToCell(r.width, r.height);
+  for (let y = Math.max(0, c0.y); y <= Math.min(S.scene.h - 1, c1.y); y++) {
+    for (let x = Math.max(0, c0.x); x <= Math.min(S.scene.w - 1, c1.x); x++) {
+      const R = cellRect(x, y);
+      if (gridGet(x, y) === '#') {
+        ctx.fillStyle = '#3a4048'; ctx.fillRect(R.x, R.y, s, s);
+        ctx.strokeStyle = '#2b3138'; ctx.lineWidth = 1; ctx.strokeRect(R.x + .5, R.y + .5, s - 1, s - 1);
+      } else if (S.layers.grid && s >= 8) {
+        ctx.strokeStyle = 'rgba(157,180,211,.12)'; ctx.strokeRect(R.x + .5, R.y + .5, s - 1, s - 1);
+      }
+    }
+  }
+  // 行列号（LOD：大格才显示）
+  if (s >= 26 && S.layers.grid) {
+    ctx.fillStyle = 'rgba(145,162,185,.55)'; ctx.font = '10px system-ui'; ctx.textAlign = 'left';
+    for (let x = 0; x < S.scene.w; x++) ctx.fillText(String(x), S.vp.ox + x * s + 2, Math.max(10, S.vp.oy - 3));
+    ctx.textAlign = 'right';
+    for (let y = 0; y < S.scene.h; y++) ctx.fillText(String(y), Math.max(12, S.vp.ox - 4), S.vp.oy + y * s + 11);
+  }
+  baseDirty = false;
+}
+
+/* L1/L2：路径 + 实体（回放步/选择/图层变化时重绘） */
+function posAt(id, t) {
+  const r = solPaths()[id]; const p = r.path; return p[clamp(t, 0, p.length - 1)];
+}
+function drawDyn() {
+  const ctx = dyn.getContext('2d'), d = dpr(), r = stage.getBoundingClientRect();
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!S.scene) return;
+  const s = S.vp.s, paths = solPaths();
+
+  // —— 事件障碍（含生效前 ghost） ——
+  const ev = S.eventApplied;
+  if (ev && S.layers.events) {
+    const R = cellRect(ev.cell[0], ev.cell[1]);
+    if (S.t >= ev.at) { // 生效：新障碍
+      ctx.fillStyle = '#5a4a20'; ctx.fillRect(R.x, R.y, s, s);
+      ctx.strokeStyle = '#f5c879'; ctx.setLineDash([3, 3]); ctx.strokeRect(R.x + .5, R.y + .5, s - 1, s - 1); ctx.setLineDash([]);
+      ctx.fillStyle = '#f5c879'; ctx.font = `${Math.max(9, s * .38)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⚡', R.x + s / 2, R.y + s / 2);
+    } else {            // 未生效：ghost 预览
+      ctx.strokeStyle = 'rgba(245,200,121,.5)'; ctx.setLineDash([3, 4]); ctx.strokeRect(R.x + .5, R.y + .5, s - 1, s - 1); ctx.setLineDash([]);
+    }
+  }
+
+  // —— 旧方案参照（事件后灰虚线） ——
+  if (S.eventApplied && S.baseSolution && S.layers.oldpath) {
+    ctx.lineWidth = Math.max(1.5, s * .05); ctx.strokeStyle = 'rgba(145,162,185,.45)'; ctx.setLineDash([4, 4]);
+    for (const [id, rr] of Object.entries(S.baseSolution.paths)) drawPolyline(ctx, rr.path, false);
+    ctx.setLineDash([]);
+  }
+
+  // —— 起终点 ——
+  if (S.layers.ends) for (const rb of robotsOf()) {
+    const col = colorOf(rb.id), dim = S.selected && S.selected !== rb.id;
+    ctx.globalAlpha = dim ? .25 : 1;
+    const R0 = cellRect(rb.start[0], rb.start[1]);
+    ctx.strokeStyle = rb.goal ? col : '#ff818b'; ctx.lineWidth = 2;
+    ctx.strokeRect(R0.x + 3, R0.y + 3, s - 6, s - 6);
+    if (!rb.goal) { // 未设终点：红色未完成态（M1 与预检问题清单联动）
+      ctx.fillStyle = 'rgba(255,129,139,.22)'; ctx.fillRect(R0.x + 3, R0.y + 3, s - 6, s - 6);
+      ctx.globalAlpha = 1; continue;
+    }
+    const R = cellRect(rb.goal[0], rb.goal[1]);
+    ctx.fillStyle = col; ctx.globalAlpha = (dim ? .25 : .35);
+    ctx.beginPath();
+    ctx.moveTo(R.x + s / 2, R.y + 2); ctx.lineTo(R.x + s - 2, R.y + s / 2);
+    ctx.lineTo(R.x + s / 2, R.y + s - 2); ctx.lineTo(R.x + 2, R.y + s / 2);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // —— 路径（未来虚线 / 已执行实线；冻结前缀 🔒） ——
+  if (paths && S.layers.paths) {
+    for (const [id, rr] of Object.entries(paths)) {
+      if (S.hidden.has(id)) continue;
+      const dim = S.selected && S.selected !== id;
+      ctx.globalAlpha = dim ? .18 : 1;
+      const col = colorOf(id);
+      // 未来段
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, s * .06); ctx.setLineDash([5, 5]); ctx.globalAlpha *= .55;
+      drawPolyline(ctx, rr.path.slice(S.t), false);
+      ctx.setLineDash([]);
+      // 已执行段
+      ctx.globalAlpha = dim ? .18 : 1; ctx.lineWidth = Math.max(2.5, s * .1);
+      drawPolyline(ctx, rr.path.slice(0, S.t + 1), false);
+      // 冻结前缀标记（事件演示）
+      if (S.eventApplied && S.layers.events) {
+        const fEnd = S.eventApplied.T + S.eventApplied.frozen;
+        if (fEnd > 0 && rr.path.length > 1) {
+          ctx.strokeStyle = 'rgba(237,244,255,.9)'; ctx.lineWidth = 2; ctx.setLineDash([2, 3]);
+          drawPolyline(ctx, rr.path.slice(0, Math.min(fEnd, rr.path.length - 1) + 1), false);
+          ctx.setLineDash([]);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // —— 机器人 ——
+  if (paths && S.layers.robots) {
+    for (const [id, rr] of Object.entries(paths)) {
+      if (S.hidden.has(id)) continue;
+      const [x, y] = posAt(id, S.t);
+      const R = cellRect(x, y), cx = R.x + s / 2, cy = R.y + s / 2;
+      const col = colorOf(id), dim = S.selected && S.selected !== id;
+      const rad = s * .3;
+      ctx.globalAlpha = dim ? .18 : 1;
+      const arrived = rr.arrival != null && S.t >= rr.arrival;
+      const moving = S.t > 0 && !arraysEq(rr.path[S.t], rr.path[S.t - 1]) && !arrived;
+      const waiting = S.t > 0 && !moving && !arrived;
+      if (arrived && S.t > rr.arrival) { // 驻留光晕
+        ctx.fillStyle = col + '33'; ctx.beginPath(); ctx.arc(cx, cy, rad * 1.55, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = moving || arrived ? col : 'transparent';
+      ctx.strokeStyle = col; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7);
+      if (waiting) ctx.stroke(); else ctx.fill();
+      if (waiting) { ctx.fillStyle = '#f5c879'; ctx.beginPath(); ctx.arc(cx, cy, rad * .35, 0, 7); ctx.fill(); }
+      if (S.t === rr.arrival) { ctx.strokeStyle = '#6ee0a4'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, rad + 3.5, 0, 7); ctx.stroke(); }
+      if (rr.locked) { ctx.strokeStyle = '#edf4ff'; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(cx, cy, rad + 2.5, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+      if (S.selected === id) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, rad + 5, 0, 7); ctx.stroke(); }
+      if (s >= 15) { // LOD：序号徽标
+        ctx.fillStyle = moving || arrived ? '#0b1020' : col;
+        ctx.font = `bold ${Math.round(rad)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(id.replace(/\D/g, '') || '·', cx, cy + .5);
+      }
+      ctx.globalAlpha = 1;
+    }
+  } else if (!paths && S.layers.robots) {
+    // 未求解：起止位置展示
+    for (const rb of robotsOf()) {
+      const R = cellRect(rb.start[0], rb.start[1]);
+      ctx.fillStyle = colorOf(rb.id);
+      ctx.beginPath(); ctx.arc(R.x + s / 2, R.y + s / 2, s * .28, 0, 7); ctx.fill();
+    }
+  }
+}
+function drawPolyline(ctx, pts) {
+  if (pts.length < 2) return;
+  ctx.beginPath();
+  for (let k = 0; k < pts.length; k++) {
+    const R = cellRect(pts[k][0], pts[k][1]);
+    const cx = R.x + R.w / 2, cy = R.y + R.h / 2;
+    k === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+  }
+  ctx.stroke();
+}
+const arraysEq = (a, b) => !a || !b ? false : a[0] === b[0] && a[1] === b[1];
+
+/* L3：悬停高亮 */
+function drawHover() {
+  const ctx = hov.getContext('2d'), d = dpr(), r = stage.getBoundingClientRect();
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!S.hover || !S.scene) return;
+  const { x, y } = S.hover;
+  if (x < 0 || y < 0 || x >= S.scene.w || y >= S.scene.h) return;
+  const R = cellRect(x, y);
+  ctx.strokeStyle = 'rgba(118,224,191,.85)'; ctx.lineWidth = 2;
+  ctx.strokeRect(R.x + 1, R.y + 1, R.w - 2, R.h - 2);
+}
+
+/* ══════════ 时间轴（Canvas） ══════════ */
+const tl = $('tl');
+function drawTimeline() {
+  const ctx = tl.getContext('2d'), d = dpr();
+  const w = tl.clientWidth, h = tl.clientHeight;
+  if (tl.width !== w * d) { tl.width = w * d; tl.height = h * d; }
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const M = S.eventApplied, paths = solPaths();
+  const T = Math.max(maxT(), M ? M.at + 1 : 0, 10);
+  const padL = 44, padR = 12, padT = 16, padB = 6;
+  const xOf = (t) => padL + (w - padL - padR) * (t / T);
+  const ids = robotsOf().map(r => r.id);
+  const trackH = (h - padT - padB) / Math.max(1, ids.length);
+
+  ctx.font = '10.5px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let t = 0; t <= T; t += Math.max(1, Math.round(T / 12 / 5) * 5)) {
+    ctx.fillStyle = 'rgba(145,162,185,.6)'; ctx.fillText(String(t), xOf(t), 2);
+    ctx.strokeStyle = 'rgba(157,180,211,.1)';
+    ctx.beginPath(); ctx.moveTo(xOf(t), padT - 4); ctx.lineTo(xOf(t), h - padB); ctx.stroke();
+  }
+  ids.forEach((id, i) => {
+    const y = padT + trackH * i + trackH / 2;
+    const col = colorOf(id), dim = S.selected && S.selected !== id;
+    ctx.globalAlpha = dim ? .3 : 1;
+    ctx.fillStyle = 'rgba(145,162,185,.9)'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(id, padL - 8, y);
+    const rr = paths && paths[id];
+    if (rr) {
+      for (let t = 1; t < rr.path.length; t++) {
+        const moved = !arraysEq(rr.path[t], rr.path[t - 1]);
+        const arrived = rr.arrival != null && t === rr.arrival;
+        const parked = rr.arrival != null && t > rr.arrival;
+        ctx.strokeStyle = parked ? col + '38' : moved ? col : 'rgba(145,162,185,.75)';
+        ctx.lineWidth = parked ? 3 : moved ? 5 : 5;
+        ctx.beginPath(); ctx.moveTo(xOf(t - 1), y); ctx.lineTo(xOf(t), y); ctx.stroke();
+        if (arrived) { ctx.fillStyle = '#6ee0a4'; ctx.font = '9px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✓', xOf(t), y - 8); }
+      }
+    } else {
+      ctx.strokeStyle = 'rgba(157,180,211,.18)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  });
+  // 事件标记
+  if (M) {
+    ctx.fillStyle = '#f5c879'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('⚡', xOf(M.at), padT - 4);
+    ctx.strokeStyle = 'rgba(245,200,121,.55)'; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(xOf(M.at), padT - 2); ctx.lineTo(xOf(M.at), h - padB); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // 游标
+  ctx.strokeStyle = '#76e0bf'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(xOf(S.t), 4); ctx.lineTo(xOf(S.t), h - 2); ctx.stroke();
+  ctx.fillStyle = '#76e0bf'; ctx.beginPath();
+  ctx.arc(xOf(S.t), 6, 3.2, 0, 7); ctx.fill();
+}
+
+/* ══════════ 回放时钟（rAF，离散步进） ══════════ */
+let rafId = 0;
+function tick(ts) {
+  rafId = requestAnimationFrame(tick);
+  if (S.playing) {
+    if (!S.lastStepTs) S.lastStepTs = ts;
+    const stepMs = 500 / S.speed; // 基准 2 步/秒 × speed
+    if (ts - S.lastStepTs >= stepMs) {
+      S.lastStepTs = ts;
+      if (S.t >= maxT()) { S.playing = false; updateTransport(); }
+      else { S.t++; onStepChanged(); }
+    }
+  }
+  drawHover();
+}
+function onStepChanged() {
+  drawDyn(); drawTimeline();
+  $('tLabel').textContent = `t = ${S.t} / ${maxT()}`;
+  renderRobotDetail(); // 详情表当前行高亮（小组件级更新，M1 中经隔离 state）
+}
+
+/* ══════════ 交互：缩放 / 平移 / 工具 ══════════ */
+function stagePos(e) {
+  const r = stage.getBoundingClientRect();
+  return { px: e.clientX - r.left, py: e.clientY - r.top };
+}
+hov.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const { px, py } = stagePos(e);
+  const c = pxToCell(px, py);
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  S.vp.s = clamp(S.vp.s * factor, 4, 120);
+  // 光标锚定：保持 c 在 (px,py)
+  S.vp.ox = px - (c.x + (px - S.vp.ox) / (S.vp.s / factor) - S.vp.ox / (S.vp.s / factor) - 0) * 0 - ((c.x + 0.5) * S.vp.s) + (px - S.vp.ox) * 0 + 0;
+  // 上面这行过于绕，直接按比例重算：
+  S.vp.ox = px - (c.x + ((px - S.vp.ox) / (S.vp.s / factor) - Math.floor((px - S.vp.ox) / (S.vp.s / factor)))) * S.vp.s;
+  S.vp.oy = py - (c.y + ((py - S.vp.oy) / (S.vp.s / factor) - Math.floor((py - S.vp.oy) / (S.vp.s / factor)))) * S.vp.s;
+  drawBase(); drawDyn();
+}, { passive: false });
+
+hov.addEventListener('pointerdown', (e) => {
+  const { px, py } = stagePos(e);
+  const cell = pxToCell(px, py);
+  const pan = S.tool === 'select' && (e.button === 1 || e.shiftKey);
+  S.drag = { mode: pan ? 'pan' : S.tool, x0: px, y0: py, ox: S.vp.ox, oy: S.vp.oy, painted: false, snap: null };
+  if (!pan) applyToolAt(cell, e, true);
+  hov.setPointerCapture(e.pointerId);
+});
+hov.addEventListener('pointermove', (e) => {
+  const { px, py } = stagePos(e);
+  S.hover = pxToCell(px, py);
+  const inb = S.hover.x >= 0 && S.hover.y >= 0 && S.hover.x < S.scene.w && S.hover.y < S.scene.h;
+  const occ = inb && solPaths() ? Object.entries(solPaths()).find(([id]) => arraysEq(posAt(id, S.t), [S.hover.x, S.hover.y])) : null;
+  $('readout').textContent = inb
+    ? `(${S.hover.x}, ${S.hover.y}) · ${isWallDynamic(S.hover.x, S.hover.y, S.t) ? '障碍' : '可通行'}${occ ? ' · ' + occ[0] : ''}`
+    : '(–, –)';
+  if (S.drag) {
+    if (S.drag.mode === 'pan') {
+      S.vp.ox = S.drag.ox + (px - S.drag.x0); S.vp.oy = S.drag.oy + (py - S.drag.y0);
+      drawBase(); drawDyn();
+    } else if (S.drag.mode === 'wall' || S.drag.mode === 'erase') {
+      applyToolAt(S.hover, e, false);
+    }
+  }
+});
+hov.addEventListener('pointerup', () => {
+  if (S.drag && S.drag.snap) { S.redoStack = []; }
+  S.drag = null;
+});
+hov.addEventListener('pointerleave', () => { S.hover = null; drawHover(); });
+hov.addEventListener('click', (e) => {
+  const { px, py } = stagePos(e);
+  if (S.tool === 'select') { const hit = pickRobot(px, py); if (hit) selectRobot(hit); }
+});
+
+function pickRobot(px, py) {
+  const paths = solPaths();
+  if (paths) {
+    for (const [id] of Object.entries(paths)) {
+      if (S.hidden.has(id)) continue;
+      const [x, y] = posAt(id, S.t); const R = cellRect(x, y);
+      if (px >= R.x - 3 && px <= R.x + R.w + 3 && py >= R.y - 3 && py <= R.y + R.h + 3) return id;
+    }
+  } else {
+    for (const rb of robotsOf()) {
+      const R = cellRect(rb.start[0], rb.start[1]);
+      if (px >= R.x && px <= R.x + R.w && py >= R.y && py <= R.y + R.h) return rb.id;
+    }
+  }
+  return null;
+}
+function selectRobot(id) { S.selected = (S.selected === id ? null : id); renderAll(); }
+
+function pushUndo() {
+  S.undoStack.push({ grid: S.scene.grid.slice(), robots: JSON.parse(JSON.stringify(S.scene.robots)) });
+  if (S.undoStack.length > 100) S.undoStack.shift();
+  S.redoStack = [];
+}
+function doUndo() {
+  const st = S.undoStack.pop(); if (!st) return toast('没有可撤销的操作');
+  S.redoStack.push({ grid: S.scene.grid.slice(), robots: JSON.parse(JSON.stringify(S.scene.robots)) });
+  S.scene.grid = st.grid; S.scene.robots = st.robots;
+  if (S.selected && !robotsOf().some(r => r.id === S.selected)) S.selected = null;
+  invalidateSolution('撤销'); renderAll();
+}
+function doRedo() {
+  const st = S.redoStack.pop(); if (!st) return toast('没有可重做的操作');
+  S.undoStack.push({ grid: S.scene.grid.slice(), robots: JSON.parse(JSON.stringify(S.scene.robots)) });
+  S.scene.grid = st.grid; S.scene.robots = st.robots;
+  invalidateSolution('重做'); renderAll();
+}
+function invalidateSolution(why) {
+  // 原型不重算：真实 M1 中编辑会触发真实重求解；此处保留旧解并提示。
+  // 拖刷一笔只提示一次（S.drag.toasted）。
+  if (S.solution && (!S.drag || !S.drag.toasted)) {
+    toast(`场景已${why}（原型不重新求解；M1 将触发真实引擎重算）`);
+    if (S.drag) S.drag.toasted = true;
+  }
+  baseDirty = true;
+}
+
+function applyToolAt(cell, e, isDown) {
+  const { x, y } = cell;
+  const inb = x >= 0 && y >= 0 && x < S.scene.w && y < S.scene.h;
+  if (S.tool === 'wall' || S.tool === 'erase') {
+    if (!inb) return;
+    const ch = S.tool === 'wall' ? '#' : '.';
+    const occupied = robotsOf().some(r => arraysEq(r.start, [x, y]) || arraysEq(r.goal, [x, y]));
+    if (S.tool === 'wall' && occupied) { if (isDown) toast('该格有机器人起点/终点（M1 预检会即时拦截）'); return; }
+    if (gridGet(x, y) !== ch) {
+      if (isDown || !S.drag.snap) { if (isDown) pushUndo(); S.drag.snap = true; }
+      gridSet(x, y, ch); invalidateSolution('编辑障碍'); drawBase(); drawDyn();
+    }
+    return;
+  }
+  if (!isDown || !inb) return;
+  if (S.tool === 'add') {
+    if (gridGet(x, y) === '#') return toast('不能把机器人放在障碍里');
+    if (robotsOf().some(r => arraysEq(r.start, [x, y]))) return toast('该格已有其他机器人的起点');
+    pushUndo();
+    let id = 'R' + (robotsOf().length + 1);
+    while (robotsOf().some(r => r.id === id)) id += 'b';
+    robotsOf().push({ id, start: [x, y], goal: null });
+    S.selected = id;
+    invalidateSolution('添加机器人'); renderAll();
+    toast(`${id} 已添加 —— 用「终点」工具给它设置目标（未设终点时 M1 禁用求解）`);
+    return;
+  }
+  if (S.tool === 'start' || S.tool === 'goal') {
+    const rb = robotsOf().find(r => r.id === S.selected);
+    if (!rb) return toast('先用「选择」工具选中一台机器人');
+    if (gridGet(x, y) === '#') return toast(`${S.tool === 'start' ? '起点' : '终点'}不能在障碍里`);
+    const other = robotsOf().find(r => r.id !== rb.id && arraysEq(r[S.tool], [x, y]));
+    if (S.tool === 'goal' && other) return toast(`终点与 ${other.id} 的终点重复（stay-at-target 语义下目标格互斥）`);
+    if (S.tool === 'start' && other && arraysEq(other.start, [x, y])) return toast(`起点与 ${other.id} 重复`);
+    pushUndo();
+    rb[S.tool] = [x, y]; if (S.tool === 'goal') delete rb.unset;
+    invalidateSolution('修改起终点'); renderAll();
+    return;
+  }
+  if (S.tool === 'del') {
+    const hit = pickRobot(e ? stagePos(e).px : 0, e ? stagePos(e).py : 0) || S.selected;
+    const rb = robotsOf().find(r => r.id === hit);
+    if (!rb) return toast('点击要删除的机器人');
+    pushUndo();
+    robotsOf().splice(robotsOf().indexOf(rb), 1);
+    if (S.selected === rb.id) S.selected = null;
+    invalidateSolution('删除机器人'); renderAll();
+    return;
+  }
+}
+
+/* ══════════ 右栏 / 指标渲染 ══════════ */
+function renderRobotList() {
+  const el = $('robotList');
+  const paths = solPaths();
+  el.innerHTML = '';
+  if (!robotsOf().length) { el.innerHTML = '<p class="hint">暂无机器人 —— 用「加车」工具点击地图。</p>'; return; }
+  for (const rb of robotsOf()) {
+    const row = document.createElement('div');
+    row.className = 'robot-row' + (S.selected === rb.id ? ' sel' : '');
+    const rr = paths && paths[rb.id];
+    const state = !rr ? (rb.goal ? '待求解' : '未设终点')
+      : S.t < rr.arrival ? (arraysEq(posAt(rb.id, S.t), rr.path[Math.max(0, S.t - 1)]) ? '等待' : '在途')
+      : S.t > rr.arrival ? '驻留' : '到达';
+    row.innerHTML = `<span class="swatch" style="background:${colorOf(rb.id)}"></span>
+      <b>${rb.id}</b><small>${rr ? `${rr.arrival} 步 · ${state}` : state}</small>
+      <span class="eye" title="显示/隐藏路径">${S.hidden.has(rb.id) ? '🚫' : '👁'}</span>`;
+    row.onclick = (ev) => { if (ev.target.classList.contains('eye')) { S.hidden.has(rb.id) ? S.hidden.delete(rb.id) : S.hidden.add(rb.id); renderAll(); } else selectRobot(rb.id); };
+    el.appendChild(row);
+  }
+}
+function renderRobotDetail() {
+  const el = $('robotDetail');
+  const rb = robotsOf().find(r => r.id === S.selected);
+  if (!rb) { el.innerHTML = '<p class="hint">点击地图或列表中的机器人查看路径明细（V05 联动）。</p>'; return; }
+  const rr = solPaths() && solPaths()[rb.id];
+  let html = `<div class="kv">
+    <span class="k">起点</span><span>(${rb.start[0]}, ${rb.start[1]})</span>
+    <span class="k">终点</span><span>${rb.goal ? `(${rb.goal[0]}, ${rb.goal[1]})` : '<span style="color:var(--bad)">未设置</span>'}</span>`;
+  if (rr) {
+    const waits = rr.path.slice(1).filter((p, i) => arraysEq(p, rr.path[i])).length;
+    html += `<span class="k">到达时刻</span><span>${rr.arrival}${rr.locked ? ' 🔒' : ''}</span>
+      <span class="k">步数 / 等待</span><span>${rr.path.length - 1} / ${waits}</span></div>
+      <table class="steps"><thead><tr><th>t</th><th>位置</th><th>动作</th></tr></thead><tbody>`;
+    rr.path.forEach((p, i) => {
+      const arrived = i === rr.arrival, parked = i > rr.arrival;
+      const moved = i > 0 && !arraysEq(p, rr.path[i - 1]) && !arrived && !parked;
+      const wait = i > 0 && !moved && !arrived && !parked && i <= rr.arrival;
+      const cls = i === S.t ? ' style="background:#12283a"' : '';
+      html += `<tr class="${arrived ? 'arrive' : wait ? 'wait' : ''}"${cls}><td>${i}</td><td>(${p[0]}, ${p[1]})</td>
+        <td>${arrived ? '✓ 到达' : parked ? '◉ 驻留' : moved ? dirOf(rr.path[i - 1], p) : '⏸ 等待'}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  } else {
+    html += '</div><p class="hint">尚未求解（或该机器人无演示路径）。</p>';
+  }
+  el.innerHTML = html;
+}
+const dirOf = (a, b) => b[0] > a[0] ? '→ 右' : b[0] < a[0] ? '← 左' : b[1] > a[1] ? '↓ 下' : '↑ 上';
+
+function renderVerify() {
+  const el = $('verifyPanel');
+  if (!S.solution) {
+    el.innerHTML = '<p class="hint">未求解。求解后此处显示独立验证器的逐项检查与违规定位（M1：点击违规 → 地图脉冲 + 时间轴跳转）。</p>';
+    return;
+  }
+  const ev = S.eventApplied;
+  el.innerHTML = `
+    <div class="ok-t">✓ 顶点冲突（0）</div>
+    <div class="ok-t">✓ 对向边交换（0）</div>
+    <div class="ok-t">✓ 目标占用语义（0）</div>
+    <div class="ok-t">✓ 路径连续性 / 障碍（0）</div>
+    <div class="ok-t">✓ SOC 复算一致</div>
+    ${ev ? `<div class="ok-t">✓ 冻结前缀零偏离</div>
+      <div style="margin-top:6px;color:var(--muted)">重规划：耗时 ${ev.replan_ms} ms（演示值） · 受影响 ${ev.affected_agents} 车 · 路径改动 ${ev.path_change_steps} 步 · 承诺保持至 t=${ev.frozen_prefix_covered}</div>`
+      : '<p class="hint">搜索过程冲突 ≠ 最终方案冲突 —— 前者仅出现在“搜索统计”折叠区（设计 §8.4）。</p>'}`;
+}
+function renderMetrics() {
+  const m = $('metrics'), sol = S.solution;
+  if (!sol) {
+    m.innerHTML = `
+    <span class="badge mut">未求解</span>
+    <span class="m">地图 <b>${S.scene ? S.scene.w + '×' + S.scene.h : '–'}</b> · 机器人 <b>${robotsOf().length}</b>（可直接编辑，V01/V02）</span>`;
+    return;
+  }
+  const waits = Object.values(sol.paths).reduce((n, rr) =>
+    n + rr.path.slice(1, rr.arrival + 1).filter((p, i) => arraysEq(p, rr.path[i])).length, 0);
+  const lb = sol.lb != null ? sol.lb : null;
+  const gap = lb ? ((sol.soc / lb - 1) * 100).toFixed(1) : null;
+  m.innerHTML = `
+    <span class="badge ok">${sol.status}${S.eventApplied ? '（重规划 · 演示）' : ''}</span>
+    <span class="m">SOC <b>${sol.soc}</b></span>
+    <span class="m">Makespan <b>${sol.makespan}</b></span>
+    <span class="m">下界 <b>${lb ?? '–'}</b>${gap != null ? `（差距 ${gap}%）` : ''}</span>
+    <span class="m">路径验证 <b class="ok-t">✓ 独立验证器</b></span>
+    <span class="m">等待 <b>${waits}</b> 步</span>
+    <span class="m">求解 <b>${S.eventApplied ? S.eventApplied.replan_ms : '—'}</b> ms${S.eventApplied ? '（重规划，演示值）' : '（演示场景无实时求解）'}</span>
+    <span class="badge mut">演示数据</span>`;
+}
+function renderAll() {
+  drawBase(); drawDyn(); drawTimeline();
+  renderRobotList(); renderRobotDetail(); renderVerify(); renderMetrics();
+  $('tLabel').textContent = `t = ${S.t} / ${maxT()}`;
+  updateTransport();
+}
+function updateTransport() { $('tPlay').textContent = S.playing ? '⏸' : '▶'; }
+
+/* ══════════ 控件绑定 ══════════ */
+document.querySelectorAll('[data-tool]').forEach(el => el.addEventListener('click', () => {
+  S.tool = el.dataset.tool;
+  document.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('active', x.dataset.tool === S.tool));
+  hov.style.cursor = S.tool === 'select' ? 'crosshair' : 'cell';
+}));
+document.querySelectorAll('.scene-card').forEach(el => el.addEventListener('click', () => loadScene(el.dataset.scene)));
+$('toolUndo').addEventListener('click', doUndo);
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  else if (e.key === 'ArrowRight') step(1); else if (e.key === 'ArrowLeft') step(-1);
+  else if (e.key === 'f' || e.key === 'F') fit();
+  else if (e.key === 'g' || e.key === 'G') { S.layers.grid = !S.layers.grid; syncLayerBox(); drawBase(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
+});
+$('zIn').onclick = () => { S.vp.s = clamp(S.vp.s * 1.25, 4, 120); drawBase(); drawDyn(); };
+$('zOut').onclick = () => { S.vp.s = clamp(S.vp.s / 1.25, 4, 120); drawBase(); drawDyn(); };
+$('zFit').onclick = () => fit();
+function togglePlay() { if (!solPaths()) return toast('当前场景无演示解 —— 先载入带演示解的示例，或等待 M1 真实求解');
+  if (S.t >= maxT() && !S.playing) { S.t = 0; } S.playing = !S.playing; S.lastStepTs = 0; updateTransport(); onStepChanged(); }
+function step(d) { if (!solPaths()) return; S.playing = false; S.t = clamp(S.t + d, 0, maxT()); updateTransport(); onStepChanged(); }
+$('tPlay').onclick = togglePlay;
+$('tPrev').onclick = () => step(-1);
+$('tNext').onclick = () => step(1);
+$('tReset').onclick = () => { S.t = 0; S.playing = false; updateTransport(); onStepChanged(); };
+$('tSpeed').onchange = (e) => { S.speed = Number(e.target.value); };
+
+/* 时间轴 scrub */
+let tlDrag = false;
+tl.addEventListener('pointerdown', (e) => { tlDrag = true; tl.setPointerCapture(e.pointerId); scrub(e); });
+tl.addEventListener('pointermove', (e) => { if (tlDrag) scrub(e); });
+tl.addEventListener('pointerup', () => { tlDrag = false; });
+function scrub(e) {
+  if (!solPaths()) return;
+  const r = tl.getBoundingClientRect(), T = Math.max(maxT(), 10);
+  const padL = 44, padR = 12;
+  const t = clamp(Math.round(((e.clientX - r.left) - padL) / (r.width - padL - padR) * T), 0, maxT());
+  if (t !== S.t) { S.t = t; S.playing = false; updateTransport(); onStepChanged(); }
+  const hit = Math.abs(e.clientY - r.top - 16) < 40 ? null : null; // 轨道点击选中：M1 提供（y→机器人映射）
+}
+
+/* 图层 */
+$('layerPanel').addEventListener('change', (e) => {
+  const k = e.target.dataset.layer; if (!k) return;
+  S.layers[k] = e.target.checked;
+  if (k === 'grid' || k === 'walls') drawBase();
+  drawDyn();
+});
+function syncLayerBox() { document.querySelectorAll('#layerPanel input').forEach(i => { i.checked = S.layers[i.dataset.layer]; }); }
+
+/* 求解 / 事件（原型说明） */
+$('btnSolve').onclick = () => toast('原型不含求解引擎 —— M1 将调用真实 WASM（ECBS/PP）并把结果渲染到本界面');
+$('btnCancel').onclick = () => toast('取消 = 终止 Worker 并自动重建（现有引擎语义，M1 沿用）');
+$('btnImport').onclick = () => toast('导入 mapf-problem/1.0 JSON —— M1 提供（文件/粘贴 + 预检）');
+$('btnExport').onclick = () => {
+  const doc = {
+    schema_version: 'mapf-problem/1.0', id: 'proto-scene',
+    map: { cells: S.scene.grid.slice() },
+    time_model: { timestep: 'discrete', horizon: 'auto' },
+    robots: robotsOf().filter(r => r.goal).map(r => ({ id: r.id, start: r.start, goal: r.goal })),
+    objective: { kind: $('pObj').value, direction: 'min' },
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
+  a.download = 'mapf-scene-proto.json'; a.click(); URL.revokeObjectURL(a.href);
+  toast('已导出契约格式场景（mapf-problem/1.0）—— 可被真实引擎直接求解（V10 演示）');
+};
+$('pW').addEventListener('input', (e) => { $('pWv').textContent = Number(e.target.value).toFixed(2); });
+['pObj', 'pPlanner', 'pBudget', 'pSeed'].forEach(id => $(id).addEventListener('change', () =>
+  toast('参数已记录 —— 原型不执行求解；M1 将以此调用 mapf_solve_with_options')));
+
+/* ⚡ 动态事件演示 */
+$('toolEvent').addEventListener('click', () => {
+  if (S.scene.key !== 'cross8') return toast('本原型仅为「8×8 十字交叉」内置了预置重规划结果');
+  if (S.eventApplied) return toast('事件已注入（t=3 加障碍 (3,4)）—— 刷新页面可重来');
+  const d = SCENES.cross8.eventDemo;
+  S.baseSolution = S.solution;
+  S.eventApplied = { ...d.newSolution.dyn, T: d.T, at: d.at, cell: d.cell, frozen: d.frozenSteps };
+  S.eventDemo_frozen = d.frozenSteps;
+  S.solution = d.newSolution;
+  S.t = d.T; S.playing = false;
+  renderAll();
+  toast(`已注入事件：t=${d.at} 在 (${d.cell[0]},${d.cell[1]}) 加障碍 → 演示版重规划完成（冻结前缀 t≤${d.T + d.frozenSteps} 保持不变，R2 改道右侧）`);
+});
+
+/* toast */
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 4200);
+}
+
+/* ══════════ 启动 ══════════ */
+new ResizeObserver(() => { sizeCanvases(); fit(); drawDyn(); drawTimeline(); }).observe(stage);
+sizeCanvases();
+loadScene('cross8');
+rafId = requestAnimationFrame(tick);
+</script>
+</body>
+</html>

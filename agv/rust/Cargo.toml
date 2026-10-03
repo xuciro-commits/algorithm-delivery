@@ -1,0 +1,33 @@
+[package]
+name = "agv-dispatch-engine"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "AGV Dispatch 多车任务分配与调度引擎 v1：分配/排序/时序 + 经版本化契约调用 MAPF 引擎的联合路径实现 + 独立调度验证器 + 动态重调度，native 与 wasm32 共用同一核心"
+license = "Apache-2.0"
+repository = "https://github.com/xuciro-commits/algorithm-delivery"
+publish = false
+
+# 复用仓库内零依赖基础件（JSON/SHA-256/时钟/峰值内存）与 MAPF 引擎的**公共 JSON API**
+# （`mapf_engine::engine::solve_json`）。AGV 不复制 MAPF 内部搜索结构；两引擎之间只出现
+# mapf-problem/1.0 / mapf-solution/1.0 形状的数据（AGV-SRS.md §5）。
+[dependencies]
+aps-engine = { path = "../../aps/rust", default-features = false }
+mapf-engine = { path = "../../mapf/rust" }
+
+[lib]
+name = "agv_dispatch_engine"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "agv"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+opt-level = 1

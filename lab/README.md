@@ -49,12 +49,16 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | 命令 | 作用 |
 | --- | --- |
 | `npm run dev` / `npm run preview` | 开发服务器 / 预览构建产物（都会先自动 `sync`） |
-| `npm run sync` | 把 `aps/rust/dist/aps_engine.wasm`、`web/aps-worker.js`、`aps/mock/*.json` 同步进实验室，生成 `engine-manifest.json` |
+| `npm run sync` | 把 APS/MAPF/AGV 三引擎的 wasm、Worker 胶水与 Mock 同步进实验室，生成各自的 `*-manifest.json`（`sync:aps` / `sync:mapf` / `sync:agv` 可单独运行） |
 | `npm run build` | 类型检查（tsc）+ 打包（vite） |
 | `npm run test:imports` | 不依赖 Rust/WASM：检查内置数据回退、PlanProblem 导入与标准 JSSP/FJSP 格式适配 |
 | `npm run test:core` | 核心冒烟：加载真实 WASM 求解，并断言实验室纯逻辑（30+ 项） |
 | `npm run test:runner` | 运行器生命周期：取消（终止 Worker）→ 自动重建 → 再求解；`dispose()` |
-| `npm run test:render` | 渲染冒烟：外壳/参数区/待接入模块/空态（SSR，无需浏览器） |
+| `npm run test:render` | 渲染冒烟：外壳/参数区/MAPF Visual Lab 与 AGV 面板骨架/待接入模块/空态（SSR，无需浏览器） |
+| `npm run test:mapf:scene` | MAPF 场景内核：命令撤销栈、预检逐错误码、序列化白名单、13 mock roundtrip、动态块构造与预检拦截 |
+| `npm run test:mapf:playback` | MAPF 回放时钟：seek/暂停/限速不变式（曾抓出 dt 毫秒未除 1000 的真 bug） |
+| `npm run test:mapf:runs` | MAPF 运行历史：RunRecord 投影、指纹分组、diffRuns 对比方向语义 |
+| `npm run test:agv` | AGV Lab：场景内核 + 13 mock roundtrip + **真实 WASM 集成**（a01/a07/a10 求解断言与 CLI 同源、确定性、篡改必拒、动态汇总块） |
 | `npm run test:dist` | 构建产物校验：子路径资源引用、清单 sha256 与产物一致、体积 |
 | `npm run test:pages` | **Pages 子路径仿真**：把 dist 挂到 `/algorithm-delivery/` 下用真实 HTTP 跑一遍 |
 | `npm run test:all` | 先同步/构建，再运行以上全部 Lab 检查（要求已有 Rust WASM 产物） |

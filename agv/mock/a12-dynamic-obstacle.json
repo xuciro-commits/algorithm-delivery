@@ -1,0 +1,102 @@
+{
+  "schema_version": "agv-dispatch-problem/1.0",
+  "map": {
+    "cells": [
+      ".........",
+      "....#....",
+      "........."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 120
+  },
+  "vehicles": [
+    {
+      "id": "V1",
+      "start": [
+        0,
+        1
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "pickup": [
+        8,
+        1
+      ],
+      "dropoff": [
+        0,
+        1
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    }
+  ],
+  "dynamic": {
+    "snapshot": {
+      "time": 2,
+      "vehicles": {
+        "V1": {
+          "pos": [
+            2,
+            1
+          ],
+          "phase": "to_pickup",
+          "task": "T1",
+          "path": [
+            [
+              0,
+              1
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              1
+            ]
+          ]
+        }
+      },
+      "tasks": {
+        "T1": {
+          "status": "assigned",
+          "assignee": "V1",
+          "pickup_dock": [
+            8,
+            1
+          ],
+          "dropoff_dock": [
+            0,
+            1
+          ],
+          "pickup_arrival": 10,
+          "pickup_done": 10,
+          "dropoff_arrival": 20,
+          "dropoff_done": 20
+        }
+      }
+    },
+    "events": [
+      {
+        "type": "obstacle_add",
+        "cell": [
+          4,
+          0
+        ],
+        "at": 2,
+        "until": null
+      }
+    ]
+  },
+  "id": "agv-mock-a12",
+  "objective": {
+    "kind": "lexicographic-weighted"
+  }
+}
+
