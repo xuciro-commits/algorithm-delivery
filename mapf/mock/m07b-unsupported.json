@@ -1,0 +1,47 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m07b-unsupported",
+  "map": {
+    "cells": [
+      "...",
+      "...",
+      "..."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 6
+  },
+  "robots": [
+    {
+      "id": "A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M07b 能力外请求",
+    "description": "请求对角移动：能力声明外 ⇒ UNSUPPORTED（拒绝而非静默忽略）。",
+    "kind": "scenario",
+    "expect": "UNSUPPORTED"
+  },
+  "movement": {
+    "diagonal": true
+  }
+}

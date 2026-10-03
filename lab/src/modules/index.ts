@@ -8,16 +8,9 @@
 import { registerModule } from '../core/registry';
 import type { AlgorithmModule } from '../core/types';
 import { apsModule } from './aps';
+import { mapfModule } from './mapf';
 
 const planned: AlgorithmModule[] = [
-  {
-    id: 'path-planning',
-    name: '路径规划',
-    tagline: '栅格/路网上的最短路径与避障',
-    category: '运动规划',
-    status: 'planned',
-    plannedNote: '待接入：各自的问题结构（地图/障碍/代价）与可视化（路径叠加在地图上），不套用 APS 模型。',
-  },
   {
     id: 'agv-dispatch',
     name: 'AGV 调度',
@@ -51,5 +44,6 @@ export function installModules(): void {
   if (installed) return;
   installed = true;
   registerModule(apsModule);
+  registerModule(mapfModule);
   for (const m of planned) registerModule(m);
 }

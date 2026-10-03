@@ -1,0 +1,110 @@
+{
+  "schema_version": "mapf-bench-manifest/1.0",
+  "entries": [
+    {
+      "name": "empty-8-8-even-1",
+      "family": "empty-8-8",
+      "map_file": "maps/empty-8-8.map",
+      "map_sha256": "sha256:42776e4904ec90689dd034fbd84524d671dc554472cc4221432b0c523d51f152",
+      "scen_file": "scen/empty-8-8-even-1.scen",
+      "scen_sha256": "sha256:46bfd9f62314c390c6381226cce331ecee0567cdf2beb06a459dd620ebd03d6a",
+      "agent_counts": [
+        2,
+        4,
+        8,
+        16,
+        32
+      ],
+      "note": "Moving AI even-scenario #1（bucket 平衡）；文件覆盖 32 台车，取前 n 行构造 n 车实例"
+    },
+    {
+      "name": "empty-16-16-even-1",
+      "family": "empty-16-16",
+      "map_file": "maps/empty-16-16.map",
+      "map_sha256": "sha256:27a570a564cf8de828619efa09d510df95f0cbfe2840376b7c3e63c96413689a",
+      "scen_file": "scen/empty-16-16-even-1.scen",
+      "scen_sha256": "sha256:50abcea720b56fdf0258093773c785519a35928c630566da26758d8ede4e2352",
+      "agent_counts": [
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128
+      ],
+      "note": "Moving AI even-scenario #1（bucket 平衡）；文件覆盖 128 台车，取前 n 行构造 n 车实例"
+    },
+    {
+      "name": "room-32-32-4-even-1",
+      "family": "room-32-32-4",
+      "map_file": "maps/room-32-32-4.map",
+      "map_sha256": "sha256:f107fefbf63c7a1a3753e4a033452301a1cdd7043cab7f45e4ed0e7dec1e90a9",
+      "scen_file": "scen/room-32-32-4-even-1.scen",
+      "scen_sha256": "sha256:e45904b73636469251f2de1357a1671cd043c5dbd7e26f3c93e887b7a005e3ac",
+      "agent_counts": [
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128
+      ],
+      "note": "Moving AI even-scenario #1（bucket 平衡）；文件覆盖 130 台车，取前 n 行构造 n 车实例"
+    },
+    {
+      "name": "maze-32-32-4-even-1",
+      "family": "maze-32-32-4",
+      "map_file": "maps/maze-32-32-4.map",
+      "map_sha256": "sha256:7ff67aa59f71933b8cf2605e12631b8a28d9ebcfb9b941de3afdc7dce3123fee",
+      "scen_file": "scen/maze-32-32-4-even-1.scen",
+      "scen_sha256": "sha256:d7d52ae0f46257f97de1450664801f1148633f18a3b1d153de35dc143bc0c0d7",
+      "agent_counts": [
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128
+      ],
+      "note": "Moving AI even-scenario #1（bucket 平衡）；文件覆盖 200 台车，取前 n 行构造 n 车实例"
+    },
+    {
+      "name": "warehouse-10-20-10-2-1-even-1",
+      "family": "warehouse-10-20-10-2-1",
+      "map_file": "maps/warehouse-10-20-10-2-1.map",
+      "map_sha256": "sha256:c8d1b2f24788ed6bd1ccf45065b96b4ce82d65f88c72de750e03e2758637bff0",
+      "scen_file": "scen/warehouse-10-20-10-2-1-even-1.scen",
+      "scen_sha256": "sha256:6dc9e580ebb72a0a01227e3eaf802e07f7743dad5423d73155600eb815365e1b",
+      "agent_counts": [
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128
+      ],
+      "note": "Moving AI even-scenario #1（bucket 平衡）；文件覆盖 450 台车，取前 n 行构造 n 车实例"
+    }
+  ],
+  "budgets_ms": [
+    1000,
+    5000
+  ],
+  "objectives": [
+    "soc",
+    "makespan"
+  ],
+  "suboptimality_factor": 1.5,
+  "seed": 42,
+  "horizon": "auto",
+  "upstream": {
+    "repository": "https://github.com/mcapoor/MovingAI-MAPF-Benchmarks",
+    "origin": "https://movingai.com/benchmarks/mapf/index.html",
+    "license": "Open Data Commons Attribution License (ODC-BY)",
+    "citation": "Stern et al., \"Multi-Agent Pathfinding: Definitions, Variants, and Benchmarks\", SoCS 2019, pp. 151-158."
+  }
+}

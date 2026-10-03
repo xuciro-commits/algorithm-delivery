@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/mapf/mapf-solution.schema.json",
+  "title": "MapfSolution v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "optimality_proven",
+    "verified",
+    "robots",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mapf-solution/1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "problem_id": {
+      "type": "string"
+    },
+    "problem_hash": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "engine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engine_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compiler_version": {
+      "type": "string"
+    },
+    "ruleset_version": {
+      "type": "string"
+    },
+    "capability_profile": {
+      "enum": [
+        "native",
+        "wasm-light"
+      ]
+    },
+    "status": {
+      "enum": [
+        "OPTIMAL",
+        "FEASIBLE",
+        "INFEASIBLE",
+        "UNKNOWN",
+        "INVALID_INPUT",
+        "UNSUPPORTED",
+        "CANCELLED"
+      ]
+    },
+    "optimality_proven": {
+      "type": "boolean"
+    },
+    "verified": {
+      "type": "boolean"
+    },
+    "objective": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "soc",
+            "makespan"
+          ]
+        },
+        "direction": {
+          "const": "min"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lower_bound": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 1.0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "suboptimality_factor": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 3.0
+        },
+        "bound_note": {
+          "type": "string"
+        }
+      }
+    },
+    "soc": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "makespan": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "horizon": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "time_model": {
+      "type": "object"
+    },
+    "coordinate_convention": {
+      "type": "string"
+    },
+    "robots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path",
+          "arrival"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "start": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "[x, y]，x 向右、y 向下，原点左上"
+          },
+          "goal": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "[x, y]，x 向右、y 向下，原点左上"
+          },
+          "path": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "description": "[x, y]，x 向右、y 向下，原点左上"
+            }
+          },
+          "arrival": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "steps": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "locked": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "search": {
+      "type": "object"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "benchmark": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "dynamic": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "verify": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "path",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^E-[A-Z0-9-]+$"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "semantic_digest": {
+      "type": "string"
+    }
+  }
+}

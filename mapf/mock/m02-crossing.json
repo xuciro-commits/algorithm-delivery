@@ -1,0 +1,55 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m02-crossing",
+  "map": {
+    "cells": [
+      "...",
+      "...",
+      "..."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 8
+  },
+  "robots": [
+    {
+      "id": "AGV-A",
+      "start": [
+        0,
+        1
+      ],
+      "goal": [
+        2,
+        1
+      ]
+    },
+    {
+      "id": "AGV-B",
+      "start": [
+        1,
+        0
+      ],
+      "goal": [
+        1,
+        2
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M02 两车交叉穿越",
+    "description": "十字交叉共享中心格：必须错时通过（无顶点冲突）。",
+    "kind": "scenario",
+    "expect": "OPTIMAL，SOC=5"
+  }
+}

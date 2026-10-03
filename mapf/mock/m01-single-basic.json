@@ -1,0 +1,46 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m01-single-basic",
+  "map": {
+    "cells": [
+      ".....",
+      ".....",
+      ".....",
+      ".....",
+      "....."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 10
+  },
+  "robots": [
+    {
+      "id": "AGV-01",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        3,
+        3
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M01 单车基础路径",
+    "description": "5×5 单车：路径合法、目标正确、可证明最优（6 步）。",
+    "kind": "scenario",
+    "expect": "OPTIMAL，SOC=Makespan=6"
+  }
+}

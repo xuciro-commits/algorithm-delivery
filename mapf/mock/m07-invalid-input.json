@@ -1,0 +1,66 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m07-invalid-input",
+  "map": {
+    "cells": [
+      "...",
+      "...",
+      "..."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 6
+  },
+  "robots": [
+    {
+      "id": "AGV-A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        2,
+        0
+      ]
+    },
+    {
+      "id": "AGV-B",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        9,
+        9
+      ]
+    },
+    {
+      "id": "AGV-C",
+      "start": [
+        1,
+        2
+      ],
+      "goal": [
+        2,
+        0
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M07 非法输入",
+    "description": "重复起点、越界坐标、重复终点：逐条字段级定位。",
+    "kind": "scenario",
+    "expect": "INVALID_INPUT，且 errors 含 DUP_START/COORD_RANGE"
+  }
+}

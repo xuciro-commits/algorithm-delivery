@@ -1,0 +1,57 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m11-tampered",
+  "map": {
+    "cells": [
+      ".....",
+      ".X...",
+      ".....",
+      ".....",
+      "....."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 6
+  },
+  "robots": [
+    {
+      "id": "AGV-A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        2,
+        0
+      ]
+    },
+    {
+      "id": "AGV-B",
+      "start": [
+        3,
+        0
+      ],
+      "goal": [
+        0,
+        0
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M11 篡改方案必须被拒绝",
+    "description": "问题合法（配套 m11-tampered-solution.json 为手工篡改方案：A 越界跳步、双双踏入 (1,1) 墙、t=3 顶点冲突、SOC 谎报 999）。独立核验器必须 ok=false 并给出对应错误码。",
+    "kind": "scenario",
+    "expect": "verify.ok=false 且含 E-WALL-ENTRY/E-CONFLICT-VERTEX/E-OBJ-SOC"
+  }
+}

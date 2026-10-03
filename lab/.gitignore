@@ -14,3 +14,7 @@ src/vendor/aps-worker.js
 # 本地缓存
 node_modules/.lab-smoke/
 *.tsbuildinfo
+
+# sync-mapf 生成物（来源：mapf/rust 与 mapf/mock）
+src/vendor/mapf-worker.js
+public/mapf-manifest.json

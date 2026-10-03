@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/mapf/mapf-capabilities.schema.json",
+  "title": "MapfSolverCapabilities v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "engine",
+    "version",
+    "profile",
+    "semantics",
+    "objectives",
+    "proofs",
+    "limits",
+    "unsupported_features"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mapf-capabilities/1.0"
+    },
+    "engine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "enum": [
+        "native",
+        "wasm-light"
+      ]
+    },
+    "semantics": {
+      "type": "object",
+      "required": [
+        "time",
+        "movement",
+        "conflicts",
+        "stay_at_target",
+        "ruleset_version"
+      ]
+    },
+    "objectives": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "soc",
+          "makespan"
+        ]
+      }
+    },
+    "proofs": {
+      "type": "object"
+    },
+    "dynamic": {
+      "type": "object"
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "max_agents",
+        "max_cells",
+        "max_horizon",
+        "max_budget_ms"
+      ],
+      "properties": {
+        "max_agents": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_cells": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_side": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_horizon": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_budget_ms": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "unsupported_features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification": {
+      "type": "string"
+    },
+    "determinism": {
+      "type": "string"
+    },
+    "benchmark": {
+      "type": "string"
+    }
+  }
+}

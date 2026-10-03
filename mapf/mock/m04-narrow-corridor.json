@@ -1,0 +1,54 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m04-narrow-corridor",
+  "map": {
+    "cells": [
+      ".......",
+      "X.X.X.X"
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 16
+  },
+  "robots": [
+    {
+      "id": "AGV-A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        6,
+        0
+      ]
+    },
+    {
+      "id": "AGV-B",
+      "start": [
+        6,
+        0
+      ],
+      "goal": [
+        0,
+        0
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M04 狭窄通道会车",
+    "description": "1×7 通道，三个口袋：正确等待或绕行，不碰撞。",
+    "kind": "scenario",
+    "expect": "OPTIMAL/FEASIBLE，核验通过"
+  }
+}

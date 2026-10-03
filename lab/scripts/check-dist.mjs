@@ -96,8 +96,29 @@ if (manifest?.mocks) {
   check('清单里的数据文件都已打包', missing.length === 0, missing.map((m) => m.file).join(', '));
 }
 
-// 运行时是否真的会走子路径：构建产物里应出现 `${base}engine-manifest.json`
-const assetsDir = join(distDir, 'assets');
+// —— MAPF 模块产物（可选装载：存在即校验，不存在只提示） ——
+const mapfManifestPath = join(distDir, 'mapf-manifest.json');
+if (existsSync(mapfManifestPath)) {
+  const mm = JSON.parse(readFileSync(mapfManifestPath, 'utf8'));
+  check('MAPF 清单含引擎名与版本', Boolean(mm.engine) && Boolean(mm.version), `${mm.engine} v${mm.version}`);
+  const mapfWasm = join(distDir, mm.wasm?.file ?? '__missing__');
+  check('MAPF wasm 存在', existsSync(mapfWasm));
+  if (existsSync(mapfWasm) && mm.wasm?.sha256) {
+    const bytes = readFileSync(mapfWasm);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    check('MAPF wasm 与清单 sha256/体积一致', digest === mm.wasm.sha256 && bytes.length === mm.wasm.bytes, digest.slice(0, 16) + '…');
+  }
+  const mapfWorker = join(distDir, mm.worker?.file ?? '__missing__');
+  check('MAPF Worker 入口存在且与清单一致', existsSync(mapfWorker) && createHash('sha256').update(readFileSync(mapfWorker)).digest('hex') === mm.worker?.sha256);
+  if (Array.isArray(mm.mocks)) {
+    const missing = mm.mocks.filter((m) => !existsSync(join(distDir, m.file)));
+    check('MAPF 数据文件都已打包', missing.length === 0 && mm.mocks.length > 0, `${mm.mocks.length} 条${missing.length ? '，缺 ' + missing.map((m) => m.file).join(', ') : ''}`);
+  }
+} else {
+  console.log('· 未发现 mapf-manifest.json：跳过 MAPF 产物校验（如需装配请运行 lab/scripts/sync-mapf.mjs）');
+}
+
+// 运行时是否真的会走子路径：构建产物里应出现 `${base}engine-manifest.json`const assetsDir = join(distDir, 'assets');
 let jsText = '';
 if (existsSync(assetsDir)) {
   for (const f of readdirSync(assetsDir).filter((f) => f.endsWith('.js'))) {

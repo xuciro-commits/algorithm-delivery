@@ -1,0 +1,76 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m05-cycle",
+  "map": {
+    "cells": [
+      "..",
+      ".."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 2
+  },
+  "robots": [
+    {
+      "id": "R1",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        1,
+        0
+      ]
+    },
+    {
+      "id": "R2",
+      "start": [
+        1,
+        0
+      ],
+      "goal": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "R3",
+      "start": [
+        1,
+        1
+      ],
+      "goal": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "R4",
+      "start": [
+        0,
+        1
+      ],
+      "goal": [
+        0,
+        0
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M05 多车环形循环",
+    "description": "2×2 环流：4 车同时轮转是合法同步移动，禁止误判为冲突。",
+    "kind": "scenario",
+    "expect": "OPTIMAL，SOC=4，Makespan=1"
+  }
+}
