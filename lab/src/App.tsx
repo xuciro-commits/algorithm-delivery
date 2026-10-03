@@ -9,10 +9,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { groupModules, listModules } from './core/registry';
 import { installModules } from './modules';
 import { useApsEngine } from './core/aps/useApsEngine';
+import { useMapfEngine } from './core/mapf/useMapfEngine';
 import { EngineBanner } from './components/EngineBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { AlgorithmModule } from './core/types';
 import type { ApsPanelProps } from './modules/aps/ApsPanel';
+import type { MapfPanelProps } from './modules/mapf/MapfPanel';
 
 installModules();
 
@@ -23,6 +25,7 @@ function currentModuleId(): string {
 
 export default function App() {
   const engine = useApsEngine();
+  const mapf = useMapfEngine();
   const [activeId, setActiveId] = useState<string>(currentModuleId);
 
   useEffect(() => {
@@ -110,6 +113,17 @@ export default function App() {
                 assetUrl: engine.assetUrl,
                 cancelSolve: engine.cancel,
               }}
+              mapfProps={{
+                manifest: mapf.manifest,
+                handle: mapf.handle,
+                engineReady: mapf.status === 'ready',
+                engineVersion: mapf.version,
+                assetUrl: mapf.assetUrl,
+                cancelSolve: mapf.cancel,
+                setBusy: mapf.setBusy,
+                engineError: mapf.error,
+                refresh: mapf.refresh,
+              }}
             />
           </ErrorBoundary>
         )}
@@ -125,14 +139,29 @@ export default function App() {
             <code>public/engine-manifest.json</code>
           </span>
         )}
+        {mapf.manifest && (
+          <span>
+            MAPF v{mapf.version} · 构建时间 {new Date(mapf.manifest.builtAt).toLocaleString()} · 清单{' '}
+            <code>public/mapf-manifest.json</code>
+          </span>
+        )}
       </footer>
     </div>
   );
 }
 
-/** 目前只有 APS 面板需要引擎句柄；其余模块自行管理数据来源。 */
-function PanelHost({ module, apsProps }: { module: AlgorithmModule; apsProps: ApsPanelProps }) {
+/** 引擎句柄按模块注入：APS 与 MAPF 各挂各的 Worker/WASM，互不共享生命周期。 */
+function PanelHost({
+  module,
+  apsProps,
+  mapfProps,
+}: {
+  module: AlgorithmModule;
+  apsProps: ApsPanelProps;
+  mapfProps: MapfPanelProps;
+}) {
   const Panel = module.Panel!;
   if (module.id === 'aps') return <Panel {...apsProps} />;
+  if (module.id === 'path-planning') return <Panel {...mapfProps} />;
   return <Panel />;
 }

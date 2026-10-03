@@ -1,0 +1,54 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m08b-tight-budget",
+  "map": {
+    "cells": [
+      "...."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 8
+  },
+  "robots": [
+    {
+      "id": "A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        3,
+        0
+      ]
+    },
+    {
+      "id": "B",
+      "start": [
+        3,
+        0
+      ],
+      "goal": [
+        0,
+        0
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "makespan",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "ecbs",
+    "time_limit_ms": 60000,
+    "seed": 42,
+    "max_expansions": 1,
+    "warm_start": false
+  },
+  "tags": {
+    "name": "M08b 预算耗尽",
+    "description": "扩展上限=1 且禁用首解：诚实返回 UNKNOWN（超时≠无解，不得伪称最优/无解）。",
+    "kind": "scenario",
+    "expect": "UNKNOWN，robots 为空"
+  }
+}

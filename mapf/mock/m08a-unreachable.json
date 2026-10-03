@@ -1,0 +1,46 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m08a-unreachable",
+  "map": {
+    "cells": [
+      ".....",
+      ".***.",
+      ".*.*.",
+      ".***.",
+      "....."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 20
+  },
+  "robots": [
+    {
+      "id": "A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M08a 不可达",
+    "description": "终点被墙完全隔离：与时域无关的不可行证明。",
+    "kind": "scenario",
+    "expect": "INFEASIBLE（含证明）"
+  }
+}

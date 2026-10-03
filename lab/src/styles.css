@@ -1615,3 +1615,115 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * MAPF 模块（路径规划）
+ * ------------------------------------------------------------------------- */
+.mapf-panel .mapf-controls {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.mapf-actions {
+  display: flex;
+  gap: 8px;
+}
+.mapf-editor {
+  margin: 10px 0 4px;
+}
+.mapf-editor textarea {
+  width: 100%;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px;
+  border: 1px solid var(--line, #d9dee3);
+  border-radius: 8px;
+  background: #0f1115;
+  color: #dfe5ea;
+}
+.mapf-editor summary {
+  cursor: pointer;
+  color: #56606a;
+  font-size: 13px;
+}
+.dataset-card.active {
+  outline: 2px solid #2f7de1;
+  outline-offset: 1px;
+}
+.mapf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.mapf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #d9dee3);
+  background: #f2f4f6;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.mapf-chip.ok-chip {
+  background: #e8f5ec;
+  border-color: #bfe0c8;
+  color: #22683a;
+}
+.badge.ok {
+  background: #e8f5ec;
+  color: #22683a;
+}
+.badge.warn {
+  background: #fdf3d7;
+  color: #7a5b00;
+}
+.badge.muted-badge {
+  background: #eef0f2;
+  color: #56606a;
+}
+.mapf-canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--line, #d9dee3);
+  border-radius: 10px;
+  background: #fff;
+  overflow: auto;
+}
+.mapf-canvas {
+  border-radius: 6px;
+  image-rendering: pixelated;
+}
+.mapf-play {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.mapf-slider {
+  flex: 1;
+}
+.btn.tiny {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.mapf-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  white-space: nowrap;
+}

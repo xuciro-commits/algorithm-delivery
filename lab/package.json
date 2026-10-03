@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Algorithm Delivery 统一算法实验室：浏览器内 WASM 计算、可视化与性能评测",
+  "description": "Algorithm Delivery \u7edf\u4e00\u7b97\u6cd5\u5b9e\u9a8c\u5ba4\uff1a\u6d4f\u89c8\u5668\u5185 WASM \u8ba1\u7b97\u3001\u53ef\u89c6\u5316\u4e0e\u6027\u80fd\u8bc4\u6d4b",
   "scripts": {
-    "sync": "node scripts/sync-engine.mjs",
+    "sync": "node scripts/sync-engine.mjs && node scripts/sync-mapf.mjs",
     "predev": "npm run sync",
     "dev": "vite",
     "prebuild": "npm run sync",
@@ -21,7 +21,9 @@
     "test:dist": "node scripts/check-dist.mjs",
     "test:pages": "node scripts/check-pages.mjs",
     "test:all": "npm run build && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:dist && npm run test:pages",
-    "build:all": "bash scripts/build-all.sh"
+    "build:all": "bash scripts/build-all.sh",
+    "sync:aps": "node scripts/sync-engine.mjs",
+    "sync:mapf": "node scripts/sync-mapf.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

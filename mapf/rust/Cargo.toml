@@ -1,0 +1,37 @@
+[package]
+name = "mapf-engine"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "MAPF 多机器人路径规划引擎 v1：独立契约校验 + ECBS/CBS 联合规划（SOC/Makespan）+ 独立轨迹核验器 + 动态重规划（冻结前缀），native 与 wasm32 共用同一核心"
+license = "Apache-2.0"
+repository = "https://github.com/xuciro-commits/algorithm-delivery"
+publish = false
+
+# 说明：本 crate 复用仓库内 aps/rust 的零依赖基础件（JSON 解析/序列化、SHA-256、
+# 单调时钟、峰值内存统计分配器），除此之外不引入任何第三方依赖。
+# 这是 SRS 第 1/8 条“复用现有基础设施、不重建公共组件”的直接体现：
+#   - `aps_engine::json`   —— 同一份契约层解析/序列化（保证 native/WASM 语义一致）；
+#   - `aps_engine::hash`   —— problem_hash / 语义指纹（sha256: 前缀）；
+#   - `aps_engine::clock`  —— WASM 侧由宿主注入 `aps_now_ms`（同一 Worker 胶水已提供）；
+#   - `aps_engine::alloc`  —— 全局分配器已在 aps lib 注册，mapf 二进制自动获得峰值内存统计。
+# MAPF 的模型、求解器、验证器与动态语义全部在本 crate 内独立实现，不复用 APS 数学模型。
+[dependencies]
+aps-engine = { path = "../../aps/rust", default-features = false }
+
+[lib]
+name = "mapf_engine"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "mapf"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+opt-level = 1

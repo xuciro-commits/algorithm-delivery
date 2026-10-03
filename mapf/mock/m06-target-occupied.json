@@ -1,0 +1,55 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m06-target-occupied",
+  "map": {
+    "cells": [
+      "...",
+      "...",
+      "..."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 6
+  },
+  "robots": [
+    {
+      "id": "AGV-A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        2,
+        0
+      ]
+    },
+    {
+      "id": "AGV-B",
+      "start": [
+        2,
+        0
+      ],
+      "goal": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M06 终点被占用（stay-at-target）",
+    "description": "B 的起点正是 A 的终点：B 必须先离开，A 到达后永久驻留。",
+    "kind": "scenario",
+    "expect": "OPTIMAL，SOC=4"
+  }
+}

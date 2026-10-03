@@ -1,0 +1,54 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m03-head-on-swap",
+  "map": {
+    "cells": [
+      ".....",
+      "XX.XX"
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 10
+  },
+  "robots": [
+    {
+      "id": "AGV-A",
+      "start": [
+        0,
+        0
+      ],
+      "goal": [
+        4,
+        0
+      ]
+    },
+    {
+      "id": "AGV-B",
+      "start": [
+        4,
+        0
+      ],
+      "goal": [
+        0,
+        0
+      ]
+    }
+  ],
+  "objective": {
+    "kind": "soc",
+    "direction": "min"
+  },
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.0
+  },
+  "tags": {
+    "name": "M03 对向交换（边冲突消解）",
+    "description": "1×5 通道 + (2,1) 避让口袋：任何 t→t+1 都不允许沿同一边相向交换。",
+    "kind": "scenario",
+    "expect": "OPTIMAL，SOC≤12，核验边冲突=0"
+  }
+}

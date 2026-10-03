@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/mapf/mapf-bench-manifest.schema.json",
+  "title": "MapfBenchManifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "entries",
+    "budgets_ms",
+    "objectives"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mapf-bench-manifest/1.0"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "family",
+          "map_file",
+          "map_sha256",
+          "scen_file",
+          "scen_sha256",
+          "agent_counts"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "family": {
+            "type": "string",
+            "minLength": 1
+          },
+          "map_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scen_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "map_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "scen_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "agent_counts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "uniqueItems": true
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "budgets_ms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "objectives": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "soc",
+          "makespan"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "suboptimality_factor": {
+      "type": "number",
+      "minimum": 1.0,
+      "maximum": 3.0
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "horizon": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "const": "auto"
+        }
+      ]
+    },
+    "upstream": {
+      "type": "object"
+    }
+  }
+}

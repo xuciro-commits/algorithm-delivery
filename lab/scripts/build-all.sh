@@ -19,8 +19,9 @@ export LAB_BENCH_SIZES="${LAB_BENCH_SIZES:-240,c48,c96}"
 
 log() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 
-log "1/6 构建 WASM 引擎（唯一来源：aps/rust）"
+log "1/6 构建 WASM 引擎（唯一来源：aps/rust 与 mapf/rust）"
 (cd "$repo_root/aps/rust" && bash scripts/build_wasm.sh)
+(cd "$repo_root/mapf/rust" && bash scripts/build_wasm.sh)
 
 log "2/6 构建 CLI（生成基准数据用）"
 (cd "$repo_root/aps/rust" && cargo build --release --locked)
@@ -31,6 +32,13 @@ if [ ! -x "$cli" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/
 fi
 export LAB_APS_BIN="${LAB_APS_BIN:-$cli}"
 [ -x "$LAB_APS_BIN" ] || { echo "✗ 找不到 aps CLI：$LAB_APS_BIN"; exit 1; }
+(cd "$repo_root/mapf/rust" && cargo build --release --locked)
+mapf_cli="$repo_root/mapf/rust/target/release/mapf"
+if [ ! -x "$mapf_cli" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/mapf" ]; then
+  mapf_cli="$CARGO_TARGET_DIR/release/mapf"
+fi
+export MAPF_BIN="${MAPF_BIN:-$mapf_cli}"
+[ -x "$MAPF_BIN" ] || { echo "✗ 找不到 mapf CLI：$MAPF_BIN"; exit 1; }
 
 log "3/6 安装锁定的实验室依赖"
 (cd "$lab_dir" && npm ci --no-audit --no-fund)

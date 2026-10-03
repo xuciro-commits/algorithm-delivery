@@ -1,0 +1,24 @@
+name: mapf-rust
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "mapf/**"
+      - "aps/rust/**"
+      - ".github/workflows/mapf-rust.yml"
+      - ".github/workflows/mapf-quality.yml"
+  pull_request:
+    paths:
+      - "mapf/**"
+      - "aps/rust/**"
+      - ".github/workflows/mapf-rust.yml"
+      - ".github/workflows/mapf-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: ./.github/workflows/mapf-quality.yml

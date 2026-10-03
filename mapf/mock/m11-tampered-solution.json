@@ -1,0 +1,77 @@
+{
+  "schema_version": "mapf-solution/1.0",
+  "id": "m11-tampered-sol",
+  "engine": "manual-tamper",
+  "engine_version": "0",
+  "status": "FEASIBLE",
+  "optimality_proven": false,
+  "objective": {
+    "kind": "soc",
+    "value": 999
+  },
+  "horizon": 6,
+  "soc": 999,
+  "makespan": 5,
+  "robots": [
+    {
+      "id": "AGV-A",
+      "path": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "arrival": 5
+    },
+    {
+      "id": "AGV-B",
+      "path": [
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "arrival": 5
+    }
+  ]
+}
