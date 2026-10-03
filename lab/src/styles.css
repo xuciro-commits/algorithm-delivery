@@ -2441,6 +2441,35 @@ select optgroup {
   font-size: 10.5px;
 }
 
+/* APS 3D 产线舞台（V2：浮动玻璃 + 等距产线网格） */
+.aps-stage {
+  height: 560px;
+  margin-bottom: 12px;
+}
+
+/* APS 工业甘特玻璃板（V2：发丝边框 + 暗玻璃 + 轻晕影） */
+.aps-gantt-glass {
+  position: relative;
+  height: 620px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid var(--sb-line);
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--sb-glass-sheen), transparent 30%), var(--sb-glass);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: blur(14px);
+}
+
+.aps-gantt-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 0%, transparent 55%, rgba(3, 7, 15, 0.55) 100%);
+}
+
 /* 甘特（经典 2D 版 + 玻璃化） */
 .gantt {
   display: flex;

@@ -42,6 +42,10 @@ import { MetricsPanel } from '../../components/MetricsPanel';
 import { ResourcePanel } from '../../components/ResourcePanel';
 import { VerifyPanel } from '../../components/VerifyPanel';
 import { RunsPanel } from '../../components/RunsPanel';
+import { Segmented } from '../../components/hud';
+import { ApsSandbox3D } from './Sandbox3D';
+import { opsBusyAt, projectApsLine } from './projection';
+import { PlaybackClock, type Speed } from '../mapf/playback/clock';
 
 export interface ApsPanelProps {
   manifest: EngineManifest | null;
@@ -82,7 +86,12 @@ export function ApsPanel({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('gantt');
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
-  const [ganttMode, setGanttMode] = useState<'advanced' | 'classic'>('advanced');
+  const [ganttMode, setGanttMode] = useState<'line3d' | 'advanced' | 'classic'>('line3d');
+  const [apsPlaying, setApsPlaying] = useState(false);
+  const [apsSpeed, setApsSpeed] = useState<Speed>(2);
+  const [apsStep, setApsStep] = useState(0);
+  const apsClockRef = useRef<PlaybackClock | null>(null);
+  if (typeof window !== 'undefined' && !apsClockRef.current) apsClockRef.current = new PlaybackClock();
   const [ganttTimeScale, setGanttTimeScale] = useState<GanttTimeScale>('day');
   const [ganttCritical, setGanttCritical] = useState(false);
   const [ganttBaseline, setGanttBaseline] = useState(true);
@@ -235,6 +244,37 @@ export function ApsPanel({
   }, [cancelSolve]);
 
   const cards = activeRun ? metricCards(activeRun.solution ?? {}, activeRun.metrics.wallMs) : [];
+
+  // —— 产线 3D 投影：设备网格 + 工序区间（全部来自引擎解，见 ./projection.ts） ——
+  const APS_STEPS = 240;
+  const aps3d = useMemo(
+    () => projectApsLine(activeRun?.gantt ?? null, activeRun?.resources ?? []),
+    [activeRun?.gantt, activeRun?.resources],
+  );
+
+  /** 当前回放时刻（毫秒）与该时刻在制工序数（浮层读数）。 */
+  const apsNowMs = aps3d.minMs + ((aps3d.maxMs - aps3d.minMs) * apsStep) / Math.max(1, APS_STEPS);
+  const apsBusyNow = opsBusyAt(aps3d.ops, apsNowMs).length;
+
+  // 新结果 → 时钟量程重设；播放中只更新读数（不打断回放）
+  useEffect(() => {
+    const clock = apsClockRef.current;
+    if (!clock) return;
+    clock.setRange(APS_STEPS, 0);
+    setApsStep(0);
+    clock.onTick((t, playing) => {
+      setApsStep(t);
+      setApsPlaying(playing);
+    });
+    return () => clock.onTick(null);
+  }, [aps3d.minMs, aps3d.maxMs]);
+
+  useEffect(() => () => apsClockRef.current?.dispose(), []);
+
+  // 离开甘特页签即暂停回放（3D 产线只在甘特页签内渲染）
+  useEffect(() => {
+    if (tab !== 'gantt') apsClockRef.current?.pause();
+  }, [tab]);
   const chooseEntry = (entry: ProblemEntry) => {
     setSelectedId(entry.id);
     if (entry.kind === 'standard-benchmark') {
@@ -537,52 +577,92 @@ export function ApsPanel({
 
             {tab === 'gantt' && (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ display: 'inline-flex', gap: 6, background: 'rgba(10, 17, 28, 0.6)', padding: '3px', borderRadius: '6px', border: '1px solid var(--line)' }}>
-                    <button
-                      type="button"
-                      onClick={() => setGanttMode('advanced')}
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        borderRadius: '4px',
-                        border: 'none',
-                        background: ganttMode === 'advanced' ? 'var(--accent)' : 'transparent',
-                        color: ganttMode === 'advanced' ? '#fff' : 'var(--muted)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      工业级交互甘特图（含前后工序连线 & 关键路径）
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setGanttMode('classic')}
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        borderRadius: '4px',
-                        border: 'none',
-                        background: ganttMode === 'classic' ? 'var(--accent)' : 'transparent',
-                        color: ganttMode === 'classic' ? '#fff' : 'var(--muted)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      紧凑概览甘特图
-                    </button>
-                  </div>
+                <div className="hud-row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <Segmented
+                    ariaLabel="排程视图"
+                    value={ganttMode}
+                    onChange={(mode) => {
+                      setGanttMode(mode);
+                      if (mode !== 'line3d') apsClockRef.current?.pause();
+                    }}
+                    options={[
+                      { id: 'line3d', label: '3D 产线' },
+                      { id: 'advanced', label: '工业甘特' },
+                      { id: 'classic', label: '紧凑甘特' },
+                    ]}
+                  />
                   <span className="muted small">
-                    {ganttMode === 'advanced'
-                      ? '支持 Ctrl/⌘+滚轮缩放、工序依赖箭头连线、关键路径高亮、基线对比与 SVG/PNG 导出'
-                      : '按实际排程完工时间自适应撑满，顶部刻度吸顶'}
+                    {ganttMode === 'line3d'
+                      ? '工件只在引擎给出的工序区间内出现在设备上；细发光线 = 同一订单的真实工序先后'
+                      : ganttMode === 'advanced'
+                        ? '支持 Ctrl/⌘+滚轮缩放、工序依赖箭头连线、关键路径高亮、基线对比与 SVG/PNG 导出'
+                        : '按实际排程完工时间自适应撑满，顶部刻度吸顶'}
                   </span>
                 </div>
 
-                {ganttMode === 'advanced' ? (
-                  <div style={{ height: 620, width: '100%', marginBottom: 12 }}>
+                {ganttMode === 'line3d' ? (
+                  <div className="lab-stage aps-stage">
+                    <ApsSandbox3D
+                      machines={aps3d.machines}
+                      ops={aps3d.ops}
+                      minMs={aps3d.minMs}
+                      maxMs={aps3d.maxMs}
+                      clock={apsClockRef.current}
+                      playing={apsPlaying}
+                      selectedOp={selectedOp}
+                      onSelectOp={(opId) => setSelectedOp(opId)}
+                    />
+                    <div className="stage-vignette" aria-hidden="true" />
+                    <div className="stage-float stage-float-tl">
+                      <span className="stage-note">T = {apsStep} / {APS_STEPS}</span>
+                      <span className="stage-note">{fmtApsTime(apsNowMs)}</span>
+                      <span className="stage-note">
+                        在制 {apsBusyNow} 道工序 · {aps3d.machines.length} 台设备
+                      </span>
+                    </div>
+                    <div className="stage-float stage-float-bl">
+                      <div className="mapf-play">
+                        <button type="button" className="btn tiny" onClick={() => apsClockRef.current?.seek(0)}>
+                          ⏮
+                        </button>
+                        <button type="button" className="btn tiny" onClick={() => apsClockRef.current?.step(-1)}>
+                          ◀
+                        </button>
+                        <button type="button" className="btn tiny primary" onClick={() => apsClockRef.current?.toggle()}>
+                          {apsPlaying ? '⏸' : '▶'}
+                        </button>
+                        <button type="button" className="btn tiny" onClick={() => apsClockRef.current?.step(1)}>
+                          ▶
+                        </button>
+                        <input
+                          type="range"
+                          min={0}
+                          max={APS_STEPS}
+                          value={apsStep}
+                          aria-label="排程回放进度"
+                          onChange={(e) => apsClockRef.current?.seek(Number(e.target.value))}
+                          style={{ width: 180 }}
+                        />
+                        <select
+                          value={apsSpeed}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) as Speed;
+                            setApsSpeed(v);
+                            apsClockRef.current?.setSpeed(v);
+                          }}
+                          aria-label="播放速度"
+                        >
+                          {[0.25, 0.5, 1, 2, 4, 8].map((v) => (
+                            <option key={v} value={v}>
+                              {v}×
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ) : ganttMode === 'advanced' ? (
+                  <div className="aps-gantt-glass">
                     <Gantt
                       tasks={advancedGantt.tasks}
                       dependencies={advancedGantt.dependencies}
@@ -651,4 +731,12 @@ function safePretty(text: string): string {
   } catch {
     return text;
   }
+}
+
+/** 排程时间（毫秒）→ MM-DD HH:mm（面板浮层与读数共用同一口径）。 */
+function fmtApsTime(ms: number): string {
+  if (!Number.isFinite(ms)) return '—';
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

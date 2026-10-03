@@ -12,6 +12,7 @@ export { GlowNode } from './GlowNode';
 export { RobotUnit } from './RobotUnit';
 export { AgvUnit } from './AgvUnit';
 export { StationPad } from './StationPad';
+export { MachineUnit } from './MachineUnit';
 export { smoothPath, cellsToWorld, stepInterp } from './smoothPath';
 export { cellFromWorld, cellChanged } from './picking';
 export type { Pt3 } from './smoothPath';
