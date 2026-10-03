@@ -20,7 +20,7 @@
     "test:render": "node scripts/test-render.mjs",
     "test:dist": "node scripts/check-dist.mjs",
     "test:pages": "node scripts/check-pages.mjs",
-    "test:all": "npm run build && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run test:dist && npm run test:pages",
+    "test:all": "npm run build && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:mapf:scene && npm run test:mapf:playback && npm run test:mapf:runs && npm run test:agv && npm run test:agv:dynamic && npm run test:aps:line && npm run audit:perf && npm run test:dist && npm run test:pages",
     "build:all": "bash scripts/build-all.sh",
     "sync:aps": "node scripts/sync-engine.mjs",
     "sync:mapf": "node scripts/sync-mapf.mjs",
@@ -30,7 +30,8 @@
     "test:mapf:runs": "node scripts/test-mapf-runs.mjs",
     "test:agv": "node scripts/test-agv-problem.mjs",
     "test:agv:dynamic": "node scripts/test-agv-dynamic.mjs",
-    "test:aps:line": "node scripts/test-aps-line.mjs"
+    "test:aps:line": "node scripts/test-aps-line.mjs",
+    "audit:perf": "node scripts/audit-perf.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.3",
