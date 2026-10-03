@@ -84,12 +84,20 @@ export interface HistoryState {
 export class SceneHistory {
   private past: SceneDoc[] = [];
   private future: SceneDoc[] = [];
+  /** 进行中的笔画起点（拖刷刷墙）：整笔只产生一个撤销步。 */
+  private strokeBase: SceneDoc | null = null;
   constructor(public doc: SceneDoc) {}
 
   /** 应用命令（入撤销栈）。 */
   exec(cmd: SceneCommand): SceneDoc {
     const next = applyCommand(this.doc, cmd);
     if (next === this.doc) return this.doc;
+    if (this.strokeBase && cmd.type === 'toggleWall') {
+      // 笔画中：只推进文档，历史在 endStroke 一次性入栈
+      this.future = [];
+      this.doc = next;
+      return next;
+    }
     this.past.push(this.doc);
     if (this.past.length > HISTORY_LIMIT) this.past.shift();
     this.future = [];
@@ -97,8 +105,34 @@ export class SceneHistory {
     return next;
   }
 
+  /** 开始一笔（pointerdown）：此后同笔的 toggleWall 合并为一个撤销步。 */
+  beginStroke(): void {
+    this.strokeBase = this.doc;
+  }
+
+  /** 结束一笔（pointerup）：笔画有变化才入栈。 */
+  endStroke(): void {
+    const base = this.strokeBase;
+    this.strokeBase = null;
+    if (base && base !== this.doc) {
+      this.past.push(base);
+      if (this.past.length > HISTORY_LIMIT) this.past.shift();
+    }
+  }
+
+  /** 当前是否处于笔画中（编辑器状态提示用）。 */
+  get stroking(): boolean {
+    return this.strokeBase != null;
+  }
+
+  /** 可撤销步数（编辑器读数）。 */
+  get steps(): number {
+    return this.past.length;
+  }
+
   /** 直接替换（求解/切场景不消耗撤销栈时用 silent 载入）。 */
   load(doc: SceneDoc): void {
+    this.strokeBase = null;
     this.doc = doc;
     this.past = [];
     this.future = [];

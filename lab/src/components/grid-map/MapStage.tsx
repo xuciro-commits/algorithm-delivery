@@ -21,6 +21,10 @@ export interface MapStageProps {
   onCellClick?: (cell: Cell, ev: { shift: boolean; meta: boolean }) => void;
   /** 格按下后拖动（画刷）；与 click 互斥（移动超阈值才视为拖刷）。 */
   onCellDrag?: (cell: Cell) => void;
+  /** 一笔开始（pointerdown 在格上）：编辑器用来开启「笔画级撤销」。 */
+  onCellDown?: (cell: Cell) => void;
+  /** 一笔结束（pointerup）：编辑器用来结算撤销步。 */
+  onCellUp?: (cell: Cell) => void;
   /** 悬停格（节流至 rAF；离开地图为 null）。 */
   onHover?: (cell: Cell | null) => void;
   /** 中键/空格平移期间的光标样式切换。 */
@@ -29,7 +33,7 @@ export interface MapStageProps {
 }
 
 export function MapStage(props: MapStageProps) {
-  const { dims, fitNonce, onViewport, onCellClick, onCellDrag, onHover } = props;
+  const { dims, fitNonce, onViewport, onCellClick, onCellDrag, onCellDown, onCellUp, onHover } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<MapRenderer | null>(null);
   const vpRef = useRef<Viewport | null>(null);
@@ -123,6 +127,7 @@ export function MapStage(props: MapStageProps) {
       if (ev.button === 0) {
         const cell = pxToCell(vp, x, y);
         dragRef.current = { down: true, moved: false, cell: inBounds(dims, cell) ? cell : null };
+        if (inBounds(dims, cell)) onCellDown?.(cell);
         host.setPointerCapture(ev.pointerId);
       }
     };
@@ -161,6 +166,7 @@ export function MapStage(props: MapStageProps) {
         if (!dragRef.current.moved && inBounds(dims, cell)) {
           onCellClick?.(cell, { shift: ev.shiftKey, meta: ev.metaKey || ev.ctrlKey });
         }
+        if (inBounds(dims, cell)) onCellUp?.(cell);
         dragRef.current = { down: false, moved: false, cell: null };
         host.releasePointerCapture?.(ev.pointerId);
       }

@@ -15,15 +15,21 @@ export interface SandboxSceneProps {
   height: number;
   className?: string;
   dpr?: [number, number];
+  /**
+   * 是否处于「活动」状态（回放播放中 / 动画进行中）：
+   *   true  → frameloop="always"（只在播放时持续渲染）
+   *   false → frameloop="demand"（静止 0 GPU 负载，状态变化才画一帧）
+   */
+  active?: boolean;
 }
 
-export function SandboxScene({ children, width, height, className, dpr = [1, 2] }: SandboxSceneProps) {
+export function SandboxScene({ children, width, height, className, dpr = [1, 2], active = false }: SandboxSceneProps) {
   const span = Math.max(width, height, 8);
   return (
     <div className={className} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <Canvas
         orthographic
-        frameloop="demand"
+        frameloop={active ? 'always' : 'demand'}
         dpr={dpr}
         camera={{ position: [span * 0.9, span * 1.05, span * 0.9], zoom: 58, near: -100, far: 400 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}

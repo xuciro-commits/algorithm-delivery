@@ -9,8 +9,15 @@ import { lodLevel } from '../../components/grid-map/viewport';
 import type { AgvSolution } from '../../core/agv/types';
 import type { AgvScene } from './scene';
 import { locCells } from './scene';
+import { SB, SB_ROBOT_COLORS, SB_PHASE_COLOR } from '../../components/sandbox/theme';
 
-export const AGV_PALETTE = ['#2f7de1', '#e2593b', '#3fa45a', '#b08300', '#8a5fc9', '#1e9aa7', '#c94f7c', '#5b7c00', '#4b6eaf', '#a5572f'];
+/** 车辆识别色（V2 §三，与 MAPF / 3D 沙盘同一色板）。 */
+export const AGV_PALETTE: readonly string[] = SB_ROBOT_COLORS;
+
+/** 任务相位色（V2 §四：冰蓝=去取货、琥珀=去送达、紫罗兰=重定位、冷灰=空闲）。 */
+export function phaseColor(phase: string): string {
+  return SB_PHASE_COLOR[phase] ?? SB.inactive;
+}
 
 export function agvColor(i: number): string {
   return AGV_PALETTE[i % AGV_PALETTE.length];
@@ -75,7 +82,7 @@ export function paintAgvPathsL1(state: AgvRenderState): Painter {
         let phase = phaseAt(sol, vi, 0);
         const flush = (end: number) => {
           if (end <= segStart) return;
-          ctx.strokeStyle = phase.includes('dropoff') ? '#b06a00' : phase === 'idle' ? color : color;
+          ctx.strokeStyle = phase.includes('dropoff') ? SB.amber : color;
           ctx.lineWidth = lw + 0.5;
           ctx.setLineDash([]);
           if (phase === 'idle' || phase === 'parking') {
@@ -129,10 +136,10 @@ export function paintAgvEntitiesL2(state: AgvRenderState): Painter {
 
     // 停车格（p 标）
     for (const [px, py] of scene.parking) {
-      ctx.fillStyle = 'rgba(120,130,140,0.16)';
+      ctx.fillStyle = 'rgba(93,109,132,0.18)';
       ctx.fillRect(vp.tx + px * cell, vp.ty + py * cell, cell, cell);
       if (lod <= 1) {
-        ctx.fillStyle = '#8a949e';
+        ctx.fillStyle = SB.inactive;
         ctx.font = `${Math.max(7, Math.round(cell * 0.4))}px system-ui`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -143,13 +150,13 @@ export function paintAgvEntitiesL2(state: AgvRenderState): Painter {
     // 工作站（泊位格 + 容量标牌）
     for (const s of scene.stations) {
       for (const [dx, dy] of s.cells) {
-        ctx.fillStyle = 'rgba(176,131,0,0.16)';
+        ctx.fillStyle = 'rgba(255,180,84,0.16)';
         ctx.fillRect(vp.tx + dx * cell, vp.ty + dy * cell, cell, cell);
-        ctx.strokeStyle = 'rgba(176,131,0,0.7)';
+        ctx.strokeStyle = 'rgba(255,180,84,0.7)';
         ctx.lineWidth = 1;
         ctx.strokeRect(vp.tx + dx * cell + 0.5, vp.ty + dy * cell + 0.5, cell - 1, cell - 1);
         if (lod <= 1) {
-          ctx.fillStyle = '#8a5300';
+          ctx.fillStyle = '#a5652a';
           ctx.font = `${Math.max(7, Math.round(cell * 0.38))}px system-ui`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -214,27 +221,27 @@ export function paintAgvEntitiesL2(state: AgvRenderState): Painter {
         ctx.fill();
         // 载货：橙色方块内芯 + 车顶标记
         if (phase.includes('dropoff')) {
-          ctx.fillStyle = '#fff';
+          ctx.fillStyle = '#eaf6ff';
           ctx.fillRect(px - rad * 0.4, py - rad * 0.4, rad * 0.8, rad * 0.8);
-          ctx.fillStyle = '#b06a00';
+          ctx.fillStyle = SB.amber;
           ctx.fillRect(px - rad * 0.26, py - rad * 0.26, rad * 0.52, rad * 0.52);
         }
         if (phase.startsWith('servicing')) {
-          ctx.strokeStyle = '#101418';
+          ctx.strokeStyle = '#060b16';
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.arc(px, py, rad + 2, 0, Math.PI * 2);
           ctx.stroke();
         }
         if (lod <= 1 || state.primary === v.id) {
-          ctx.fillStyle = '#fff';
+          ctx.fillStyle = '#eaf6ff';
           ctx.font = `bold ${Math.max(8, Math.round(rad * 0.9))}px system-ui`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(String(vi + 1), px, py + (phase.includes('dropoff') ? rad * 1.15 : 0.5));
         }
         if (state.primary === v.id) {
-          ctx.strokeStyle = '#101418';
+          ctx.strokeStyle = '#060b16';
           ctx.lineWidth = 2.5;
           ctx.beginPath();
           ctx.roundRect(px - rad - 2.5, py - rad - 2.5, (rad + 2.5) * 2, (rad + 2.5) * 2, 4);
@@ -284,7 +291,7 @@ export function paintAgvOverlayL3(state: AgvRenderState, nowTs: () => number = (
     }
     const pulse = 0.5 + 0.5 * Math.sin(nowTs() / 260);
     for (const c of state.conflictCells) {
-      ctx.strokeStyle = `rgba(226, 89, 59, ${0.45 + 0.5 * pulse})`;
+      ctx.strokeStyle = `rgba(255, 111, 111, ${0.45 + 0.5 * pulse})`;
       ctx.lineWidth = 2.5;
       ctx.strokeRect(vp.tx + c.x * cell - 2, vp.ty + c.y * cell - 2, cell + 4, cell + 4);
     }
