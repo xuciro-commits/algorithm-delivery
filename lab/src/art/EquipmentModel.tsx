@@ -51,6 +51,11 @@ export interface EquipmentModelProps {
    * 由上层按真实语义给出：非关键设备、次要建筑构件传 true，关键工位传 false。
    */
   dimSecondary?: boolean;
+  /**
+   * 模式 C 的关键对象：处于弱化层时也保持正常亮度（由上层按真实语义给出，
+   * 关键工位 / 关键设备传 true，次要建筑与设备传 false）。
+   */
+  emphasized?: boolean;
   /** 需要强调的部件名（子串匹配，忽略大小写）。 */
   emphasizeParts?: string[];
   /**

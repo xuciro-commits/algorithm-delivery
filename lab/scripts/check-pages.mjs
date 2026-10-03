@@ -108,6 +108,11 @@ try {
   const manifestUrl = `${baseUrl}engine-manifest.json`;
   const manifestRes = await fetch(manifestUrl);
   check('子路径下 engine-manifest.json 可访问', manifestRes.ok, `HTTP ${manifestRes.status}`);
+  if (!manifestRes.ok) {
+    // 清单缺失时后面所有校验都无从谈起：给出明确结论并退出，而不是抛 JSON 解析栈。
+    finish(`Pages 子路径仿真（base=${base}）`);
+    throw new Error('engine-manifest.json 缺失，页面仿真无法继续');
+  }
   const manifest = await manifestRes.json();
 
   const wasmUrl = `${baseUrl}${manifest.wasm.file}`;

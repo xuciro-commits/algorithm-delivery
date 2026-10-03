@@ -19,7 +19,6 @@ import { SmoothOrbit } from '../../art/SmoothOrbit';
 import { EquipmentModel, type EquipmentPartInfo } from '../../art/EquipmentModel';
 import type { ApplyStats } from '../../art/materials';
 import type { PartRole } from '../../art/types';
-import { ART_MODES } from '../../art/modes';
 import { useArtStore } from '../../art/settings';
 import { SB } from '../../components/sandbox/theme';
 
@@ -87,7 +86,6 @@ export function HeroBench3D({
    * 永远成立，不会因为全局模式被切到 A 而让对照视图失去意义。
    */
   const benchMode = settings.mode === 'C' ? 'C' : 'B';
-  const mode = ART_MODES[benchMode];
   const cameras = useMemo(() => heroCameras(sizeMeters), [sizeMeters]);
   const camera = cameras[cameraPreset] ?? cameras.threeQuarter;
 

@@ -42,7 +42,7 @@ export function ArtLightRig({ span, center = [0, 0], mode, settings }: ArtLightR
     const count = span > 26 ? 5 : span > 14 ? 4 : 3;
     const points: Array<[number, number, number]> = [];
     for (let i = 0; i < count; i += 1) {
-      const t = count === 1 ? 0.5 : i / (count - 1);
+      const t = i / (count - 1); // count 恒为 3–5
       points.push([cx + (t - 0.5) * span * 0.82, lights.locals.height * span * 0.62, cz + (i % 2 === 0 ? -1 : 1) * span * 0.18]);
     }
     return points;

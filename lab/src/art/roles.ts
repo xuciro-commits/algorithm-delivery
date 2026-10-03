@@ -56,7 +56,7 @@ export const ALL_ROLES: PartRole[] = [
  *   - 只按最长命中时，skylight 又会被其中的 light 抢走。
  * 因此：先剔除被更长命中完全包住的候选（light ⊂ skylight），再取最靠后的命中。
  */
-function matchRules<T extends { match: string }>(text, list) {
+function matchRules<T extends { match: string }>(text: unknown, list: readonly T[]): T | null {
   const lower = String(text ?? '').toLowerCase();
   if (!lower) return null;
   let best = null;

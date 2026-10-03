@@ -20,7 +20,6 @@
 import { Suspense, useMemo } from 'react';
 import { EquipmentModel, type EquipmentPartInfo } from './EquipmentModel';
 import type { ArtModelPathKey } from './modelPaths';
-import { useArtStore } from './settings';
 import type { PartGroup, PartRole } from './types';
 
 export interface ArtFactoryHallProps {
@@ -74,7 +73,6 @@ export function ArtFactoryHall({
   onHallParts,
   urls,
 }: ArtFactoryHallProps) {
-  const settings = useArtStore();
   const width = baysX * bay;
   const depth = baysZ * bay;
   const bayScale = bay / 6;
