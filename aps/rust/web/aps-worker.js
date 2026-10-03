@@ -234,11 +234,23 @@ export async function createEngine(source) {
  * @param {URL|string} defaultWasmUrl
  */
 export function installWorker(defaultWasmUrl) {
+  const fallbackUrl =
+    defaultWasmUrl ??
+    (typeof import.meta !== 'undefined' && import.meta.url
+      ? new URL('./aps_engine.wasm', import.meta.url)
+      : undefined);
+
   let enginePromise = null;
   // `wasm` 可以是 URL、Uint8Array 或（可在主线程预编译后 postMessage 过来的）WebAssembly.Module；
   // 取消/重建工作线程时复用同一份预编译模块，避免重复取回与编译。
   const engineFor = (src) => {
-    if (!enginePromise) enginePromise = createEngine(src ?? defaultWasmUrl);
+    if (!enginePromise) {
+      const target = src ?? fallbackUrl;
+      if (!target) {
+        throw new Error('未提供 WASM 模块或路径');
+      }
+      enginePromise = createEngine(target);
+    }
     return enginePromise;
   };
   self.onmessage = async (event) => {
@@ -347,7 +359,12 @@ export function spawnSolver(workerSource, opts = {}) {
       inflight = null;
       worker?.terminate();
       worker = null;
-      if (p) p.reject(new Error(String(err?.message ?? err)));
+      const errorMsg =
+        err?.message ||
+        (err && typeof err === 'object' && 'filename' in err
+          ? `${err.message || 'Worker 脚本加载或运行异常'} (${err.filename}:${err.lineno})`
+          : String(err ?? 'Worker 未知错误'));
+      if (p) p.reject(new Error(errorMsg));
     };
     if (wasm ?? wasmUrl) {
       // WebAssembly.Module 可结构化克隆，重启用同一个预编译模块即可（无需重新取回/编译）
@@ -427,4 +444,18 @@ export function spawnSolver(workerSource, opts = {}) {
       return terminatedByUs;
     },
   };
+}
+
+// 浏览器 Web Worker 环境下作为独立入口运行（new Worker(url, { type: 'module' })）时自动挂载监听器
+if (
+  typeof self !== 'undefined' &&
+  typeof window === 'undefined' &&
+  typeof document === 'undefined' &&
+  typeof self.postMessage === 'function'
+) {
+  try {
+    installWorker();
+  } catch (err) {
+    // 忽略非 Worker 环境或沙箱测试中的环境限制
+  }
 }

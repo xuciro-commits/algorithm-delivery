@@ -26,9 +26,10 @@ jobs:
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             asset: linux-aarch64-unknown-linux-gnu
-          - runner: macos-14
-            target: aarch64-apple-darwin
-            asset: macos-aarch64-apple-darwin
+          # 如需构建 Apple Silicon 原生二进制包，取消注释即可（默认暂不启用以节省 CI 额度与排队时间）
+          # - runner: macos-14
+          #   target: aarch64-apple-darwin
+          #   asset: macos-aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4

@@ -53,6 +53,16 @@ jobs:
           name: aps-engine-artifacts
           path: aps/rust
 
+      - name: 整理 APS 质量门产物路径
+        working-directory: .
+        run: |
+          mkdir -p aps/rust/dist aps/rust/target/release
+          if [ -d "aps/rust/aps/rust" ]; then
+            cp -r aps/rust/aps/rust/* aps/rust/
+          fi
+          test -s aps/rust/dist/aps_engine.wasm || { echo "未找到 aps_engine.wasm" >&2; ls -laR aps/rust; exit 1; }
+          chmod +x aps/rust/target/release/aps 2>/dev/null || true
+
       - name: 准备正式 Release 引擎（手动选择时）
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.engine_tag != '' }}
         working-directory: .
