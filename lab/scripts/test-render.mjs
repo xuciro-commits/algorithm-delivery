@@ -90,6 +90,14 @@ check('切到 AGV 调度：渲染 AGV 面板（引擎装载状态提示）',
 check('AGV 面板在引擎就绪前不显示任何求解结果（空态提示除外）', !html.includes('gantt-bar') && !html.includes('当前相位') && !html.includes('动态重调度汇总'));
 check('AGV 面板渲染调度实验骨架（agv-panel + 场景库）', html.includes('agv-panel') && html.includes('场景库'));
 
+// ---- 2c) visual-studio 已就绪（V3 视觉工作室）：渲染三栏骨架，且不含虚构模型数据 ----
+html = render('#visual-studio');
+check('切到视觉工作室：渲染三栏骨架（模型库 + 舞台工具栏 + 部件审查）',
+  html.includes('studio-panel') && html.includes('模型库') && html.includes('部件审查') && html.includes('视觉模式'));
+check('三种视觉模式入口可见（A 工业原貌 / B 工业科技艺术化 / C 算法观察）',
+  html.includes('工业原貌') && html.includes('工业科技艺术化') && html.includes('算法观察'));
+check('资产清单未就绪时不渲染任何虚构模型条目', !html.includes('studio-part-role') && html.includes('载入中'));
+
 // ---- 3) 未知 hash 回退到首个 ready 模块 ----
 html = render('#does-not-exist');
 check('未知 hash 回退到 APS 模块', html.includes('选择一个排程场景') && html.includes('求解配置'));

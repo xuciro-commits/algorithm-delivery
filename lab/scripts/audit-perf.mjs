@@ -48,6 +48,9 @@ const alwaysMode = [...code.entries()].filter(([, t]) => /frameloop=["']always/.
 check('没有裸 frameloop="always"（一律 demand，active 才常驻）', alwaysMode.length === 0, alwaysMode.map(([f]) => f).join(','));
 const demandMode = [...code.entries()].filter(([, t]) => /frameloop=\{active \? 'always' : 'demand'\}/.test(t));
 check('SandboxScene 使用 demand + active 开关', demandMode.length === 1, `${demandMode.length} 处`);
+// V3 视觉舞台（透视艺术化场景）同样必须 active 驱动，且不允许裸 frameloop
+const stageShell = code.get(join(srcDir, 'visual/StageShell.tsx')) ?? '';
+check('StageShell 用 active 驱动的 demand 渲染', /const frameLoop = active \? 'always' : 'demand'/.test(stageShell) && /frameloop=\{frameLoop\}/.test(stageShell));
 
 // ---- 2) dpr ≤ 2 ----
 const badDpr = [...code.entries()].filter(([, t]) => /dpr=\{?\[?\s*\d+\s*,\s*[3-9]|dpr=\{?[3-9]/.test(t));
@@ -101,6 +104,12 @@ const withoutActive = stages.filter(([, t]) => {
   return uses.some((u) => !/active=/.test(u));
 });
 check('每处 SandboxScene 都显式传 active', withoutActive.length === 0, withoutActive.map(([f]) => f).join(','));
+const stageUsages = [...text.entries()].filter(([f, t]) => /<StageShell/.test(t));
+const stageWithoutActive = stageUsages.filter(([, t]) => {
+  const uses = t.match(/<StageShell[\s\S]{0,700}?>/g) ?? [];
+  return uses.some((u) => !/active=/.test(u));
+});
+check('每处 StageShell 都显式传 active', stageUsages.length >= 1 && stageWithoutActive.length === 0, stageWithoutActive.map(([f]) => f).join(','));
 check('存在 3D 沙盘装配（MAPF/AGV/APS）', stages.length >= 3, `${stages.length} 处`);
 
 // ---- 8) 轻量 2D 回退仍在 ----
