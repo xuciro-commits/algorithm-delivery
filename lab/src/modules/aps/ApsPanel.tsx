@@ -36,6 +36,8 @@ import {
 import { metricCards } from '../../core/aps/transform';
 import type { Runner } from '../../core/aps/engine';
 import { GanttChart } from '../../components/GanttChart';
+import { Gantt } from '../../components/gantt';
+import { adaptApsToGantt } from '../../components/gantt/apsAdapter';
 import { MetricsPanel } from '../../components/MetricsPanel';
 import { ResourcePanel } from '../../components/ResourcePanel';
 import { VerifyPanel } from '../../components/VerifyPanel';
@@ -80,6 +82,7 @@ export function ApsPanel({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('gantt');
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
+  const [ganttMode, setGanttMode] = useState<'advanced' | 'classic'>('advanced');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -90,6 +93,11 @@ export function ApsPanel({
   const operationLimit = runner?.capabilities?.max_operations ?? manifest?.capabilities?.max_operations ?? 600;
   const exceedsOperationLimit = Boolean(selected && selected.operations > operationLimit);
   const problemReady = Boolean(selected && problem && loadedProblemId === selected.id);
+
+  const advancedGantt = useMemo(() => {
+    if (!problem || !activeRun?.solution) return { tasks: [], dependencies: [] };
+    return adaptApsToGantt(problem, activeRun.solution);
+  }, [problem, activeRun?.solution]);
 
   // 首次进入自动选中 baseline
   useEffect(() => {
@@ -526,7 +534,67 @@ export function ApsPanel({
 
             {tab === 'gantt' && (
               <>
-                <GanttChart model={activeRun.gantt} selectedOp={selectedOp} onSelectOp={(bar) => setSelectedOp(bar?.opId ?? null)} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'inline-flex', gap: 6, background: 'rgba(10, 17, 28, 0.6)', padding: '3px', borderRadius: '6px', border: '1px solid var(--line)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setGanttMode('advanced')}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: ganttMode === 'advanced' ? 'var(--accent)' : 'transparent',
+                        color: ganttMode === 'advanced' ? '#fff' : 'var(--muted)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      工业级交互甘特图（含前后工序连线 & 关键路径）
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGanttMode('classic')}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: ganttMode === 'classic' ? 'var(--accent)' : 'transparent',
+                        color: ganttMode === 'classic' ? '#fff' : 'var(--muted)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      紧凑概览甘特图
+                    </button>
+                  </div>
+                  <span className="muted small">
+                    {ganttMode === 'advanced'
+                      ? '支持 Ctrl/⌘+滚轮缩放、工序依赖箭头连线、关键路径高亮、基线对比与 SVG/PNG 导出'
+                      : '按实际排程完工时间自适应撑满，顶部刻度吸顶'}
+                  </span>
+                </div>
+
+                {ganttMode === 'advanced' ? (
+                  <div style={{ height: 620, width: '100%', marginBottom: 12 }}>
+                    <Gantt
+                      tasks={advancedGantt.tasks}
+                      dependencies={advancedGantt.dependencies}
+                      timeScale="day"
+                      showCritical={false}
+                      showBaseline={true}
+                      readOnly={true}
+                      selectedTaskId={selectedOp ?? undefined}
+                      onTaskSelect={(id) => setSelectedOp(id)}
+                    />
+                  </div>
+                ) : (
+                  <GanttChart model={activeRun.gantt} selectedOp={selectedOp} onSelectOp={(bar) => setSelectedOp(bar?.opId ?? null)} />
+                )}
+
                 {selectedOp && (
                   <p className="muted small">
                     已选工序 <code>{selectedOp}</code>：点击其他工序可切换。资源与物料轨迹见 CLI `aps explain`（实验室仅展示排程结果与核验结论）。

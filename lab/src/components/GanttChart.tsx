@@ -40,15 +40,26 @@ export interface GanttProps {
 export function GanttChart({ model, selectedOp, onSelectOp }: GanttProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState<[number, number]>([0, 1]); // 相对窗口 [start, end]
+  const [viewScope, setViewScope] = useState<'content' | 'horizon'>('content');
   const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
 
   const window = useMemo(() => {
     if (model.operationCount === 0) return { start: 0, end: 1 };
-    const full = model.maxMs - model.minMs || 1;
-    const start = model.minMs + full * zoom[0];
-    const end = model.minMs + full * zoom[1];
+    let baseMin = model.minMs;
+    let baseMax = model.maxMs;
+
+    if (viewScope === 'content' && Number.isFinite(model.dataMinMs) && Number.isFinite(model.dataMaxMs)) {
+      baseMin = model.dataMinMs;
+      // 适度留白 6%
+      const buffer = Math.max(3600_000, (model.dataMaxMs - model.dataMinMs) * 0.06);
+      baseMax = model.dataMaxMs + buffer;
+    }
+
+    const full = baseMax - baseMin || 1;
+    const start = baseMin + full * zoom[0];
+    const end = baseMin + full * zoom[1];
     return { start, end: Math.max(end, start + 60_000) };
-  }, [model, zoom]);
+  }, [model, zoom, viewScope]);
 
   const span = window.end - window.start;
   const pct = (ms: number) => ((ms - window.start) / span) * 100;
@@ -65,10 +76,23 @@ export function GanttChart({ model, selectedOp, onSelectOp }: GanttProps) {
   return (
     <div className="gantt" ref={containerRef}>
       <div className="gantt-toolbar">
-        <span className="muted">
-          {model.operationCount} 道工序 · {model.rows.length} 个订单 · 窗口 {fmt(window.start)} →{' '}
-          {fmt(window.end)}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="muted">
+            {model.operationCount} 道工序 · {model.rows.length} 个订单 · 窗口 {fmt(window.start)} →{' '}
+            {fmt(window.end)}
+          </span>
+          <button
+            type="button"
+            className="btn-sm"
+            onClick={() => {
+              setViewScope((v) => (v === 'content' ? 'horizon' : 'content'));
+              setZoom([0, 1]);
+            }}
+            style={{ fontSize: '11px', padding: '2px 8px' }}
+          >
+            {viewScope === 'content' ? '切换完整规划视界（Horizon）' : '切回实际完工自适应（Fit）'}
+          </button>
+        </div>
         <div className="zoom">
           <button
             type="button"
