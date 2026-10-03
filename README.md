@@ -11,9 +11,23 @@
 - Rust 引擎（native CLI + WebAssembly）：[aps/rust/](aps/rust/)
 - 引擎使用手册：[USAGE.md](aps/rust/docs/USAGE.md)；需求追溯：[CONFORMANCE.md](aps/rust/docs/CONFORMANCE.md)
 
+### MAPF 多机器人路径规划引擎
+
+- 需求说明：[MAPF-SRS.md](mapf/MAPF-SRS.md)；可视化设计（M0）：[M0-VISUAL-LAB-DESIGN.md](mapf/M0-VISUAL-LAB-DESIGN.md)
+- 契约与 Mock：[mapf/contracts/](mapf/contracts/)、[mapf/mock/](mapf/mock/)、基准数据 [mapf/bench/](mapf/bench/)
+- Rust 引擎（native CLI + WebAssembly）：[mapf/rust/](mapf/rust/)
+- 交付包说明：[mapf/README.md](mapf/README.md)
+
+### AGV 多车调度引擎
+
+- 需求说明：[AGV-SRS.md](agv/AGV-SRS.md)
+- 契约与 Mock：[agv/contracts/](agv/contracts/)（problem/solution/verification/capabilities）、[agv/mock/](agv/mock/)（13 个固定样例）
+- Rust 引擎（native CLI + WebAssembly）：[agv/rust/](agv/rust/)（复用 aps-engine 基础设施与 mapf-engine 联合路径内核，零第三方依赖）
+- 交付包说明：[agv/README.md](agv/README.md)
+
 ### 统一算法实验室（Lab）
 
-`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 APS 模块可运行；路径规划、AGV 调度、库位优化和密集立库会先以“待接入”标记展示，不显示虚构结果。
+`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 **APS 排程**、**MAPF 路径规划（Visual Lab：地图优先编辑器 + 时空回放 + 动态事件 + 运行对比）** 与 **AGV 调度（地图编辑 + 任务相位回放 + 工作站容量 + 动态重调度汇总）** 三个模块可运行；库位优化和密集立库会先以“待接入”标记展示，不显示虚构结果。
 
 - 实验室说明、开发与模块接入指南：[lab/README.md](lab/README.md)
 - **在线预览地址（首次启用 Pages 并完成部署后）：** <https://xuciro-commits.github.io/algorithm-delivery/>
@@ -47,7 +61,39 @@ bash scripts/build_wasm.sh
 node scripts/test_worker_cancel.mjs
 ```
 
-## 自动构建与 GitHub Pages 发布
+单独验证 MAPF 引擎：
+
+```bash
+cd mapf/rust
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --release --locked
+./target/release/mapf acceptance          # M01–M12 一键验收
+python3 scripts/check_contracts.py
+bash scripts/build_wasm.sh                # 末尾自动跑 ABI 冒烟
+node scripts/test_worker_cancel.mjs
+```
+
+单独验证 AGV 引擎：
+
+```bash
+cd agv/rust
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --release --locked
+./target/release/agv acceptance           # A01–A16 一键验收
+./target/release/agv bench                # B01–B03 基准
+python3 scripts/check_contracts.py        # 45 项契约符合性（schema 防漂移 + verify 报告 + 对抗样例）
+bash scripts/build_wasm.sh                # 末尾自动跑 ABI 冒烟
+node scripts/test_worker_cancel.mjs
+```
+
+实验室前端全量测试（场景内核 / 回放时钟 / 运行历史 / AGV 集成 / 渲染 / 产物 / Pages 子路径）：
+
+```bash
+cd lab
+npm run test:all
+```
 
 ### 每次新增 Lab 后如何上线
 
@@ -70,8 +116,12 @@ node scripts/test_worker_cancel.mjs
 
 - [aps-rust.yml](.github/workflows/aps-rust.yml)：APS 代码变更时运行可复用 Rust 质量门。
 - [aps-quality.yml](.github/workflows/aps-quality.yml)：格式、Clippy、Rust 测试、S01–S08、契约、WASM 与 Worker 取消回归。
-- [lab.yml](.github/workflows/lab.yml)：构建/测试 Lab；合并到 `main` 后发布 Pages。
-- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物，所有目标成功后才创建 Release，并附 SHA-256 校验文件。
+- [mapf-rust.yml](.github/workflows/mapf-rust.yml)：MAPF 代码变更时运行可复用 Rust 质量门。
+- [mapf-quality.yml](.github/workflows/mapf-quality.yml)：格式、Clippy、Rust 测试、M01–M12 验收、契约、基准快跑、WASM 与 Worker 取消回归。
+- [agv-rust.yml](.github/workflows/agv-rust.yml)：AGV 代码变更时运行可复用 Rust 质量门。
+- [agv-quality.yml](.github/workflows/agv-quality.yml)：格式、Clippy、Rust 测试、A01–A16 验收、45 项契约符合性、B01–B03 基准、WASM 与 Worker 取消回归。
+- [lab.yml](.github/workflows/lab.yml)：构建/测试 Lab（含 MAPF/AGV 场景内核与集成测试）；合并到 `main` 后发布 Pages。
+- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。
 
 ### 创建正式 Release
 

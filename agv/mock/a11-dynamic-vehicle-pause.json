@@ -1,0 +1,158 @@
+{
+  "schema_version": "agv-dispatch-problem/1.0",
+  "map": {
+    "cells": [
+      "............",
+      "............",
+      "............",
+      "............",
+      "............"
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 150
+  },
+  "vehicles": [
+    {
+      "id": "V1",
+      "start": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "V2",
+      "start": [
+        0,
+        4
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "pickup": [
+        5,
+        0
+      ],
+      "dropoff": [
+        11,
+        0
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T2",
+      "pickup": [
+        5,
+        4
+      ],
+      "dropoff": [
+        11,
+        4
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0
+    }
+  ],
+  "dynamic": {
+    "snapshot": {
+      "time": 2,
+      "vehicles": {
+        "V1": {
+          "pos": [
+            2,
+            0
+          ],
+          "phase": "to_pickup",
+          "task": "T1",
+          "path": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              2,
+              0
+            ]
+          ]
+        },
+        "V2": {
+          "pos": [
+            2,
+            4
+          ],
+          "phase": "to_pickup",
+          "task": "T2",
+          "path": [
+            [
+              0,
+              4
+            ],
+            [
+              1,
+              4
+            ],
+            [
+              2,
+              4
+            ]
+          ]
+        }
+      },
+      "tasks": {
+        "T1": {
+          "status": "assigned",
+          "assignee": "V1",
+          "pickup_dock": [
+            5,
+            0
+          ],
+          "dropoff_dock": [
+            11,
+            0
+          ],
+          "pickup_arrival": 5,
+          "pickup_done": 6,
+          "dropoff_arrival": 12,
+          "dropoff_done": 13
+        },
+        "T2": {
+          "status": "assigned",
+          "assignee": "V2",
+          "pickup_dock": [
+            5,
+            4
+          ],
+          "dropoff_dock": [
+            11,
+            4
+          ],
+          "pickup_arrival": 5,
+          "pickup_done": 6,
+          "dropoff_arrival": 12,
+          "dropoff_done": 13
+        }
+      }
+    },
+    "events": [
+      {
+        "type": "vehicle_pause",
+        "vehicle": "V1"
+      }
+    ]
+  },
+  "id": "agv-mock-a11",
+  "objective": {
+    "kind": "lexicographic-weighted"
+  }
+}
+

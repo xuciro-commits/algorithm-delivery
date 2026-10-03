@@ -1,0 +1,140 @@
+{
+  "schema_version": "agv-dispatch-problem/1.0",
+  "map": {
+    "cells": [
+      "............",
+      ".....#......",
+      ".....#......",
+      ".....#......",
+      ".....#......",
+      "............",
+      "............",
+      "............"
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 200
+  },
+  "vehicles": [
+    {
+      "id": "V1",
+      "start": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "V2",
+      "start": [
+        0,
+        7
+      ]
+    },
+    {
+      "id": "V3",
+      "start": [
+        11,
+        0
+      ]
+    },
+    {
+      "id": "V4",
+      "start": [
+        11,
+        7
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "pickup": [
+        3,
+        1
+      ],
+      "dropoff": [
+        8,
+        1
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T2",
+      "pickup": [
+        3,
+        6
+      ],
+      "dropoff": [
+        8,
+        6
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T3",
+      "pickup": [
+        9,
+        2
+      ],
+      "dropoff": [
+        1,
+        2
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T4",
+      "pickup": [
+        9,
+        5
+      ],
+      "dropoff": [
+        1,
+        5
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T5",
+      "pickup": [
+        2,
+        4
+      ],
+      "dropoff": [
+        10,
+        4
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T6",
+      "pickup": [
+        6,
+        7
+      ],
+      "dropoff": [
+        6,
+        0
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    }
+  ],
+  "id": "agv-mock-a03",
+  "objective": {
+    "kind": "lexicographic-weighted"
+  }
+}
+

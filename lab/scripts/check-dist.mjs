@@ -118,6 +118,28 @@ if (existsSync(mapfManifestPath)) {
   console.log('· 未发现 mapf-manifest.json：跳过 MAPF 产物校验（如需装配请运行 lab/scripts/sync-mapf.mjs）');
 }
 
+// —— AGV 模块产物（可选装载：存在即校验，不存在只提示） ——
+const agvManifestPath = join(distDir, 'agv-manifest.json');
+if (existsSync(agvManifestPath)) {
+  const am = JSON.parse(readFileSync(agvManifestPath, 'utf8'));
+  check('AGV 清单含引擎名与版本', Boolean(am.engine) && Boolean(am.version), `${am.engine} v${am.version}`);
+  const agvWasm = join(distDir, am.wasm?.file ?? '__missing__');
+  check('AGV wasm 存在', existsSync(agvWasm));
+  if (existsSync(agvWasm) && am.wasm?.sha256) {
+    const bytes = readFileSync(agvWasm);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    check('AGV wasm 与清单 sha256/体积一致', digest === am.wasm.sha256 && bytes.length === am.wasm.bytes, digest.slice(0, 16) + '…');
+  }
+  const agvWorker = join(distDir, am.worker?.file ?? '__missing__');
+  check('AGV Worker 入口存在且与清单一致', existsSync(agvWorker) && createHash('sha256').update(readFileSync(agvWorker)).digest('hex') === am.worker?.sha256);
+  if (Array.isArray(am.mocks)) {
+    const missing = am.mocks.filter((m) => !existsSync(join(distDir, m.file)));
+    check('AGV 数据文件都已打包', missing.length === 0 && am.mocks.length > 0, `${am.mocks.length} 条${missing.length ? '，缺 ' + missing.map((m) => m.file).join(', ') : ''}`);
+  }
+} else {
+  console.log('· 未发现 agv-manifest.json：跳过 AGV 产物校验（如需装配请运行 lab/scripts/sync-agv.mjs）');
+}
+
 // 运行时是否真的会走子路径：构建产物里应出现 `${base}engine-manifest.json`
 const assetsDir = join(distDir, 'assets');
 let jsText = '';

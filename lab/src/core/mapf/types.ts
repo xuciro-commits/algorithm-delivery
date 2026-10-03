@@ -50,6 +50,8 @@ export interface MapfIssue {
 export interface MapfSolution {
   schema_version?: string;
   id?: string;
+  problem_hash?: string | null;
+  fingerprint?: string | null;
   status: 'OPTIMAL' | 'FEASIBLE' | 'INFEASIBLE' | 'UNKNOWN' | 'INVALID_INPUT' | 'UNSUPPORTED' | 'CANCELLED' | string;
   optimality_proven?: boolean;
   verified?: boolean;

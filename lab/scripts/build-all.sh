@@ -19,9 +19,10 @@ export LAB_BENCH_SIZES="${LAB_BENCH_SIZES:-240,c48,c96}"
 
 log() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 
-log "1/6 构建 WASM 引擎（唯一来源：aps/rust 与 mapf/rust）"
+log "1/6 构建 WASM 引擎（唯一来源：aps/rust、mapf/rust 与 agv/rust）"
 (cd "$repo_root/aps/rust" && bash scripts/build_wasm.sh)
 (cd "$repo_root/mapf/rust" && bash scripts/build_wasm.sh)
+(cd "$repo_root/agv/rust" && bash scripts/build_wasm.sh)
 
 log "2/6 构建 CLI（生成基准数据用）"
 (cd "$repo_root/aps/rust" && cargo build --release --locked)
@@ -34,6 +35,15 @@ export LAB_APS_BIN="${LAB_APS_BIN:-$cli}"
 [ -x "$LAB_APS_BIN" ] || { echo "✗ 找不到 aps CLI：$LAB_APS_BIN"; exit 1; }
 (cd "$repo_root/mapf/rust" && cargo build --release --locked)
 mapf_cli="$repo_root/mapf/rust/target/release/mapf"
+(cd "$repo_root/agv/rust" && cargo build --release --locked)
+agv_cli="$repo_root/agv/rust/target/release/agv"
+if [ ! -x "$agv_cli" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/agv" ]; then
+  agv_cli="$CARGO_TARGET_DIR/release/agv"
+fi
+export AGV_BIN="${AGV_BIN:-$agv_cli}"
+[ -x "$AGV_BIN" ] || { echo "✗ 找不到 agv CLI：$AGV_BIN"; exit 1; }
+# 固定 Mock（agv/mock，实验室示例与手工复算的单一来源）
+(cd "$repo_root/agv/rust" && "$AGV_BIN" mocks --out "$repo_root/agv/mock")
 if [ ! -x "$mapf_cli" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/mapf" ]; then
   mapf_cli="$CARGO_TARGET_DIR/release/mapf"
 fi

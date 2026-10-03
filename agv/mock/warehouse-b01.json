@@ -1,0 +1,384 @@
+{
+  "schema_version": "agv-dispatch-problem/1.0",
+  "map": {
+    "cells": [
+      "........................................",
+      ".........................#.........#....",
+      ".....................................#..",
+      ".....................#.#................",
+      "...#......#........#..............#.....",
+      "........................................",
+      ".................#...#...........#......",
+      "..................#.....................",
+      "...#.............#......................",
+      ".........#...................#.......#..",
+      "..#...........#..#..................#.#.",
+      "......#.........#.....................#.",
+      "........#...............................",
+      ".................#..................#...",
+      ".....#...#..#.........#.................",
+      "............##.........#.......#......#.",
+      ".##............#........................",
+      ".#.#....#................#..............",
+      "........................................",
+      "............#...........................",
+      ".............#.#...#....................",
+      "..............................#.....#...",
+      "......#...#.........#..#.#....#.........",
+      ".................................#......",
+      "........................................"
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 400
+  },
+  "vehicles": [
+    {
+      "id": "V0",
+      "start": [
+        33,
+        1
+      ]
+    },
+    {
+      "id": "V1",
+      "start": [
+        32,
+        2
+      ]
+    },
+    {
+      "id": "V2",
+      "start": [
+        4,
+        3
+      ]
+    },
+    {
+      "id": "V3",
+      "start": [
+        13,
+        0
+      ]
+    },
+    {
+      "id": "V4",
+      "start": [
+        32,
+        10
+      ]
+    },
+    {
+      "id": "V5",
+      "start": [
+        38,
+        6
+      ]
+    },
+    {
+      "id": "V6",
+      "start": [
+        5,
+        16
+      ]
+    },
+    {
+      "id": "V7",
+      "start": [
+        12,
+        0
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T0",
+      "pickup": [
+        19,
+        23
+      ],
+      "dropoff": [
+        1,
+        18
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T1",
+      "pickup": [
+        6,
+        4
+      ],
+      "dropoff": [
+        28,
+        10
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T2",
+      "pickup": [
+        32,
+        19
+      ],
+      "dropoff": [
+        25,
+        4
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T3",
+      "pickup": [
+        39,
+        16
+      ],
+      "dropoff": [
+        32,
+        8
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T4",
+      "pickup": [
+        30,
+        6
+      ],
+      "dropoff": [
+        18,
+        11
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T5",
+      "pickup": [
+        20,
+        19
+      ],
+      "dropoff": [
+        36,
+        16
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T6",
+      "pickup": [
+        4,
+        8
+      ],
+      "dropoff": [
+        29,
+        1
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T7",
+      "pickup": [
+        5,
+        19
+      ],
+      "dropoff": [
+        23,
+        23
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T8",
+      "pickup": [
+        39,
+        12
+      ],
+      "dropoff": [
+        28,
+        21
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T9",
+      "pickup": [
+        30,
+        16
+      ],
+      "dropoff": [
+        21,
+        23
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T10",
+      "pickup": [
+        3,
+        0
+      ],
+      "dropoff": [
+        34,
+        24
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T11",
+      "pickup": [
+        38,
+        12
+      ],
+      "dropoff": [
+        27,
+        22
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T12",
+      "pickup": [
+        2,
+        3
+      ],
+      "dropoff": [
+        31,
+        5
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T13",
+      "pickup": [
+        0,
+        13
+      ],
+      "dropoff": [
+        9,
+        24
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T14",
+      "pickup": [
+        11,
+        19
+      ],
+      "dropoff": [
+        32,
+        1
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T15",
+      "pickup": [
+        35,
+        21
+      ],
+      "dropoff": [
+        1,
+        5
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T16",
+      "pickup": [
+        20,
+        14
+      ],
+      "dropoff": [
+        23,
+        6
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 2,
+      "release_step": 0
+    },
+    {
+      "id": "T17",
+      "pickup": [
+        32,
+        18
+      ],
+      "dropoff": [
+        1,
+        20
+      ],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T18",
+      "pickup": [
+        15,
+        21
+      ],
+      "dropoff": [
+        38,
+        4
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 1,
+      "release_step": 0
+    },
+    {
+      "id": "T19",
+      "pickup": [
+        27,
+        13
+      ],
+      "dropoff": [
+        33,
+        11
+      ],
+      "pickup_service": 2,
+      "dropoff_service": 2,
+      "release_step": 0
+    }
+  ],
+  "solver": {
+    "time_limit_ms": 30000
+  },
+  "id": "agv-mock-warehouse-b01",
+  "objective": {
+    "kind": "lexicographic-weighted"
+  }
+}
+

@@ -1,0 +1,65 @@
+{
+  "schema_version": "agv-dispatch-problem/1.0",
+  "map": {
+    "cells": [
+      "........",
+      "........",
+      "........"
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 120
+  },
+  "vehicles": [
+    {
+      "id": "A",
+      "start": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "B",
+      "start": [
+        7,
+        1
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "pickup": [
+        7,
+        1
+      ],
+      "dropoff": [
+        0,
+        1
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    },
+    {
+      "id": "T2",
+      "pickup": [
+        0,
+        1
+      ],
+      "dropoff": [
+        7,
+        1
+      ],
+      "pickup_service": 0,
+      "dropoff_service": 0,
+      "release_step": 0
+    }
+  ],
+  "id": "agv-mock-a08",
+  "objective": {
+    "kind": "lexicographic-weighted"
+  }
+}
+

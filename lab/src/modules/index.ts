@@ -9,16 +9,9 @@ import { registerModule } from '../core/registry';
 import type { AlgorithmModule } from '../core/types';
 import { apsModule } from './aps';
 import { mapfModule } from './mapf';
+import { agvModule } from './agv';
 
 const planned: AlgorithmModule[] = [
-  {
-    id: 'agv-dispatch',
-    name: 'AGV 调度',
-    tagline: '多车任务分配与冲突消解',
-    category: '运动规划',
-    status: 'planned',
-    plannedNote: '待接入：任务/车辆/路段资源模型，可视化用时空轨迹图。',
-  },
   {
     id: 'slotting',
     name: '库位优化',
@@ -45,5 +38,6 @@ export function installModules(): void {
   installed = true;
   registerModule(apsModule);
   registerModule(mapfModule);
+  registerModule(agvModule);
   for (const m of planned) registerModule(m);
 }

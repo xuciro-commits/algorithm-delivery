@@ -10,11 +10,13 @@ import { groupModules, listModules } from './core/registry';
 import { installModules } from './modules';
 import { useApsEngine } from './core/aps/useApsEngine';
 import { useMapfEngine } from './core/mapf/useMapfEngine';
+import { useAgvEngine } from './core/agv/useAgvEngine';
 import { EngineBanner } from './components/EngineBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { AlgorithmModule } from './core/types';
 import type { ApsPanelProps } from './modules/aps/ApsPanel';
 import type { MapfPanelProps } from './modules/mapf/MapfPanel';
+import type { AgvPanelProps } from './modules/agv/AgvPanel';
 
 installModules();
 
@@ -26,6 +28,7 @@ function currentModuleId(): string {
 export default function App() {
   const engine = useApsEngine();
   const mapf = useMapfEngine();
+  const agv = useAgvEngine();
   const [activeId, setActiveId] = useState<string>(currentModuleId);
 
   useEffect(() => {
@@ -124,6 +127,17 @@ export default function App() {
                 engineError: mapf.error,
                 refresh: mapf.refresh,
               }}
+              agvProps={{
+                manifest: agv.manifest,
+                handle: agv.handle,
+                engineReady: agv.status === 'ready',
+                engineVersion: agv.version,
+                assetUrl: agv.assetUrl,
+                cancelSolve: agv.cancel,
+                setBusy: agv.setBusy,
+                engineError: agv.error,
+                refresh: agv.refresh,
+              }}
             />
           </ErrorBoundary>
         )}
@@ -145,6 +159,12 @@ export default function App() {
             <code>public/mapf-manifest.json</code>
           </span>
         )}
+        {agv.manifest && (
+          <span>
+            AGV v{agv.version} · 构建时间 {new Date(agv.manifest.builtAt).toLocaleString()} · 清单{' '}
+            <code>public/agv-manifest.json</code>
+          </span>
+        )}
       </footer>
     </div>
   );
@@ -155,13 +175,16 @@ function PanelHost({
   module,
   apsProps,
   mapfProps,
+  agvProps,
 }: {
   module: AlgorithmModule;
   apsProps: ApsPanelProps;
   mapfProps: MapfPanelProps;
+  agvProps: AgvPanelProps;
 }) {
   const Panel = module.Panel!;
   if (module.id === 'aps') return <Panel {...apsProps} />;
   if (module.id === 'path-planning') return <Panel {...mapfProps} />;
+  if (module.id === 'agv-dispatch') return <Panel {...agvProps} />;
   return <Panel />;
 }
