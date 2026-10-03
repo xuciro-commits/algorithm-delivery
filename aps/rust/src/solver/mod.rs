@@ -171,6 +171,14 @@ pub fn is_proven_optimal(value: &ObjectiveValue, lower_bound: i64) -> bool {
     value.weighted_tardiness == 0 && value.makespan <= lower_bound
 }
 
+/// 可复现性契约（务必按此口径对外承诺）：
+///
+/// * **确定性模式**：指定 `max_iterations = N`（> 0）且时间预算未耗尽时，结果与墙钟无关，
+///   同一 `(输入, seed, 规则, N)` 产出**逐字节相同**的方案 JSON；
+/// * **预算模式**：只给 `time_limit_ms` 时，执行到第几轮迭代取决于机器速度与调度，
+///   因此**不承诺**跨运行/跨机器的字节级一致（只承诺合法性、可复现的随机种子序列与
+///   目标值量级）。需要可复现请使用 `--max-iterations`（CLI）。
+///
 /// 主搜索流程。
 pub fn search(c: &Compiled, cfg: &SearchConfig, budget: &Budget) -> SearchOutcome {
     let mut out = SearchOutcome::default();

@@ -105,25 +105,78 @@ phase2         = makespan = max{ end[o] } − horizon_start   （不恶化 phase
 字典序比较键 `key = (phase1, phase2)`；`makespan` 策略为 `(phase2, phase1)`（SRS 要求的对照策略）。
 实现：`objective::evaluate`；比较：`ObjectiveValue::key`。
 
-### 3.2 有效下界与最优性判据
+### 3.2 有效下界（三类）与最优性判据
+
+`best_bound = max(路径下界, 产能+物料下界, 日历流量下界)`；三者**各自**都必须是有效下界
+（即：不得高于任何可行排程的 makespan），否则会推出伪 `OPTIMAL`。实现与论证见
+`objective::{path_lower_bound, capacity_lower_bound, flow_lower_bound}`。
+
+**(1) 路径下界**（含投放时间、单机窗口、`blocked` 空档）
 
 ```
-alone_start(o) = min over m ∈ alt(o)，在 windows(m)∖blocked 上单独占机时的最早可开工时刻
+alone_start(o) = min over m ∈ alt(o)：在 windows(m)∖blocked 上单独占机的最早可开工时刻
 b(o)           = max( release(order), max_{p ∈ preds(o)} b(p), alone_start(o) ) + min_duration(o)
-LB             = min( max_o b(o), H )
+LB_path        = max_o b(o)
 ```
 
-`LB ≤ 任何可行排程的 makespan`（推导只做放松：忽略产能竞争与时长选择）。于是：
+放松掉机器/人员/工装/物料竞争与时长选择耦合，只可能低估 → 有效。
+
+**(2) 产能下界（含物料到货门槛）**：按“技能 + 资格 + 备选机器集合”分组（同组共用机器池 `M` 台）：
+
+```
+W = Σ_{o ∈ g} min_duration(o)                     （组内总工时）
+LB_cap(g) ≥ ceil(W / M)                           （纯产能）
+对每个到货时刻 T：
+    Avail(T) = 初始库存 + Σ{到货时刻 < T 的数量}
+    Knap(A)  = 组内需料工序在 Σ数量 ≤ A 下可取的最大工时（0/1 背包）
+    LB_cap(g) ≥ T + ceil((W − Knap(Avail(T))) / M)   （仅当 W − Knap > 0）
+LB_cap = max over g
+```
+
+领料语义是“**开工即领、不退回**”（`ledger::replay_material` 按 `start` 记账），故累计领料单调不减
+且不超过累计到货；于是“`T` 之前开工”的工序数量之和 ≤ `Avail(T)`，其工时 ≤ `Knap(Avail(T))`；
+剩余工序只能在 ≥ `T` 开工，其工时必须占用机器池在 `T` 之后的时间 → 得到上式。
+**注意**：把“投放 ≤ T 的工时之和”计入 `[T, …]` 会**高估**下界（那些工序可能已在 `T` 前加工完），
+这是本函数早期版本的错误，现由对抗测试封堵。
+
+**(3) 日历流量下界**：对每个候选投放时刻 `R`（各订单 `release` 去重，≥0）：
+
+```
+W(R)   = Σ_{投放时刻 ≥ R 的工序} min_duration
+cap(t) = Σ_{机器 ∈ 池} (该机器在 [R, t] 内可用分钟数)   （blocked 已在编译期扣除）
+LB_flow(R) = min{ t ≥ R : cap(t) ≥ W(R) }
+LB_flow   = max over g, R
+```
+
+投放不早于 `R` 的工序不可能在 `R` 之前开工，其全部工时必须落在 `[R, makespan]` 内，
+且只能占用各机器自己的可用窗口（每台机器同一时刻至多一道工序）；忽略人员/工装/物料/前置
+只会高估可用产能 → 结果不晚于真实最优 → 有效。该式把“每天只有两班 8 小时”这类
+日历损耗计入下界，因此在按日历加权的实例上显著强于（1)(2)。
+
+**有效性证据**（比公式更能说明问题）：
+
+| 测试 | 做法 | 覆盖 |
+|------|------|------|
+| `material_bound_never_exceeds_brute_force_optimum` | 单机 + 单人员 + 物料到货门槛 + 多订单不同投放时刻；DFS 枚举全部订单间交错（单机下即精确最优），断言 `LB ≤ 真实最优 ≤ 引擎解` | 80 个随机实例 |
+| `capacity_bound_is_valid_and_tighter_on_contention` | 竞争型实例上对比纯产能与含物料门槛的下界，并断言下界 ≤ 引擎可行解 | 喷涂瓶颈实例 |
+| `coupled_is_schedulable_and_bounds_are_valid_at_scale` | 8/16/24/48 订单竞争型实例，三类下界分别 ≤ 可行解，且总下界 = 三者取大 | 4 组规模 |
+
+于是最优性判据为：
 
 | 条件 | 结论 | 状态 |
 |------|------|------|
-| `phase1 = 0`（其理论下界）且 `makespan ≤ LB` | 两个分量同时取下界 ⇒ 可证明最优 | `OPTIMAL` + `optimality_proven=true` |
-| 仅 `makespan ≤ LB`（`makespan` 策略） | `phase1` 已被证明为 0 | 同上 |
+| `phase1 = 0`（其理论下界）且 `makespan ≤ best_bound` | 两个分量同时取下界 ⇒ 可证明最优 | `OPTIMAL` + `optimality_proven=true` |
+| 仅 `makespan ≤ best_bound`（`makespan` 策略） | `phase1` 已被证明为 0 | 同上 |
 | 其他 | 未证明 | `FEASIBLE` + `best_bound` / `relative_gap` |
 
-单测：`objective::tests::lower_bound_is_valid_on_baseline`、
+档位一致性：`wasm-light` 的 `can_prove_optimal=false`，即使达到下界也只报 `FEASIBLE`。
+参考实例（`aps/mock/baseline.json`）现可证明最优：`OPTIMAL`，makespan = best_bound = 1560
+（瓶颈为 1 台喷涂机 + `M-PAINT` 在 10-06T08:00 的到货门槛）。
+
+单测：`objective::tests::lower_bound_is_valid_on_baseline`、`objective::tests`（见上表）；
 集成测试 `optimal_is_claimed_only_when_lower_bound_is_attained`（单链实例 → 105 分钟 = LB → `OPTIMAL`）
 与 `optimal_is_not_fabricated_when_tardiness_cannot_be_proven`（压缩交期 → 必然延期 → 绝不 `OPTIMAL`）。
+验收侧：`aps accept` 的 S01/S02 会**独立重算**下界后才接受 `OPTIMAL`。
 
 ### 3.3 可构造的无解证明（`INFEASIBLE` 的准入条件）
 

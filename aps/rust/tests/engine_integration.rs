@@ -55,10 +55,40 @@ fn all_mock_fixtures_validate_against_contract() {
     }
 }
 
+/// 断言输出为 FEASIBLE，或为**有证据的** OPTIMAL（SRS 禁止伪称最优）。
+/// OPTIMAL 时独立重算下界，并要求 makespan = best_bound = 重算下界。
+fn assert_feasible_or_proven(out: &engine::SolveOutcome, problem_text: &str, ctx: &str) {
+    match out.status {
+        Status::Feasible => {}
+        Status::Optimal => {
+            let sol = out.solution.as_ref().expect("OPTIMAL 必须给出方案 JSON");
+            assert_eq!(
+                sol.get("optimality_proven").and_then(|v| v.as_bool()),
+                Some(true),
+                "{ctx}: 声称 OPTIMAL 必须同时写 optimality_proven=true"
+            );
+            let obj = sol.get("objective").expect("objective 块");
+            let ms = obj.get("makespan_minutes").and_then(|v| v.as_i64());
+            let lb = obj.get("best_bound").and_then(|v| v.as_i64());
+            let (p, _) = model::parse_problem(&aps_engine::json::parse(problem_text).unwrap());
+            let recompiled = aps_engine::compile::compile(&p.unwrap(), String::new());
+            let recomputed = aps_engine::objective::makespan_lower_bound(&recompiled);
+            assert_eq!(ms, lb, "{ctx}: OPTIMAL 时 makespan 必须等于 best_bound");
+            assert_eq!(
+                lb,
+                Some(recomputed),
+                "{ctx}: 方案自称的下界必须能独立重算得到"
+            );
+        }
+        other => panic!("{ctx}: 期望 FEASIBLE 或 OPTIMAL，实际 {}", other.as_str()),
+    }
+}
+
 #[test]
 fn baseline_solve_is_verified_feasible_and_material_bound() {
     let out = solve("mock/baseline.json", 500);
-    assert_eq!(out.status, Status::Feasible, "小规模实例应得到可行解");
+    let text = read("mock/baseline.json");
+    assert_feasible_or_proven(&out, &text, "baseline");
     assert!(!out
         .violations
         .iter()
@@ -306,11 +336,19 @@ fn optimal_is_not_fabricated_when_tardiness_cannot_be_proven() {
 #[test]
 fn cancellation_returns_promptly_with_incumbent_and_warning() {
     // SRS §7「可终止」：配置时间预算后可停止；取消必须及时返回，并明确标注 incumbent。
-    let text = read("mock/baseline.json");
+    //
+    // 注意：baseline 已在数毫秒内求解（且可证明最优），不足以触发取消窗口，
+    // 因此这里用 480 工序的可分离实例：首解 ~23 ms，取消时刻设在 100 ms（远早于 30 s 预算），
+    // 保证“取消”而不是“自然完成”结束本次求解。
+    let base = read("mock/baseline.json");
+    let base_json = aps_engine::json::parse(&base).unwrap();
+    let text = aps_engine::benchgen::build_separable(&base_json, 480)
+        .unwrap()
+        .to_pretty();
     let token = CancelToken::new();
     let trigger = token.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(100));
         trigger.cancel();
     });
     let t0 = std::time::Instant::now();
@@ -353,7 +391,169 @@ fn cancellation_returns_promptly_with_incumbent_and_warning() {
             .all(|v| v.severity != aps_engine::errors::Severity::Error),
         "incumbent 不得含 error 级违约：{violations:?}"
     );
-    assert_eq!(ops.len(), 24, "取消时若已排完则应为完整 24 道工序");
+    assert_eq!(
+        ops.len(),
+        480,
+        "取消时已拿到完整可行解，应返回全部 480 道工序作为 incumbent"
+    );
+}
+
+#[test]
+fn deterministic_mode_is_byte_identical_across_runs() {
+    // 「确定性模式」= 固定 max_iterations（迭代次数与墙钟无关）+ 预算充足不触发超时。
+    let text = read("mock/baseline.json");
+    let opts = || SolveOptions {
+        time_limit_ms: 600_000, // 远大于所需，确保不是靠超时结束
+        seed: 2026,
+        max_iterations: 200,
+        ..Default::default()
+    };
+    let a = engine::solve_json(&text, &opts(), &CancelToken::new());
+    let b = engine::solve_json(&text, &opts(), &CancelToken::new());
+    // 方案内容（除运行期 metrics 外）必须逐字节一致
+    let fa = engine::solution_fingerprint(a.solution.as_ref().unwrap());
+    let fb = engine::solution_fingerprint(b.solution.as_ref().unwrap());
+    assert_eq!(
+        fa, fb,
+        "确定性模式下同一 (输入, seed, max_iterations) 的方案指纹必须一致"
+    );
+    // 除运行期观测值（metrics 内的耗时/峰值内存）外，两次运行的方案内容必须完全一致
+    let strip = |text: &str| -> String {
+        let mut j = json::parse(text).unwrap();
+        if let Some(obj) = j.get_mut("metrics") {
+            *obj = json::Json::Null;
+        }
+        j.canonical()
+    };
+    assert_eq!(
+        strip(&a.solution_json),
+        strip(&b.solution_json),
+        "确定性模式下除 metrics 外的方案内容必须完全一致"
+    );
+    // metrics 里的耗时确实会随运行变化——这是观测值，不是方案内容
+    assert!(a.metrics.total_ms.is_some() && b.metrics.total_ms.is_some());
+    assert!(a.objective.is_some());
+}
+
+#[test]
+fn fingerprint_ignores_runtime_metrics_only() {
+    let text = read("mock/baseline.json");
+    let out = engine::solve_json(
+        &text,
+        &SolveOptions {
+            time_limit_ms: 200,
+            seed: 42,
+            ..Default::default()
+        },
+        &CancelToken::new(),
+    );
+    let original = out.solution.unwrap();
+    let fp1 = engine::solution_fingerprint(&original);
+
+    // 1) 改动运行期指标 → 指纹不变
+    let mut with_new_metrics = original.clone();
+    with_new_metrics.set(
+        "metrics",
+        json::parse(r#"{"compile_ms":999.0,"solve_ms":1.0,"peak_memory_bytes":1}"#).unwrap(),
+    );
+    assert_eq!(engine::solution_fingerprint(&with_new_metrics), fp1);
+
+    // 2) 改动方案本体（某道工序的机器）→ 指纹必须改变
+    let mut changed = original.clone();
+    if let Some(ops) = changed.get_mut("operations").and_then(|v| v.as_arr_mut()) {
+        ops[0].set("machine_id", json::Json::str("CUT-02"));
+    }
+    assert_ne!(engine::solution_fingerprint(&changed), fp1);
+}
+
+#[test]
+fn budget_mode_documents_its_reproducibility_scope() {
+    // 预算模式：不承诺字节级一致，但必须承诺“结果合法、且状态/目标档位可复现”。
+    let text = read("mock/baseline.json");
+    let mut statuses = Vec::new();
+    for _ in 0..3 {
+        let out = engine::solve_json(
+            &text,
+            &SolveOptions {
+                time_limit_ms: 120,
+                seed: 42,
+                ..Default::default()
+            },
+            &CancelToken::new(),
+        );
+        let v = out.objective.expect("预算内应给出可行解");
+        assert_eq!(v.weighted_tardiness, 0);
+        assert!(out.solution.is_some());
+        statuses.push(out.status);
+    }
+    assert!(
+        statuses
+            .iter()
+            .all(|s| matches!(s, Status::Feasible | Status::Optimal)),
+        "预算模式状态应稳定落在 FEASIBLE/OPTIMAL：{statuses:?}"
+    );
+}
+
+#[test]
+fn strict_verify_enforces_result_binding() {
+    let problem_text = read("mock/baseline.json");
+    // 引擎输出：带 tenant_id + problem_hash → 严格模式通过
+    let out = engine::solve_json(
+        &problem_text,
+        &SolveOptions {
+            time_limit_ms: 200,
+            seed: 42,
+            ..Default::default()
+        },
+        &CancelToken::new(),
+    );
+    let (_, _, violations) = engine::verify_solution_json_with(
+        &problem_text,
+        &out.solution_json,
+        aps_engine::verify::VerifyOptions::strict(),
+    )
+    .unwrap();
+    assert!(
+        violations.is_empty(),
+        "引擎输出应满足严格模式：{violations:?}"
+    );
+
+    // 篡改 problem_hash → 必须被严格模式与宽松模式同时检出
+    let mut tampered = json::parse(&out.solution_json).unwrap();
+    tampered.set(
+        "problem_hash",
+        json::Json::str(format!("sha256:{}", "0".repeat(64))),
+    );
+    let tampered_text = tampered.to_pretty();
+    for opts in [
+        aps_engine::verify::VerifyOptions::strict(),
+        aps_engine::verify::VerifyOptions::permissive(),
+    ] {
+        let (_, _, v) =
+            engine::verify_solution_json_with(&problem_text, &tampered_text, opts).unwrap();
+        assert!(
+            v.iter().any(|x| x.code == "PROBLEM_HASH_MISMATCH"),
+            "篡改的 problem_hash 必须被检出（{opts:?}）"
+        );
+    }
+
+    // 参考见证缺少可选绑定字段 → 宽松通过、严格报错
+    let witness = read("tests/baseline-feasible-witness.json");
+    let (_, _, permissive) = engine::verify_solution_json_with(
+        &problem_text,
+        &witness,
+        aps_engine::verify::VerifyOptions::permissive(),
+    )
+    .unwrap();
+    assert!(permissive.is_empty(), "宽松模式不应因可选字段缺失而报错");
+    let (_, _, strict) = engine::verify_solution_json_with(
+        &problem_text,
+        &witness,
+        aps_engine::verify::VerifyOptions::strict(),
+    )
+    .unwrap();
+    assert!(strict.iter().any(|v| v.code == "TENANT_MISMATCH"));
+    assert!(strict.iter().any(|v| v.code == "PROBLEM_HASH_MISMATCH"));
 }
 
 #[test]

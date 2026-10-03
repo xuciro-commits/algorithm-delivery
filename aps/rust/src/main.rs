@@ -51,6 +51,7 @@ mod cli {
             "validate" => cmd_validate(rest),
             "solve" => cmd_solve(rest),
             "verify" => cmd_verify(rest),
+            "fingerprint" => cmd_fingerprint(rest),
             "compare" => cmd_compare(rest),
             "explain" => cmd_explain(rest),
             "benchmark" => cmd_benchmark(rest),
@@ -81,10 +82,13 @@ mod cli {
                     [--profile native|wasm-light] [--strategy lexicographic|makespan]
                     [--time-limit-ms N] [--seed N] [--rule auto|priority-edd|wspt|spt|min-end|most-slack|random]
                     [--no-repair] [--max-iterations N] [--cancel-after-ms N]
-  aps verify        --problem <file> --solution <file> [--json]
+  aps verify        --problem <file> --solution <file> [--strict] [--json]
+  aps fingerprint   --solution <file> [--json]        # 方案指纹（不含运行期 metrics）
   aps compare       --problem <file> --baseline <file> --solution <file> [--solution <file>...] [--json]
   aps explain       --problem <file> --solution <file> --operation <op_id> [--json]
-  aps benchmark     --baseline <file> --operations <24|240|2400> [--out <file>]
+  aps benchmark     --baseline <file> --operations N [--coupled] [--seed N] [--out <file>]
+                    （默认生成 N/24 个独立车间单元的“可分离”模型：规模/内存压测用；
+                      --coupled 生成共享资源的“竞争型”模型：求解质量与差距评估用，N 为 8 的倍数）
   aps bench         --problem <file> [--runs N] [--time-limit-ms N] [--seed N] [--json]
   aps accept        [--dir <aps 目录>] [--json]
   aps version
@@ -124,7 +128,7 @@ mod cli {
                 }
                 let takes_value = !matches!(
                     name.as_str(),
-                    "json" | "no-repair" | "help" | "list" | "quiet"
+                    "json" | "no-repair" | "help" | "list" | "quiet" | "strict"
                 );
                 if takes_value && i + 1 < args.len() && !args[i + 1].starts_with("--") {
                     flags.push((name, Some(args[i + 1].clone())));
@@ -369,7 +373,13 @@ mod cli {
         let a = Args::parse(args)?;
         let problem = read(a.require("problem")?)?;
         let solution = read(a.require("solution")?)?;
-        match engine::verify_solution_json(&problem, &solution) {
+        // --strict：发布前核验，要求方案携带 tenant_id 与 problem_hash 且与当前问题一致
+        let opts = if a.has("strict") {
+            aps_engine::verify::VerifyOptions::strict()
+        } else {
+            aps_engine::verify::VerifyOptions::permissive()
+        };
+        match engine::verify_solution_json_with(&problem, &solution, opts) {
             Ok((_, _, violations)) => {
                 if a.has("json") {
                     print_json(&Json::obj(vec![
@@ -381,7 +391,10 @@ mod cli {
                         ("count", Json::int(violations.len() as i64)),
                     ]));
                 } else if violations.is_empty() {
-                    println!("✓ 方案合法：独立校验器未发现任何违约（H01–H08 全部通过）");
+                    println!(
+                        "✓ 方案合法：独立校验器未发现任何违约（H01–H08 全部通过；{}模式）",
+                        if a.has("strict") { "严格" } else { "宽松" }
+                    );
                 } else {
                     println!("✗ 发现 {} 条违约：", violations.len());
                     for v in violations.iter() {
@@ -416,6 +429,37 @@ mod cli {
                 Ok(EXIT_MODEL_INVALID)
             }
         }
+    }
+
+    // ---------------- fingerprint ----------------
+    /// 输出方案指纹：对除 `metrics` 外的全部字段取规范化 SHA-256。
+    /// 同一输入 + 同 seed + 同迭代次数（确定性模式）应得到相同指纹。
+    fn cmd_fingerprint(args: &[String]) -> Result<u8, String> {
+        let a = Args::parse(args)?;
+        let text = read(a.require("solution")?)?;
+        let j = aps_engine::json::parse(&text).map_err(|e| e.to_string())?;
+        let (solution, issues) = aps_engine::verify::parse_solution(&j);
+        if solution.is_none() {
+            for i in issues.iter() {
+                eprintln!("[{}] {} {}", i.code, i.path, i.message);
+            }
+            eprintln!("方案不符合 PlanSolution 契约");
+            return Ok(EXIT_MODEL_INVALID);
+        }
+        let fp = engine::solution_fingerprint(&j);
+        if a.has("json") {
+            print_json(&Json::obj(vec![
+                ("fingerprint", Json::str(fp.clone())),
+                (
+                    "status",
+                    Json::str(j.get("status").and_then(|v| v.as_str()).unwrap_or("-")),
+                ),
+                ("excludes", Json::strings(["metrics"])),
+            ]));
+        } else {
+            println!("{fp}");
+        }
+        Ok(EXIT_OK)
     }
 
     // ---------------- compare ----------------
@@ -553,7 +597,19 @@ mod cli {
             .require("operations")?
             .parse()
             .map_err(|_| "operations 必须是整数".to_string())?;
-        let built = benchgen::build_separable(&baseline, n)?;
+        // --coupled：资源竞争型（共享资源），用于质量/差距评估；
+        // 默认（可分离）：用于模型大小、序列化与内存压测。
+        let built = if a.has("coupled") {
+            let seed: u64 = a
+                .get("seed")
+                .map(|v| v.parse())
+                .transpose()
+                .map_err(|_| "seed 必须是整数".to_string())?
+                .unwrap_or(42);
+            benchgen::build_coupled(&baseline, n, seed)?
+        } else {
+            benchgen::build_separable(&baseline, n)?
+        };
         let ops = benchgen::count_operations(&built);
         let text = built.to_pretty();
         match a.get("out") {

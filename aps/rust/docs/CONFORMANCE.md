@@ -11,7 +11,9 @@
 | 声明 SolverCapabilities，超范围必须显式拒绝 | `src/capabilities.rs`（native / wasm-light 两档）；`SCALE_EXCEEDED` 等结构化 issue | `aps capabilities --json`；`cargo test --test engine_integration wasm_light_refuses_scale` |
 | `UNSUPPORTED_CONSTRAINT` 而非静默丢弃约束 | `src/engine.rs` 状态映射；`worker_count>1` → `MODEL_INVALID` | `aps accept` S08 |
 | 状态枚举与语义（OPTIMAL/FEASIBLE/INFEASIBLE/UNKNOWN/MODEL_INVALID/NO_SOLUTION_FOUND/UNSUPPORTED_CONSTRAINT/CANCELLED） | `src/errors.rs::Status` + `src/engine.rs`；`INFEASIBLE` 必须带 `Certificate`，`OPTIMAL` 必须 `optimality_proven=true` | `docs/USAGE.md` §3.3；`src/engine.rs` 单元测试 |
-| 不伪造 OPTIMAL / INFEASIBLE | 最优性判据 `solver::is_proven_optimal`；无解证书由编译期构造 | `cargo test --lib objective`；S04/S06 |
+| 不伪造 OPTIMAL / INFEASIBLE | 最优性判据 `solver::is_proven_optimal`（加权延期=0 且 makespan 达到有效下界）；无解证书由编译期构造 | `cargo test --lib objective`；S04/S06 |
+| 下界必须**有效**（否则会推出伪 OPTIMAL） | 三类下界各自的放松论证 + 对抗测试：单机多订单 DFS 暴力最优、竞争型实例逐项比对 | `objective::tests::material_bound_never_exceeds_brute_force_optimum`（80 随机实例）、`benchgen::tests::coupled_is_schedulable_and_bounds_are_valid_at_scale` |
+| 声称 OPTIMAL 时的**独立复算** | 验收脚本从任务文件重新编译并重算下界，再与方案自称的 `best_bound` 比对 | `src/acceptance.rs::acceptable_status`；集成测试 `assert_feasible_or_proven` |
 | 方案自检失败必须拒收 | 自检/独立复核不通过 → `status=UNKNOWN`、`verified=false` | `src/engine.rs`（§7–8 注释段落） |
 
 ## B. 约束 H01–H08（SRS §3）
@@ -35,8 +37,8 @@
 
 | 用例 | 判据 | 结果 | 证据位置 |
 |------|------|------|----------|
-| S01 基础车间 | FEASIBLE + 24 工序 + 独立校验 0 违约 | ✓ | `src/acceptance.rs` `s01` |
-| S02 设备故障 | 不进入 `WELD-02` 停机区间；给出变更工序数 | ✓ | `s02` |
+| S01 基础车间 | 24 工序 + 独立校验 0 违约；状态为 `FEASIBLE` 或**有证据的** `OPTIMAL` | ✓（本轮为 `OPTIMAL`，makespan=best_bound=1560） | `src/acceptance.rs` `s01` |
+| S02 设备故障 | 不进入 `WELD-02` 停机区间；给出变更工序数；同为有证据的 OPTIMAL | ✓ | `s02` |
 | S03 到货延迟 | 事件序账本非负 | ✓ | `s03` + `src/ledger.rs` |
 | S04 证明无解 | native `INFEASIBLE` + `NO_ELIGIBLE_WORKER` + `operations=[]`；wasm-light 不伪称 | ✓ | `s04` |
 | S05 失效快照 | 旧快照 → `SNAPSHOT_MISMATCH`（权威拒绝在 Go 层） | ✓ | `s05` |
@@ -50,11 +52,11 @@
 
 | 交付项 | 位置 | 状态 |
 |--------|------|------|
-| Rust 原生算法核心（编译/求解/校验/对比/解释） | `aps/rust/src/` | ✅ 零第三方依赖，57 个单元测试 + 11 个集成测试 |
-| WASM 可复现构建（浏览器可用） | `src/wasm_api.rs`、`scripts/build_wasm.sh`、`web/aps-worker.js`、`scripts/smoke_wasm.mjs` | ✅ 577 KiB 产物，Node 冒烟通过（24 工序零违约） |
+| Rust 原生算法核心（编译/求解/校验/对比/解释/指纹） | `aps/rust/src/` | ✅ 零第三方依赖，63 个单元测试 + 15 个集成测试 |
+| WASM 可复现构建（浏览器可用） | `src/wasm_api.rs`、`scripts/build_wasm.sh`、`web/aps-worker.js`、`scripts/smoke_wasm.mjs` | ✅ 632599 字节（618 KiB），冒烟覆盖 字节码/预编译 Module/URL 三条装载路径；`scripts/test_worker_cancel.mjs` 9/9（取消 <1 s、Worker 重建后复算） |
 | 约束编译器单元测试（含负例） | `src/compile.rs`、`src/validate.rs`、`src/verify.rs` 内 `#[cfg(test)]` | ✅ |
 | 负例/变异数据 | `src/acceptance.rs::mutations()`（17 例）+ `aps/tests/verify_mock.py`（7 例交叉验证） | ✅ |
-| 基准生成与脚本 | `src/benchgen.rs`（与 Python 生成器逐字节一致）、`scripts/run_benchmarks.sh` | ✅ |
+| 基准生成与脚本 | `src/benchgen.rs`（可分离版与 Python 生成器逐字节一致 + 新增 `--coupled` 竞争型）、`scripts/run_benchmarks.sh` | ✅ 见 `docs/BENCHMARKS.md` §3–§4 |
 | 构建/运行说明与文档 | `README.md`、`docs/USAGE.md`、`docs/MODEL-MATH.md`、`docs/INTEGRATION.md`、`docs/BENCHMARKS.md`、本文；`toolchain/setup_rust.sh` | ✅ |
 | 约束编译器设计与数学约束逐条对照 | `docs/MODEL-MATH.md`（编译流水线 + H01–H08 数学↔代码↔测试 + 追溯设计） | ✅ |
 | 契约符合性（PlanProblem/PlanSolution/SolverCapabilities） | `scripts/check_contracts.py`（零依赖 JSON Schema 子集校验，30 项） | ✅ 30/30 |
@@ -71,5 +73,5 @@
 |----|------|
 | React 工作台 / 甘特图 / 交互式调整 | 前端团队 |
 | Go 平台 API、任务状态机、租户鉴权、快照生命周期与 `STALE_SNAPSHOT` 权威拒绝、RBAC | 平台团队 |
-| OR-Tools CP-SAT 全局求解基线（作为质量对照/回退） | 本交付包未包含；`aps/README.md` 建议先取得可信基线 |
-| 全局限界最优证明 | 本引擎用启发式 + 诚实弱下界；只有达到下界时才宣称 OPTIMAL |
+| ~~OR-Tools CP-SAT 全局求解基线~~ | **按需求方最新指示不再使用 OR-Tools**：所缺能力一律自研（本条原为对照基线，现已作废；质量口径改用有效下界 + 竞争型基准，见 `docs/BENCHMARKS.md` §4–§5） |
+| 全局最优证明（一般实例） | 引擎用启发式 + **三类有效下界**；只有可行解达到下界时才宣称 `OPTIMAL`（参考实例已可证明；中小规模竞争型实例下界偏弱，见 BENCHMARKS §4） |

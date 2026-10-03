@@ -255,8 +255,52 @@ fn parse_solution_op(c: &mut Ctx, item: &Json, path: &str) -> Option<SolutionOp>
     }
 }
 
+/// 校验严格度选项。
+///
+/// 契约里 `tenant_id` / `problem_hash` 是可选字段，因此**默认**只做“若提供则必须一致”的检查；
+/// 正式发布前的核验建议使用 `strict()`：要求两者都存在且匹配（平台仍需做权威判定，
+/// 本模式只是把“结果绑定”这一层也收紧，避免漏检）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VerifyOptions {
+    /// 要求方案必须带 `tenant_id`（并参与一致性检查）
+    pub require_tenant: bool,
+    /// 要求方案必须带 `problem_hash`（并参与一致性检查）
+    pub require_problem_hash: bool,
+}
+
+impl VerifyOptions {
+    /// 宽松模式（默认）：用于开发期与引擎自检。
+    pub fn permissive() -> VerifyOptions {
+        VerifyOptions::default()
+    }
+    /// 严格模式：发布前核验使用。
+    pub fn strict() -> VerifyOptions {
+        VerifyOptions {
+            require_tenant: true,
+            require_problem_hash: true,
+        }
+    }
+}
+
+/// 计算问题的 `problem_hash`（与引擎写入方案时使用同一算法与格式）。
+pub fn problem_hash_of(problem: &RawProblem) -> String {
+    format!(
+        "sha256:{}",
+        crate::hash::sha256_hex(problem.source.canonical().as_bytes())
+    )
+}
+
 /// 契约级快照绑定检查（S05 的 Rust 侧前置条件）：方案必须绑定到当前有效快照。
 pub fn check_snapshot_binding(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
+    check_snapshot_binding_with(problem, solution, VerifyOptions::permissive())
+}
+
+/// 带严格度的快照/租户/版本绑定检查。
+pub fn check_snapshot_binding_with(
+    problem: &RawProblem,
+    solution: &RawSolution,
+    opts: VerifyOptions,
+) -> Vec<Violation> {
     let mut out = Vec::new();
     if problem.meta.snapshot_id != solution.snapshot_id {
         out.push(
@@ -271,25 +315,75 @@ pub fn check_snapshot_binding(problem: &RawProblem, solution: &RawSolution) -> V
             ),
         );
     }
-    if let Some(t) = &solution.tenant_id {
-        if t != &problem.meta.tenant_id {
+    match &solution.tenant_id {
+        Some(t) => {
+            if t != &problem.meta.tenant_id {
+                out.push(
+                    Violation::new(
+                        codes::TENANT_MISMATCH,
+                        "CONTRACT",
+                        "方案租户与问题租户不一致",
+                    )
+                    .with_expected_actual(problem.meta.tenant_id.clone(), t.clone()),
+                );
+            }
+        }
+        None if opts.require_tenant => {
             out.push(
                 Violation::new(
                     codes::TENANT_MISMATCH,
                     "CONTRACT",
-                    "方案租户与问题租户不一致",
+                    "严格模式要求方案携带 tenant_id，但该字段缺失（无法做租户绑定判定）",
                 )
-                .with_expected_actual(problem.meta.tenant_id.clone(), t.clone()),
+                .with_expected_actual(problem.meta.tenant_id.clone(), "(缺失)".to_string()),
             );
         }
+        None => {}
+    }
+
+    // 版本绑定：方案若声明了 problem_hash（或严格模式要求声明），必须与当前问题一致
+    let expected_hash = problem_hash_of(problem);
+    match &solution.problem_hash {
+        Some(h) => {
+            if h != &expected_hash {
+                out.push(
+                    Violation::new(
+                        codes::PROBLEM_HASH_MISMATCH,
+                        "CONTRACT",
+                        "方案绑定的 problem_hash 与当前问题不一致（可能是旧版本问题的方案）",
+                    )
+                    .with_expected_actual(expected_hash, h.clone()),
+                );
+            }
+        }
+        None if opts.require_problem_hash => {
+            out.push(
+                Violation::new(
+                    codes::PROBLEM_HASH_MISMATCH,
+                    "CONTRACT",
+                    "严格模式要求方案携带 problem_hash，但该字段缺失（无法判定方案是否针对当前问题）",
+                )
+                .with_expected_actual(expected_hash, "(缺失)".to_string()),
+            );
+        }
+        None => {}
     }
     out
 }
 
-/// 独立校验入口：返回全部违约（空 = 方案合法）。
+/// 独立校验入口（宽松模式）：返回全部违约（空 = 方案合法）。
 pub fn verify(problem: &RawProblem, solution: &RawSolution) -> Vec<Violation> {
+    verify_with(problem, solution, VerifyOptions::permissive())
+}
+
+/// 独立校验入口（可指定严格度）；`strict()` 用于发布前核验。
+pub fn verify_with(
+    problem: &RawProblem,
+    solution: &RawSolution,
+    opts: VerifyOptions,
+) -> Vec<Violation> {
     let mut out: Vec<Violation> = Vec::new();
-    out.extend(check_snapshot_binding(problem, solution));
+    out.extend(check_snapshot_binding_with(problem, solution, opts));
 
     let t0 = problem.meta.horizon_start_min;
     let t_end = problem.meta.horizon_end_min;

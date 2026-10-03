@@ -46,7 +46,7 @@ cargo run --release --manifest-path rust/Cargo.toml -- \
 
 ```bash
 cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings   # 质量门
-cargo test --release                                   # 57 单元 + 11 集成测试
+cargo test --release                                   # 73 单元 + 15 集成测试 + 文档测试
 cargo test --release --test acceptance_suite -- --ignored   # S01–S08（约 6 s）
 python3 scripts/check_contracts.py                     # 契约符合性（30 项，零依赖）
 bash scripts/build_wasm.sh                             # WASM + Node 冒烟
@@ -62,10 +62,12 @@ aps capabilities  --profile native|wasm-light --json
 aps solve         --problem mock/baseline.json --out plan.json [--strategy lexicographic|makespan]
                   [--time-limit-ms 2000] [--seed 42] [--rule auto|priority-edd|wspt|spt|min-end|most-slack|random]
                   [--profile native|wasm-light] [--no-repair] [--max-iterations N] [--cancel-after-ms N]
-aps verify        --problem mock/baseline.json --solution plan.json --json
+aps verify        --problem mock/baseline.json --solution plan.json [--strict] --json
+aps fingerprint   --solution plan.json --json           # 忽略运行期 metrics 的方案指纹
 aps compare       --problem mock/baseline.json --baseline ref.json --solution plan.json [--solution ...] --json
 aps explain       --problem mock/baseline.json --solution plan.json --operation ORD-001-CUT
 aps benchmark     --baseline mock/baseline.json --operations 240 --out /tmp/b240.json
+aps benchmark     --baseline mock/baseline.json --operations 384 --coupled --seed 42 --out /tmp/c384.json
 aps bench         --problem /tmp/b240.json --runs 3 --time-limit-ms 2000 --seed 42 --json
 aps accept        [--dir ..] [--json]
 ```
