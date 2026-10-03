@@ -2349,6 +2349,13 @@ select optgroup {
 }
 
 .aps-stage {
+  /* 关键是 flex: none：.aps-stage 同时命中 .lab-stage 的 `flex: 1`，
+     而它的父级（.aps-static-preview / .results）都是**高度自适应**的纵向 flex。
+     在纵向 flex 里 flex-basis: 0 会盖掉下面的 height，舞台高度便由“剩余自由空间”
+     决定——父级高度自适应时自由空间为 0，画布就会塌成一条几十像素的窄条
+     （真实浏览器验收里就是 785×150 的 undersized 失败）。
+     关掉弹性伸缩后，下面的 clamp 高度才真正生效；MAPF / AGV 的舞台仍走 .lab-stage 的 flex: 1。 */
+  flex: none;
   height: clamp(500px, 60vh, 740px);
   min-height: 460px;
   margin-bottom: 12px;

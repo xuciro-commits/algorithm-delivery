@@ -20,10 +20,27 @@ export function inBounds(dims: GridDims, c: Cell): boolean {
   return c.x >= 0 && c.y >= 0 && c.x < dims.width && c.y < dims.height;
 }
 
-/** 适配窗口：全图 + margin 格边距（默认 1）。 */
-export function fitViewport(dims: GridDims, size: PixelSize, margin = 1): Viewport {
-  const mw = Math.max(1, dims.width + margin * 2);
-  const mh = Math.max(1, dims.height + margin * 2);
+/**
+ * 适配窗口：全图 + margin 格边距（默认 1）。
+ *
+ * `opts.minExtent`：按“至少这么多格”来定 cellPx（地图仍按真实尺寸居中）。
+ *
+ * 为什么需要它：极小地图（例如 2×2 的 MAPF 最小规模样例）如果按真实尺寸全屏适配，
+ * cellPx 会到几百像素，格内的起点方框/终点菱形被放大成“巨型框 + 巨菱形”，整屏看不见
+ * 网格、只剩一堆重叠图元——真实反馈里的「MAPF 显示有问题」。给一个最小视野（与 3D
+ * 等距相机的 span 下限一致）之后，小地图就是屏幕中央一块正常大小的网格。
+ */
+export function fitViewport(
+  dims: GridDims,
+  size: PixelSize,
+  margin = 1,
+  opts: { minExtent?: number } = {},
+): Viewport {
+  const extent = Math.max(1, opts.minExtent ?? 1);
+  const w = Math.max(dims.width, extent);
+  const h = Math.max(dims.height, extent);
+  const mw = Math.max(1, w + margin * 2);
+  const mh = Math.max(1, h + margin * 2);
   const cellPx = Math.max(0.5, Math.min(size.w / mw, size.h / mh));
   return {
     cellPx,

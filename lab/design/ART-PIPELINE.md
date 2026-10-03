@@ -202,3 +202,40 @@ cd lab && npm run test:post-build            # 构建后的全部 Lab 检查（C
 6. **运行历史/方案对比骨架收口**：已完成 —— `src/core/runs/` 提供 `RunDiffRow` / `sameProblem` /
    `lowerBetter` / `higherBetter` 等公共件，MAPF 与 AGV 只保留各自指标集（APS 有自己的状态机，暂不合并）。
 7. **脚本外壳收口**：已完成 —— `scripts/lib/harness.mjs` 统一 `check / note / warn / finish` 与退出码。
+
+---
+
+## 十三、实测反馈修复（第五轮 · 2026-10-03）
+
+用户在真实浏览器里逐条复验后回报的问题与处置（本轮**不重建几何、不改素材**，只修显示与数据契约）：
+
+| # | 现象 | 根因 | 修复位置 | 回归手段 |
+| --- | --- | --- | --- | --- |
+| 1 | MAPF 2D/3D 视图异常：极小场景下起点方框与终点菱形被放大成“巨框 + 巨菱形”，看不见网格 | 2D 适配 `fitViewport` 严格按真实尺寸铺满舞台，2×2 场景的 `cellPx` 会到几百像素（3D 侧本来就有 `span = max(w,h,8)` 的下限，2D 没有，两边观感不一致） | `components/grid-map/viewport.ts` 新增 `minExtent`，`MapStage` 固定 `FIT_MIN_EXTENT = 8`（与 3D span 下限对齐） | 新增 `npm run test:grid`（`scripts/test-grid-viewport.mjs`）：断言 2×2 的 `cellPx` 不得超过 8×8，且缩放/坐标换算不变式成立 |
+| 2 | AGV「画一个障碍，其他障碍就不见了」 | drei `<Instances>` 只在挂载时按 `limit` 分配实例缓冲区，之后 `range` 只控制可见数；障碍格一变多，写入就越界被 `Float32Array` 静默丢弃（旧代码把 `limit` 直接写成当前数量） | 新增 `components/sandbox/instanceBudget.ts`（分桶预算 + `key` 跟随重建），`WarehouseEnvironment` / `FactoryEnvironment` / `ObstacleField` 全部改为 `key={limit} limit={limit} range={count}` | `test-art-system.mjs` 新增断言：任何 `<Instances>` 不得把 `limit` 写成当前实例数，且必须同时出现 `range` 与 `key` |
+| 3 | 三维实验载入设备报 404：`…/algorithm-delivery/algorithm-delivery/models/aps-machining/vertical-milling-machine.glb` | `artAssetUrl()` 被调用了两次且不幂等（面板先拼一次 `BASE_URL`，`EquipmentModel` 内部再拼一次） | `art/manifest.ts` 的 `artAssetUrl` 改为幂等（已带 base 前缀则只补前导斜杠）；面板只传清单里的原始相对路径 | `test-art-system.mjs` 断言幂等分支存在，且任何 `.tsx` 不得在 `url={…}` 处再自己拼一次 |
+| 4 | APS 甘特图“关键路径只标出第一个工单” | 适配层只建**订单内**的前后工序边，订单之间零依赖 → 回溯链在第一个订单前断掉（只有 makespan 所属订单被点亮） | `components/gantt/apsAdapter.ts` 新增**资源顺序边**：按解法里同一台机器的占用先后连 FS 边（仅当问题工序与解法工序完全对齐、时间确实首尾相接、且不会成环时才连） | `GanttDependency.resource` 标记 + 甘特图默认不画这类边、仅关键路径模式显示。**需要真实解复核**：本机 `public/wasm/aps_engine.wasm` 是占位产物，解得出的覆盖订单数待 CI / 用户本机确认 |
+| 5 | APS 3D 画布被压成一条（CI 量到 785×150，只在真机占上方 1/3） | `.lab-stage { flex: 1 }` 的 `flex-basis: 0` 在 auto-height 的纵向 flex 父级（`.aps-static-preview`）里覆盖了 `.aps-stage` 的 `height`，舞台高度退回内容高度（canvas 内在高度 150px） | `src/styles.css`：`.aps-stage` 改为 `flex: none` + `height: clamp(500px, 60vh, 740px)` + `min-height: 460px` | 视觉验收新增 `waitForStableCanvasSize`（连续两次同尺寸且达标）与 `describeCanvasLayout`（失败时打印画布祖先链，不再只给一个数字） |
+
+**一处误判的更正**：第四轮曾把「MAPF 2D 显示异常」归因于“全站从未调用 `renderer.setBasePainter()`”。
+实际是排查时 `grep "setBasePainter|invalidateBase"` 少了 `-E`（被当成一个普通字符串），
+漏掉了 `MapfPanel` 里从起始提交 `a8e5a09` 起就存在的基底接线。基底绘制一直是好的，
+真正的问题在适配缩放（第 1 条）。
+
+## 十四、下一轮候选（按价值排序）
+
+1. **APS 3D 与排程联动的表达**（用户明确要求）：现状是 3D **已经**消费真实解（订单流转线 `flows`、
+   设备 working/idle、在制工序），但所有设备一律画出，看不出“选了哪几条产线”。
+   计划：从解里取**有工序的设备集合**决定画哪几条产线（未排产线折叠或置灰）、
+   工单沿真实工序点连线并高亮当前在制、面板加“只显示有排产的产线”开关（默认开）。
+2. **关键路径的资源边用真实解回归**：在 CI（有真 wasm）加一条轻量断言——baseline 解出的关键路径
+   必须覆盖 ≥ 2 个订单，防止适配层的资源边被改回“只连订单内”。
+3. **把 `#art-lab` 纳入视觉验收**：目前 Playwright 只覆盖 APS / MAPF / AGV；补一条“场景截图 +
+   模式 A/B/C 对照截图”（不需要点求解按钮，因此要先支持“只截图不跑引擎”的步骤类型）。
+4. **真实 GPU 人工评审**：SwiftShader 只能证明“非黑屏、有几何”，模式 B 的透明强度与英雄设备选择
+   仍需桌面 GPU 截图决策。
+5. **素材体量**：`lab/design/assets/**` 约 70 MB / 472 件 GLB 直接躺在版本库里；
+   若后续素材继续增长，建议移出仓库（对象存储 / LFS），构建期按清单拉取——现有
+   `sync-assets.mjs` 已经是“清单 → public/models”的单一通路，搬迁成本低。
+6. **面板体量**：`modules/agv/AgvPanel.tsx`（≈1350 行）与 `components/gantt/index.tsx`（≈1350 行）
+   仍偏大，建议按“状态机 / 视图 / 交互”拆成三个文件，降低后续改动的心智负担。

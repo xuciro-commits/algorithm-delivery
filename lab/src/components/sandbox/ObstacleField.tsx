@@ -7,6 +7,7 @@ import { Instance, Instances } from '@react-three/drei';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import type * as THREE from 'three';
 import { SB } from './theme';
+import { instanceLimit } from './instanceBudget';
 import { useArtStore } from '../../art/settings';
 
 export interface ObstacleFieldProps {
@@ -42,7 +43,13 @@ export function ObstacleField({ cells, height = 0.42, variant = 'wall' }: Obstac
 
   return (
     <group ref={groupRef}>
-      <Instances limit={Math.max(64, tinted.length)} range={tinted.length} castShadow receiveShadow>
+      <Instances
+        key={`walls-${instanceLimit(tinted.length, 64)}`}
+        limit={instanceLimit(tinted.length, 64)}
+        range={tinted.length}
+        castShadow
+        receiveShadow
+      >
         <boxGeometry args={[0.94, 1, 0.94]} />
         <meshStandardMaterial color={color} roughness={art ? 0.52 : 0.72} metalness={art ? 0.62 : 0.32} envMapIntensity={art ? 0.9 : 0.72} />
         {tinted.map((c, i) => (
@@ -55,7 +62,11 @@ export function ObstacleField({ cells, height = 0.42, variant = 'wall' }: Obstac
         ))}
       </Instances>
       {/* 接触阴影：底部渐隐暗面（假 AO，无阴影贴图开销） */}
-      <Instances limit={Math.max(64, tinted.length)} range={tinted.length}>
+      <Instances
+        key={`wall-ao-${instanceLimit(tinted.length, 64)}`}
+        limit={instanceLimit(tinted.length, 64)}
+        range={tinted.length}
+      >
         <planeGeometry args={[1.08, 1.08]} />
         <meshBasicMaterial color="#050a14" transparent opacity={0.5} />
         {tinted.map((c) => (

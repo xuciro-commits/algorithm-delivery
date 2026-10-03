@@ -6,6 +6,7 @@
 
 import { Instances, Instance } from '@react-three/drei';
 import { useMemo } from 'react';
+import { instanceLimit } from './instanceBudget';
 
 interface FactoryEnvironmentProps {
   width: number;
@@ -23,9 +24,12 @@ interface BoxPart {
 }
 
 function Parts({ parts, color, roughness, metalness }: { parts: BoxPart[]; color: string; roughness: number; metalness: number }) {
+  // 缓冲区预算 + key 跟随（见 instanceBudget.ts）：设备台数变化会改变环境件数量，
+  // limit 变化时重建缓冲区，避免旧实例错位。
+  const limit = instanceLimit(parts.length);
   if (parts.length === 0) return null;
   return (
-    <Instances limit={parts.length} range={parts.length} castShadow receiveShadow>
+    <Instances key={limit} limit={limit} range={parts.length} castShadow receiveShadow>
       <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} envMapIntensity={0.8} />
       {parts.map((p, i) => (
@@ -100,14 +104,14 @@ export function FactoryEnvironment({ width, height }: FactoryEnvironmentProps) {
       <Parts parts={data.fence} color="#32424b" roughness={0.5} metalness={0.55} />
       <Parts parts={data.hazard} color="#d1a14d" roughness={0.5} metalness={0.32} />
       <Parts parts={data.floor} color="#c79a4a" roughness={0.72} metalness={0.06} />
-      <Instances limit={data.rollers.length} range={data.rollers.length} castShadow receiveShadow>
+      <Instances key={`rollers-${instanceLimit(data.rollers.length)}`} limit={instanceLimit(data.rollers.length)} range={data.rollers.length} castShadow receiveShadow>
         <cylinderGeometry args={[0.062, 0.062, 0.66, 12]} />
         <meshStandardMaterial color="#9ba5a5" roughness={0.31} metalness={0.83} envMapIntensity={1.1} />
         {data.rollers.map(([x, y, z], i) => (
           <Instance key={i} position={[x, y, z]} rotation={[Math.PI / 2, 0, 0]} />
         ))}
       </Instances>
-      <Instances limit={Math.max(1, data.lights.length)} range={data.lights.length}>
+      <Instances key={`cell-lamps-${instanceLimit(data.lights.length, 8)}`} limit={instanceLimit(data.lights.length, 8)} range={data.lights.length}>
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#fff0cf" emissive="#ffe9b6" emissiveIntensity={1.15} roughness={0.3} metalness={0.06} />
         {data.lights.map((p, i) => (

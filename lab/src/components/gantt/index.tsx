@@ -833,7 +833,10 @@ export function Gantt<T = GanttTask>({
     [rowIndex, effSpans, byId, xOf, rowH],
   );
 
-  const visibleDeps = useMemo(() => dependencies.filter(edgeVisible), [dependencies, edgeVisible]);
+  const visibleDeps = useMemo(
+    () => dependencies.filter(edgeVisible).filter((dep) => !dep.resource || criticalOn),
+    [dependencies, edgeVisible, criticalOn],
+  );
 
   const commitEdit = () => {
     if (!editing) return;

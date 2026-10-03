@@ -32,6 +32,13 @@ export interface MapStageProps {
   children?: (renderer: MapRenderer) => void;
 }
 
+/**
+ * 适配时的最小视野（格）。极小地图不再被放大到铺满整个舞台——否则格内的
+ * 起点方框/终点菱形会变成“巨型框 + 巨菱形”，看起来像渲染坏掉（真实反馈）。
+ * 取 8 与 3D 等距相机的 span 下限一致，2D/3D 对同一张小地图给出同一种观感。
+ */
+const FIT_MIN_EXTENT = 8;
+
 export function MapStage(props: MapStageProps) {
   const { dims, fitNonce, onViewport, onCellClick, onCellDrag, onCellDown, onCellUp, onHover } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -64,7 +71,7 @@ export function MapStage(props: MapStageProps) {
       if (!rect) return;
       const size = { w: Math.max(1, Math.floor(rect.width)), h: Math.max(1, Math.floor(rect.height)) };
       sizeRef.current = size;
-      const vp = vpRef.current ?? fitViewport(dims, size);
+      const vp = vpRef.current ?? fitViewport(dims, size, 1, { minExtent: FIT_MIN_EXTENT });
       vpRef.current = vp;
       fitCellRef.current = vp.cellPx;
       r.setViewport(vp, size);
@@ -83,7 +90,7 @@ export function MapStage(props: MapStageProps) {
   useEffect(() => {
     const r = rendererRef.current;
     if (!r || sizeRef.current.w < 2) return;
-    const vp = fitViewport(dims, sizeRef.current);
+    const vp = fitViewport(dims, sizeRef.current, 1, { minExtent: FIT_MIN_EXTENT });
     fitCellRef.current = vp.cellPx;
     vpRef.current = vp;
     r.setViewport(vp, sizeRef.current);

@@ -9,6 +9,7 @@
 
 import { Instances, Instance } from '@react-three/drei';
 import { useMemo } from 'react';
+import { instanceLimit } from './instanceBudget';
 
 interface BoxPart {
   x: number;
@@ -37,9 +38,12 @@ function BoxInstances({
   roughness: number;
   metalness: number;
 }) {
+  // limit 是**缓冲区预算**，必须 ≥ 任意时刻的实例数（见 instanceBudget.ts）：
+  // 编辑过程中货架格只增不减，所以这里按分桶上限给容量，并让 key 跟随它重建。
+  const limit = instanceLimit(parts.length);
   if (parts.length === 0) return null;
   return (
-    <Instances limit={parts.length} range={parts.length} castShadow receiveShadow>
+    <Instances key={limit} limit={limit} range={parts.length} castShadow receiveShadow>
       <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} envMapIntensity={0.8} />
       {parts.map((p, i) => (
@@ -209,7 +213,11 @@ export function WarehouseEnvironment({ width, height }: WarehouseEnvironmentProp
       <BoxInstances parts={infrastructure.panels} color="#34434c" roughness={0.76} metalness={0.2} />
       <BoxInstances parts={infrastructure.posts} color="#28343d" roughness={0.5} metalness={0.58} />
       <BoxInstances parts={infrastructure.lane} color="#d39b43" roughness={0.7} metalness={0.08} />
-      <Instances limit={Math.max(1, infrastructure.lights.length)} range={infrastructure.lights.length}>
+      <Instances
+        key={`lamps-${instanceLimit(infrastructure.lights.length, 8)}`}
+        limit={instanceLimit(infrastructure.lights.length, 8)}
+        range={infrastructure.lights.length}
+      >
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#fff1cd" emissive="#ffe8b0" emissiveIntensity={1.35} roughness={0.28} metalness={0.08} />
         {infrastructure.lights.map((p, i) => (

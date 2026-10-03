@@ -622,6 +622,39 @@ check('叠加层只消费真实解（无装饰性数据源）', () => {
   assert.match(panel, /EMPTY_OVERLAY/, '没有结果时必须回落到空叠加层，不能伪造数据');
 });
 
+check('资源 URL 只加一次 BASE 前缀（404 事故回归）', () => {
+  const manifest = read('src/art/manifest.ts');
+  assert.match(manifest, /artAssetUrl/, '缺少 artAssetUrl');
+  assert.match(
+    manifest,
+    /clean\.startsWith\(prefix\)/,
+    'artAssetUrl 必须幂等：URL 已带 base 前缀时不得再拼一次（否则出现 …/algorithm-delivery/algorithm-delivery/… 的 404）',
+  );
+  // 组件内部会统一加前缀，因此任何 url={...} 属性都不得先自己拼一次。
+  const files = walk('src').filter((f) => f.endsWith('.tsx'));
+  const offenders = files.filter((file) => /url=\{artAssetUrl\(/.test(readFileSync(file, 'utf8')));
+  assert.deepEqual(offenders, [], `这些调用点会与 EquipmentModel 内的前缀叠加：${offenders.join(', ')}`);
+});
+
+check('实例化环境件的缓冲区预算稳定（编辑时不得越界）', () => {
+  const budget = read('src/components/sandbox/instanceBudget.ts');
+  assert.match(budget, /export function instanceLimit/, '缺少 instanceLimit');
+  for (const file of [
+    'src/components/sandbox/WarehouseEnvironment.tsx',
+    'src/components/sandbox/FactoryEnvironment.tsx',
+    'src/components/sandbox/ObstacleField.tsx',
+  ]) {
+    const text = read(file);
+    const instances = [...text.matchAll(/<Instances[\s\S]*?>/g)].map((m) => m[0]);
+    assert.ok(instances.length > 0, `${file} 里没有 <Instances>`);
+    for (const block of instances) {
+      assert.ok(!/limit=\{[^}]*\.length\}/.test(block), `${file}: limit 不能直接等于当前实例数（drei 只在挂载时分配缓冲区）`);
+      assert.match(block, /range=\{/, `${file}: <Instances> 必须显式给 range`);
+      assert.match(block, /key=\{/, `${file}: <Instances> 必须用 key 跟随预算变化重建缓冲区`);
+    }
+  }
+});
+
 check('阶段一文档存在', () => {
   assert.ok(existsSync(join(labDir, 'design/ART-PIPELINE.md')), '缺少 lab/design/ART-PIPELINE.md');
   const doc = read('design/ART-PIPELINE.md');
