@@ -44,8 +44,12 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <h1>算法实验室</h1>
-          <span className="muted">Algorithm Delivery · 统一实验 / 可视化 / 性能评测</span>
+          <div className="brand-mark" aria-hidden="true">AD</div>
+          <div className="brand-copy">
+            <span className="brand-eyebrow">ALGORITHM DELIVERY / LAB</span>
+            <h1>算法实验室 <span>LAB / 01</span></h1>
+            <p>统一实验 · 可视化 · 性能评测</p>
+          </div>
         </div>
         <EngineBanner
           status={engine.status}

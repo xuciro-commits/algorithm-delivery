@@ -100,8 +100,14 @@ export interface PlanProblemLike {
     horizon_end?: string;
     resolution_min?: number;
   };
-  machines?: Array<{ id: string; capabilities?: string[]; available?: unknown[] }>;
-  workers?: Array<{ id: string; skills?: string[]; qualifications?: string[] }>;
+  machines?: Array<{ id: string; capabilities?: string[]; available?: unknown[]; blocked?: unknown[] }>;
+  workers?: Array<{
+    id: string;
+    skills?: string[];
+    qualifications?: string[];
+    available?: unknown[];
+    blocked?: unknown[];
+  }>;
   tools?: Array<{ id: string; capacity?: number }>;
   materials?: Array<{ id: string; initial_quantity?: number }>;
   orders?: Array<{
@@ -116,6 +122,7 @@ export interface PlanProblemLike {
       alternatives?: Array<{ machine_id: string; duration_min: number }>;
       predecessors?: string[];
       qualifications?: string[];
+      worker_count?: number;
       tool_ids?: string[];
       tools?: string[];
       materials?: Record<string, number>;
@@ -185,7 +192,7 @@ export interface MockCatalogEntry {
   file: string;
   name: string;
   description: string;
-  kind: 'baseline' | 'scenario' | 'benchmark';
+  kind: 'baseline' | 'scenario' | 'benchmark' | 'custom';
   operations: number;
   orders: number;
   machines: number;

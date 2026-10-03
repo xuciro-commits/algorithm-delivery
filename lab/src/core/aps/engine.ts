@@ -68,6 +68,8 @@ export interface EngineBootOptions {
   spawnSolver?: SpawnSolverLike;
   /** Worker 工厂（Node 测试注入 worker_threads 适配器） */
   spawn?: () => WorkerLike;
+  /** Worker 首次握手的超时；避免资产缺失时页面永久停留在 loading */
+  handshakeTimeoutMs?: number;
 }
 
 /**
@@ -96,12 +98,35 @@ export async function createEngineHandle(opts: EngineBootOptions): Promise<{
   // 先握手：拿到 wasm 版本（`aps_version()`）并读能力声明
   let capabilities: CapabilitiesReport | null = null;
   let version = 'unknown';
+  const handshakeTimeoutMs = opts.handshakeTimeoutMs ?? 8_000;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const caps = await handle.capabilities();
+    const caps = await Promise.race([
+      handle.capabilities(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(new Error(`APS Worker 握手超时（${Math.round(handshakeTimeoutMs / 1000)} 秒）`));
+        }, handshakeTimeoutMs);
+      }),
+    ]);
     capabilities = caps.report ?? null;
     version = capabilities?.version ?? 'unknown';
-  } catch {
-    // 老 wasm 没有 caps 导出：退回未知版本（不影响求解）
+  } catch (err) {
+    if (timedOut) {
+      handle.dispose();
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    const legacyWithoutCapabilities = message.includes('aps_capabilities') && /不含|缺少|missing/i.test(message);
+    if (!legacyWithoutCapabilities) {
+      handle.dispose();
+      throw new Error(`APS Worker 初始化失败：${message}`);
+    }
+    // 老 wasm 没有 caps 导出：退回未知版本（求解接口仍可能可用）。
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
   return { handle, version, capabilities };
 }

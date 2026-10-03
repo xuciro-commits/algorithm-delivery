@@ -15,11 +15,12 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:dist",
     "test:core": "node scripts/smoke-lab.mjs",
+    "test:imports": "node scripts/test-imports.mjs",
     "test:runner": "node scripts/test-runner-lifecycle.mjs",
     "test:render": "node scripts/test-render.mjs",
     "test:dist": "node scripts/check-dist.mjs",
     "test:pages": "node scripts/check-pages.mjs",
-    "test:all": "npm run build && npm run test:core && npm run test:runner && npm run test:render && npm run test:dist && npm run test:pages",
+    "test:all": "npm run build && npm run test:imports && npm run test:core && npm run test:runner && npm run test:render && npm run test:dist && npm run test:pages",
     "build:all": "bash scripts/build-all.sh"
   },
   "dependencies": {

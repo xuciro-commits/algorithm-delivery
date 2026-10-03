@@ -37,6 +37,39 @@ function assetUrl(path: string): string {
   return `${base}${path.replace(/^\/+/, '')}`;
 }
 
+const ASSET_TIMEOUT_MS = 12_000;
+const WORKER_HANDSHAKE_TIMEOUT_MS = 8_000;
+
+async function fetchAsset<T>(
+  path: string,
+  label: string,
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
+  const url = assetUrl(path);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const request = fetch(url, { cache: 'no-cache', signal: controller.signal }).then(async (response) => {
+    if (!response.ok) throw new Error(`${label}失败：HTTP ${response.status}（${path}）`);
+    return read(response);
+  });
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label}超时（${ASSET_TIMEOUT_MS / 1000} 秒）：${path}。请检查 Pages 路径与构建产物后重试。`));
+    }, ASSET_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([request, timeout]);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`${label}网络请求被中断：${path}`);
+    }
+    throw err;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export function useApsEngine(): EngineState & {
   cancel: () => boolean;
   refresh: () => void;
@@ -67,21 +100,31 @@ export function useApsEngine(): EngineState & {
   useEffect(() => {
     let disposed = false;
     let handle: EngineHandle | null = null;
+    setState((current) => ({
+      ...current,
+      status: 'loading',
+      error: null,
+      manifest: null,
+      capabilities: null,
+      version: 'unknown',
+      runner: null,
+      busy: false,
+    }));
 
     (async () => {
       try {
-        const manifestRes = await fetch(assetUrl('engine-manifest.json'), { cache: 'no-cache' });
-        if (!manifestRes.ok) throw new Error(`读取 engine-manifest.json 失败：HTTP ${manifestRes.status}`);
-        const manifest = (await manifestRes.json()) as EngineManifest;
-
-        const wasmRes = await fetch(assetUrl(manifest.wasm.file), { cache: 'no-cache' });
-        if (!wasmRes.ok) throw new Error(`下载 wasm 失败：HTTP ${wasmRes.status}（${manifest.wasm.file}）`);
-        const bytes = await wasmRes.arrayBuffer();
+        const manifest = await fetchAsset('engine-manifest.json', '读取引擎清单', async (response) =>
+          (await response.json()) as EngineManifest,
+        );
+        const bytes = await fetchAsset(manifest.wasm.file, '下载 WebAssembly 引擎', (response) =>
+          response.arrayBuffer(),
+        );
         const wasm = await WebAssembly.compile(bytes);
 
         const boot = await createEngineHandle({
           workerUrl: assetUrl(manifest.worker.file),
           wasm,
+          handshakeTimeoutMs: WORKER_HANDSHAKE_TIMEOUT_MS,
         });
         handle = boot.handle;
         if (disposed) {

@@ -70,7 +70,10 @@ check('模块导航标记“待接入”', (html.match(/待接入/g) ?? []).leng
 check('引擎未就绪时给出等待提示', html.includes('引擎尚未就绪') || html.includes('正在加载引擎产物'));
 check('参数区渲染完整（种子/时间/目标/规则/迭代/修复/严格核验）',
   ['种子 seed', '求解时间（ms）', '优化目标', '搜索规则', '迭代上限', '局部修复', '严格核验'].every((t) => html.includes(t)));
-check('数据选择器含导入入口', html.includes('导入自己的 PlanProblem'));
+check('数据目录在 manifest 尚未加载时仍展示全部内置案例',
+  ['基础车间（baseline）', '设备故障（machine-breakdown）', '到货延迟（material-delay）', '无解（infeasible-no-welder）'].every((name) => html.includes(name)));
+check('标准 benchmark 与 JSON 导入入口可见',
+  html.includes('选择文件') && html.includes('FJSPLib / Brandimarte') && html.includes('OR-Library JSSP'));
 check('结果区为空态而非假数据', html.includes('还没有结果'));
 
 // ---- 2) planned 模块 ----
@@ -80,7 +83,7 @@ check('planned 页面不含任何运行结果/甘特图', !html.includes('gantt-
 
 // ---- 3) 未知 hash 回退到首个 ready 模块 ----
 html = render('#does-not-exist');
-check('未知 hash 回退到 APS 模块', html.includes('数据与参数'));
+check('未知 hash 回退到 APS 模块', html.includes('选择一个排程场景') && html.includes('求解配置'));
 
 // ---- 4) 各模块面板在无引擎上下文时可渲染（模块自带 props 的健壮性）----
 check('待接入模块不注册 Panel（避免渲染假界面）', html.length > 0);

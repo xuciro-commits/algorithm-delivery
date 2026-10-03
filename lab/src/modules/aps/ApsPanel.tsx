@@ -63,9 +63,15 @@ export function ApsPanel({
   const catalog = useMemo(() => entriesFromManifest(manifest), [manifest]);
   const [imported, setImported] = useState<ProblemEntry[]>(() => loadPersistedImports());
   const entries = useMemo(() => [...catalog, ...imported], [catalog, imported]);
+  const featured = useMemo(
+    () => catalog.filter((entry) => entry.kind === 'baseline' || entry.kind === 'scenario'),
+    [catalog],
+  );
 
-  const [selectedId, setSelectedId] = useState<string>('');
+  const [selectedId, setSelectedId] = useState<string>('mock/baseline.json');
   const [problem, setProblem] = useState<PlanProblemLike | null>(null);
+  const [loadedProblemId, setLoadedProblemId] = useState<string | null>(null);
+  const [problemLoading, setProblemLoading] = useState(false);
   const [problemError, setProblemError] = useState<string | null>(null);
   const [params, setParams] = useState<SolveParams>(DEFAULT_PARAMS);
   const [strict, setStrict] = useState(false);
@@ -81,6 +87,9 @@ export function ApsPanel({
   const selected = entries.find((e) => e.id === selectedId) ?? entries[0];
   const activeRun = runs.find((r) => r.id === activeRunId) ?? runs[0] ?? null;
   const paramErrors = validateParams(params);
+  const operationLimit = runner?.capabilities?.max_operations ?? manifest?.capabilities?.max_operations ?? 600;
+  const exceedsOperationLimit = Boolean(selected && selected.operations > operationLimit);
+  const problemReady = Boolean(selected && problem && loadedProblemId === selected.id);
 
   // 首次进入自动选中 baseline
   useEffect(() => {
@@ -89,21 +98,32 @@ export function ApsPanel({
 
   // 切换数据时加载问题文本
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      setProblem(null);
+      setLoadedProblemId(null);
+      setProblemLoading(false);
+      return;
+    }
     let cancelled = false;
+    setProblem(null);
+    setLoadedProblemId(null);
+    setProblemLoading(true);
     setProblemError(null);
     loadProblem(selected, assetUrl)
       .then((p) => {
         if (!cancelled) {
           setProblem(p);
+          setLoadedProblemId(selected.id);
           setSelectedOp(null);
         }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setProblem(null);
           setProblemError(err instanceof Error ? err.message : String(err));
         }
+      })
+      .finally(() => {
+        if (!cancelled) setProblemLoading(false);
       });
     return () => {
       cancelled = true;
@@ -115,29 +135,49 @@ export function ApsPanel({
       if (!files || files.length === 0) return;
       const added: ProblemEntry[] = [];
       const errors: string[] = [];
-      for (const file of Array.from(files).slice(0, 5)) {
-        const text = await file.text();
-        const result = importProblem(text, file.name);
-        if (result.ok && result.entry) added.push(result.entry);
-        else errors.push(`${file.name}: ${result.error}`);
+      const fileList = Array.from(files);
+      if (fileList.length > 5) errors.push('一次最多选择 5 个文件，超出的文件未处理');
+
+      for (const file of fileList.slice(0, 5)) {
+        if (file.size > 2 * 1024 * 1024) {
+          errors.push(`${file.name}: 文件超过 2 MiB 上限`);
+          continue;
+        }
+        try {
+          const text = await file.text();
+          const result = importProblem(text, file.name);
+          if (result.ok) added.push(...(result.entries ?? (result.entry ? [result.entry] : [])));
+          else errors.push(`${file.name}: ${result.error}`);
+        } catch (err) {
+          errors.push(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-      if (added.length > 0) {
-        setImported((prev) => {
-          const next = [...added, ...prev.filter((p) => !added.some((a) => a.id === p.id))];
-          persistImports(next);
-          return next;
-        });
-        setSelectedId(added[0].id);
-        setNotice(`已导入 ${added.length} 个数据（仅保存在浏览器本地，不会上传）`);
+
+      const uniqueAdded = [...new Map(added.map((entry) => [entry.id, entry])).values()];
+      const messages: string[] = [];
+      if (uniqueAdded.length > 0) {
+        const next = [...uniqueAdded, ...imported.filter((entry) => !uniqueAdded.some((addedEntry) => addedEntry.id === entry.id))];
+        setImported(next);
+        const persisted = persistImports(next);
+        setSelectedId(uniqueAdded[0].id);
+        if (uniqueAdded[0].kind === 'standard-benchmark') {
+          setParams((current) => ({ ...current, strategy: 'makespan' }));
+        }
+        messages.push(
+          persisted
+            ? `已加载 ${uniqueAdded.length} 个案例（浏览器本地处理，不会上传）；刷新后保留最近 5 个`
+            : `已加载 ${uniqueAdded.length} 个案例；浏览器存储不可用，本次页面会话仍可运行`,
+        );
       }
-      if (errors.length > 0) setNotice(errors.join('；'));
+      if (errors.length > 0) messages.push(errors.join('；'));
+      if (messages.length > 0) setNotice(messages.join('；'));
       if (fileInput.current) fileInput.current.value = '';
     },
-    [],
+    [imported],
   );
 
   const run = useCallback(async () => {
-    if (!runner || !problem || !selected) return;
+    if (!runner || !problemReady || !problem || !selected || exceedsOperationLimit) return;
     if (paramErrors.length > 0) {
       setNotice(paramErrors.join('；'));
       return;
@@ -176,7 +216,7 @@ export function ApsPanel({
       setBusy(false);
       setPhase('');
     }
-  }, [runner, problem, selected, params, strict, paramErrors]);
+  }, [runner, problemReady, problem, selected, params, strict, paramErrors, exceedsOperationLimit]);
 
   const onCancel = useCallback(() => {
     const did = cancelSolve();
@@ -184,51 +224,149 @@ export function ApsPanel({
   }, [cancelSolve]);
 
   const cards = activeRun ? metricCards(activeRun.solution ?? {}, activeRun.metrics.wallMs) : [];
+  const chooseEntry = (entry: ProblemEntry) => {
+    setSelectedId(entry.id);
+    if (entry.kind === 'standard-benchmark') {
+      setParams((current) => ({ ...current, strategy: 'makespan' }));
+    }
+    if (imported.some((stored) => stored.id === entry.id)) {
+      const recent = [entry, ...imported.filter((stored) => stored.id !== entry.id)];
+      persistImports(recent);
+    }
+  };
 
   return (
     <div className="aps-panel">
       <section className="panel controls">
-        <h3>数据与参数</h3>
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">01 / CASE LIBRARY</span>
+            <h2>选择一个排程场景</h2>
+            <p>内置案例已随页面打包，无需上传数据；引擎加载完成后即可运行。</p>
+          </div>
+          <span className="local-pill"><i aria-hidden="true" />本地数据</span>
+        </div>
 
-        <label className="field">
-          测试数据（内置 Mock / 基准 / 导入）
-          <select value={selected?.id ?? ''} onChange={(e) => setSelectedId(e.target.value)}>
-            {entries.map((e) => (
-              <option key={e.id} value={e.id}>
-                [{e.kind}] {e.name}（{e.orders} 订单 / {e.operations} 工序）
-              </option>
-            ))}
+        <div className="dataset-grid" aria-label="常用内置案例">
+          {featured.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={selected?.id === entry.id}
+              className={`dataset-card ${selected?.id === entry.id ? 'selected' : ''}`}
+              onClick={() => chooseEntry(entry)}
+            >
+              <span className="dataset-card-top">
+                <span className={`kind-pill kind-${entry.kind}`}>{kindLabel(entry.kind)}</span>
+                <span className="dataset-card-mark" aria-hidden="true">
+                  {selected?.id === entry.id ? '✓' : '↗'}
+                </span>
+              </span>
+              <strong>{entry.name}</strong>
+              <span className="dataset-description">{entry.description}</span>
+              <span className="dataset-stats">
+                <span><b>{entry.orders}</b><small>订单</small></span>
+                <span><b>{entry.operations}</b><small>工序</small></span>
+                <span><b>{entry.machines}</b><small>机器</small></span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <label className="field dataset-picker">
+          全部案例（含构建基准与最近导入）
+          <select
+            value={selected?.id ?? ''}
+            onChange={(event) => {
+              const entry = entries.find((item) => item.id === event.target.value);
+              if (entry) chooseEntry(entry);
+            }}
+          >
+            <optgroup label="内置案例与规模基准">
+              {catalog.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  [{kindLabel(entry.kind)}] {entry.name} · {entry.orders} 订单 / {entry.operations} 工序
+                </option>
+              ))}
+            </optgroup>
+            {imported.length > 0 && (
+              <optgroup label="浏览器本地导入">
+                {imported.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    [{kindLabel(entry.kind)}] {entry.name} · {entry.orders} 订单 / {entry.operations} 工序
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
+
         {selected && (
-          <p className="muted small">
-            {selected.description}
-            {selected.expect && <> · 本例看点：{selected.expect}</>}
-          </p>
+          <div className="selected-summary">
+            <div className="selected-copy">
+              <div className="selected-badges">
+                <span className={`kind-pill kind-${selected.kind}`}>{kindLabel(selected.kind)}</span>
+                {selected.source && <span className="source-label">{selected.source}</span>}
+              </div>
+              <strong>{selected.name}</strong>
+              <p>{selected.description}</p>
+              {selected.expect && <span className="expect-note">评测提示 · {selected.expect}</span>}
+            </div>
+            <div className="selected-stats">
+              <span><b>{selected.orders}</b><small>订单</small></span>
+              <span><b>{selected.operations}</b><small>工序</small></span>
+              <span><b>{selected.machines}</b><small>机器</small></span>
+            </div>
+          </div>
         )}
 
-        <div className="import-row">
+        <div className="import-card">
+          <div className="import-icon" aria-hidden="true">↥</div>
+          <div className="import-copy">
+            <span className="eyebrow">OPTIONAL / LOCAL IMPORT</span>
+            <h3>接入公开基准或自有问题</h3>
+            <p>支持 PlanProblem JSON、Brandimarte / FJSPLib FJSP 文本、OR-Library jobshop1 JSSP 文件。</p>
+            <div className="import-links">
+              <a href="https://scheduleopt.github.io/benchmarks/fjsplib/" target="_blank" rel="noreferrer">FJSPLib / Brandimarte ↗</a>
+              <a href="https://people.brunel.ac.uk/~mastjjb/jeb/orlib/jobshopinfo.html" target="_blank" rel="noreferrer">OR-Library JSSP ↗</a>
+            </div>
+            <small>本地解析，不会上传。单文件 ≤ 2 MiB；标准集合每文件最多 100 个实例 / 50,000 道工序，每个实例最多 600 道；一次最多选择 5 个文件。标准集按 makespan 转换，其他 APS 约束采用通用人员与连续日历假设。</small>
+          </div>
           <input
             ref={fileInput}
+            className="visually-hidden-file"
             type="file"
-            accept="application/json,.json"
+            accept="application/json,.json,.fjs,.fjsp,.jsp,.jssp,.txt"
             multiple
-            onChange={(e) => void handleImport(e.target.files)}
+            aria-label="选择 PlanProblem 或标准排程 benchmark 文件"
+            onChange={(event) => void handleImport(event.target.files)}
           />
-          <span className="muted small">导入自己的 PlanProblem JSON（本地解析，不上传）</span>
-          {imported.length > 0 && (
-            <button
-              type="button"
-              className="link danger"
-              onClick={() => {
-                clearPersistedImports();
-                setImported([]);
-                setSelectedId(catalog[0]?.id ?? '');
-              }}
-            >
-              清空导入
+          <div className="import-actions">
+            <button type="button" className="secondary" onClick={() => fileInput.current?.click()}>
+              选择文件
             </button>
-          )}
+            {imported.length > 0 && (
+              <button
+                type="button"
+                className="link danger"
+                onClick={() => {
+                  clearPersistedImports();
+                  setImported([]);
+                  setSelectedId(catalog[0]?.id ?? 'mock/baseline.json');
+                }}
+              >
+                清空导入
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="section-heading section-heading-compact solver-heading">
+          <div>
+            <span className="eyebrow">02 / SOLVER</span>
+            <h3>求解配置</h3>
+          </div>
+          <span className="config-hint">浏览器 WASM · 上限 {operationLimit} 工序</span>
         </div>
 
         <div className="presets">
@@ -252,7 +390,7 @@ export function ApsPanel({
               type="number"
               min={0}
               value={params.seed}
-              onChange={(e) => setParams({ ...params, seed: Number(e.target.value) })}
+              onChange={(event) => setParams({ ...params, seed: Number(event.target.value) })}
             />
           </label>
           <label className="field">
@@ -262,14 +400,14 @@ export function ApsPanel({
               min={50}
               step={50}
               value={params.timeLimitMs}
-              onChange={(e) => setParams({ ...params, timeLimitMs: Number(e.target.value) })}
+              onChange={(event) => setParams({ ...params, timeLimitMs: Number(event.target.value) })}
             />
           </label>
           <label className="field">
             优化目标
             <select
               value={params.strategy}
-              onChange={(e) => setParams({ ...params, strategy: e.target.value as Strategy })}
+              onChange={(event) => setParams({ ...params, strategy: event.target.value as Strategy })}
             >
               <option value="lexicographic">lexicographic（先压延期，再压 makespan）</option>
               <option value="makespan">makespan（先压总工期）</option>
@@ -279,11 +417,11 @@ export function ApsPanel({
             搜索规则
             <select
               value={params.rule}
-              onChange={(e) => setParams({ ...params, rule: e.target.value as Rule })}
+              onChange={(event) => setParams({ ...params, rule: event.target.value as Rule })}
             >
-              {RULES.map((r) => (
-                <option key={r} value={r}>
-                  {RULE_LABELS[r]}
+              {RULES.map((rule) => (
+                <option key={rule} value={rule}>
+                  {RULE_LABELS[rule]}
                 </option>
               ))}
             </select>
@@ -294,35 +432,50 @@ export function ApsPanel({
               type="number"
               min={0}
               value={params.maxIterations}
-              onChange={(e) => setParams({ ...params, maxIterations: Number(e.target.value) })}
+              onChange={(event) => setParams({ ...params, maxIterations: Number(event.target.value) })}
             />
           </label>
           <label className="field checkbox">
             <input
               type="checkbox"
               checked={params.repair}
-              onChange={(e) => setParams({ ...params, repair: e.target.checked })}
+              onChange={(event) => setParams({ ...params, repair: event.target.checked })}
             />
             启用局部修复（ruin &amp; recreate）
           </label>
           <label className="field checkbox">
-            <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} />
+            <input type="checkbox" checked={strict} onChange={(event) => setStrict(event.target.checked)} />
             严格核验（要求 tenant_id / problem_hash 绑定）
           </label>
         </div>
 
         <div className="run-row">
-          <button type="button" className="primary" disabled={!engineReady || !problem || busy} onClick={() => void run()}>
-            {busy ? '运行中…' : '运行'}
+          <button
+            type="button"
+            className="primary"
+            disabled={!engineReady || !problemReady || problemLoading || busy || exceedsOperationLimit}
+            onClick={() => void run()}
+          >
+            {busy ? '运行中…' : '运行排程'}
           </button>
           <button type="button" disabled={!busy} onClick={onCancel}>
             取消（终止 Worker）
           </button>
           {busy && <span className="muted small">{phase}</span>}
         </div>
-        {problemError && <p className="bad-text small">数据加载失败：{problemError}</p>}
-        {notice && <p className="notice small">{notice}</p>}
-        {!engineReady && <p className="muted small">引擎尚未就绪，请等待顶部状态条变为绿色。</p>}
+        {problemLoading && <p className="muted small">正在准备所选案例…</p>}
+        {problemError && <p className="bad-text small" role="alert">数据加载失败：{problemError}</p>}
+        {exceedsOperationLimit && (
+          <p className="warn-text small" role="status">
+            当前实例有 {selected?.operations} 道工序，超过此引擎的 {operationLimit} 道上限；数据仍可查看，但不能在该档位运行。
+          </p>
+        )}
+        {notice && <p className="notice small" role="status">{notice}</p>}
+        {!engineReady && (
+          <p className="engine-wait-note">
+            <i aria-hidden="true" />案例与参数已就绪；引擎加载完成后可运行。若长时间未就绪，请查看顶部错误提示并重试。
+          </p>
+        )}
       </section>
 
       <section className="panel results">
@@ -337,7 +490,20 @@ export function ApsPanel({
           )}
         </div>
 
-        {!activeRun && <p className="muted">还没有结果。点击“运行”开始。</p>}
+        {!activeRun && (
+          <div className="empty-state">
+            <div className="empty-graphic" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <span className="eyebrow">RESULTS / PREVIEW</span>
+            <h4>还没有结果</h4>
+            <p>选择左侧内置场景，等待引擎就绪后运行。排程完成后，甘特图、资源负载与独立核验会显示在这里。</p>
+            <div className="empty-tags"><span>甘特图</span><span>资源使用</span><span>方案对比</span><span>约束核验</span></div>
+          </div>
+        )}
 
         {activeRun && (
           <>
@@ -391,6 +557,18 @@ export function ApsPanel({
       </section>
     </div>
   );
+}
+
+function kindLabel(kind: ProblemEntry['kind']): string {
+  const labels: Record<ProblemEntry['kind'], string> = {
+    baseline: 'BASELINE',
+    scenario: 'SCENARIO',
+    benchmark: 'BENCHMARK',
+    custom: 'CUSTOM',
+    imported: 'LOCAL',
+    'standard-benchmark': 'PUBLIC BENCHMARK',
+  };
+  return labels[kind];
 }
 
 function safePretty(text: string): string {
