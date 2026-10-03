@@ -51,6 +51,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run dev` / `npm run preview` | 开发服务器 / 预览构建产物（都会先自动 `sync`） |
 | `npm run sync` | 把 `aps/rust/dist/aps_engine.wasm`、`web/aps-worker.js`、`aps/mock/*.json` 同步进实验室，生成 `engine-manifest.json` |
 | `npm run build` | 类型检查（tsc）+ 打包（vite） |
+| `npm run test:imports` | 不依赖 Rust/WASM：检查内置数据回退、PlanProblem 导入与标准 JSSP/FJSP 格式适配 |
 | `npm run test:core` | 核心冒烟：加载真实 WASM 求解，并断言实验室纯逻辑（30+ 项） |
 | `npm run test:runner` | 运行器生命周期：取消（终止 Worker）→ 自动重建 → 再求解；`dispose()` |
 | `npm run test:render` | 渲染冒烟：外壳/参数区/待接入模块/空态（SSR，无需浏览器） |
@@ -60,7 +61,8 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 
 ## 2. 数据来源与“单一来源”原则
 
-实验室**不维护任何引擎或数据的副本**。所有输入由 `scripts/sync-engine.mjs` 自动同步：
+引擎与构建期规模基准仍以 APS 源码/Mock 为单一来源，由 `scripts/sync-engine.mjs` 同步；四个小型
+Mock JSON 另由前端直接导入，作为 manifest/WASM 不可用时的离线数据目录（不是手工维护的副本）。
 
 | 输入 | 来源 | 去向 |
 | --- | --- | --- |
@@ -78,8 +80,17 @@ baseline 能解出 24 道工序、分析类导出可用。任何一项不满足�
 
 ## 3. 在实验室里做什么（APS 模块）
 
-- **数据**：内置 Mock（基础车间 / 设备故障 / 到货延迟 / 无解场景）+ 规模与竞争型基准；
-  也可以导入自己的 `PlanProblem` JSON（仅保存在浏览器内存与 `localStorage`，**不上传**）。
+- **数据**：基础车间 / 设备故障 / 到货延迟 / 无解四个内置场景直接打包在页面里；即使
+  `engine-manifest.json` 或 WASM 未加载，仍可选择、查看案例与参数。引擎清单只补充规模基准。
+- **公开标准集**：可导入 FJSPLib / Brandimarte FJSP 文本（`.fjs` / `.fjsp` / `.txt`），以及
+  OR-Library `jobshop1` JSSP 单例或集合文件（`.jsp` / `.jssp` / `.txt`）；OR-Library 集合每个
+  `instance NAME` 会成为单独案例。标准文本单文件上限 2 MiB、100 个实例 / 50,000 道工序；一次最多选择 5 个文件。界面提供公开来源链接，第三方数据不会被无许可复制进仓库。
+- **格式适配边界**：作业工序顺序、候选机器和加工时长映射到 `PlanProblem`；机器编号按来源规则
+  转成 `M01...`。APS 额外需要的人员以“每台机器一个通用人员”建模，采用连续可用日历；不补造
+  工装、物料、技能、班次或交期约束。导入后的标准基准以 makespan 为目标，不能把该映射称为
+  对原始基准的完整等价复刻。当前浏览器档位单个实例最多 600 道工序；PlanProblem JSON 超出实际引擎能力上限时可查看但不能运行。
+- **自有数据**：也可以导入自己的 `PlanProblem` JSON（单文件最多 2 MiB；最近 5 个实例仅保存在
+  浏览器内存与 `localStorage`，**不上传**）。标准集合中超出最近 5 个的实例仅在当前页面会话有效。
 - **参数**：种子、求解时间预算、优化目标（lexicographic / makespan）、搜索规则
   （auto / priority-edd / wspt / spt / min-end / most-slack / random）、迭代上限、是否局部修复、
   以及严格核验开关；另有 4 个预设档位（快速 / 标准 / 深入 / 无规则对照）。
@@ -161,6 +172,7 @@ registerModule(myModule);
 | 现象 | 原因与处理 |
 | --- | --- |
 | 顶部状态条红色“引擎加载失败” | 多为 `dist/` 或 `public/` 缺文件：重新 `npm run sync`；若提示 404 且部署在子路径，检查 `LAB_BASE` |
+| 顶部长期黄色“正在加载” | manifest / wasm 请求有 12 秒超时，Worker 握手有 8 秒超时；超时后会转为可重试错误。内置案例与数据选择不依赖引擎加载 |
 | 状态条显示“⚠ 与构建期不一致” | wasm 被替换过但清单没重生成：重新 `npm run sync` |
 | 页面提示“该产物不支持在线核验” | 用的是旧 WASM（缺少 `aps_verify` 等分析类导出）：`cd aps/rust && bash scripts/build_wasm.sh` |
 | 求解按钮一直转，取消后恢复 | 正常：求解是同步的（Worker 内），取消靠终止 Worker；这是**设计行为**，见 `aps/rust/docs/INTEGRATION.md` |
