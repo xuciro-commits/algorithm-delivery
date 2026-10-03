@@ -251,6 +251,7 @@ export function ApsPanel({
     () => projectApsLine(activeRun?.gantt ?? null, activeRun?.resources ?? []),
     [activeRun?.gantt, activeRun?.resources],
   );
+  const previewMachines = useMemo(() => (problem?.machines ?? []).map((machine) => machine.id), [problem]);
 
   /** 当前回放时刻（毫秒）与该时刻在制工序数（浮层读数）。 */
   const apsNowMs = aps3d.minMs + ((aps3d.maxMs - aps3d.minMs) * apsStep) / Math.max(1, APS_STEPS);
@@ -287,7 +288,7 @@ export function ApsPanel({
   };
 
   return (
-    <div className="aps-panel">
+    <div className="aps-panel" data-visual-module="aps" data-solution-status={activeRun?.solution?.status ?? activeRun?.status ?? 'idle'} data-solution-operations={activeRun?.gantt?.operationCount ?? 0}>
       <section className="panel controls">
         <div className="section-heading">
           <div>
@@ -542,18 +543,38 @@ export function ApsPanel({
         </div>
 
         {!activeRun && (
-          <div className="empty-state">
-            <div className="empty-graphic" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-              <span />
+          <>
+            {previewMachines.length > 0 && (
+              <section className="aps-static-preview" aria-label="求解前生产线预览">
+                <div className="aps-preview-heading">
+                  <span className="eyebrow">WORKCELL / IDLE</span>
+                  <span className="muted small">静态设备结构 · 尚未执行调度 · 工件只在真实排程区间出现</span>
+                </div>
+                <div className="lab-stage aps-stage" data-testid="aps-static-stage">
+                  <ApsSandbox3D
+                    machines={previewMachines}
+                    ops={[]}
+                    minMs={0}
+                    maxMs={1}
+                    step={0}
+                    steps={APS_STEPS}
+                    playing={false}
+                    selectedOp={null}
+                  />
+                  <div className="stage-float stage-float-tl">
+                    <span className="stage-note">{previewMachines.length} 个设备单元</span>
+                    <span className="stage-note">待求解 · 无虚构工件或路径</span>
+                  </div>
+                </div>
+              </section>
+            )}
+            <div className="empty-state aps-empty-state">
+              <span className="eyebrow">RESULTS / PREVIEW</span>
+              <h4>还没有排程结果</h4>
+              <p>运行真实 APS 引擎后，这里会出现产线状态、甘特图、资源负载与独立核验结果。</p>
+              <div className="empty-tags"><span>甘特图</span><span>资源使用</span><span>方案对比</span><span>约束核验</span></div>
             </div>
-            <span className="eyebrow">RESULTS / PREVIEW</span>
-            <h4>还没有结果</h4>
-            <p>选择左侧内置场景，等待引擎就绪后运行。排程完成后，甘特图、资源负载与独立核验会显示在这里。</p>
-            <div className="empty-tags"><span>甘特图</span><span>资源使用</span><span>方案对比</span><span>约束核验</span></div>
-          </div>
+          </>
         )}
 
         {activeRun && (

@@ -13,6 +13,7 @@ export interface AgvTimelineProps {
   maxT: number;
   primary: string | null;
   onSeek: (t: number) => void;
+  disabled?: boolean;
   onSelectVehicle: (id: string) => void;
 }
 
@@ -32,7 +33,7 @@ const PHASE_COLOR: Record<string, string> = {
 };
 
 export function AgvTimeline(props: AgvTimelineProps) {
-  const { solution, t, maxT, primary, onSeek, onSelectVehicle } = props;
+  const { solution, t, maxT, primary, onSeek, onSelectVehicle, disabled = false } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
   const draggingRef = useRef(false);
@@ -152,7 +153,9 @@ export function AgvTimeline(props: AgvTimelineProps) {
       ref={canvasRef}
       className="mapf-timeline"
       aria-label={`AGV 时间轴 t=${t}/${maxT}`}
+      aria-disabled={disabled}
       onPointerDown={(ev) => {
+        if (disabled) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
@@ -169,7 +172,7 @@ export function AgvTimeline(props: AgvTimelineProps) {
         onSeek(Math.max(0, Math.min(maxT, Math.round(((x - LEFT) / plotW) * maxT))));
       }}
       onPointerMove={(ev) => {
-        if (!draggingRef.current) return;
+        if (disabled || !draggingRef.current) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();

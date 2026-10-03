@@ -41,7 +41,16 @@ export function MapStage(props: MapStageProps) {
   const fitCellRef = useRef<number>(8);
   const spaceRef = useRef(false);
   const panRef = useRef<{ active: boolean; startX: number; startY: number; tx: number; ty: number }>({ active: false, startX: 0, startY: 0, tx: 0, ty: 0 });
-  const dragRef = useRef<{ down: boolean; moved: boolean; cell: Cell | null }>({ down: false, moved: false, cell: null });
+  const dragRef = useRef<{ down: boolean; moved: boolean; start: Cell | null; last: Cell | null }>({
+    down: false,
+    moved: false,
+    start: null,
+    last: null,
+  });
+  // The DOM listeners are intentionally installed once. Keep callbacks current so a
+  // tool/wizard/scene change never leaves the canvas dispatching a stale closure.
+  const callbacksRef = useRef({ onViewport, onCellClick, onCellDrag, onCellDown, onCellUp, onHover });
+  callbacksRef.current = { onViewport, onCellClick, onCellDrag, onCellDown, onCellUp, onHover };
 
   // —— 创建 / 销毁 ——
   useEffect(() => {
@@ -59,7 +68,7 @@ export function MapStage(props: MapStageProps) {
       vpRef.current = vp;
       fitCellRef.current = vp.cellPx;
       r.setViewport(vp, size);
-      onViewport?.(vp);
+      callbacksRef.current.onViewport?.(vp);
     });
     ro.observe(host);
     return () => {
@@ -78,7 +87,7 @@ export function MapStage(props: MapStageProps) {
     fitCellRef.current = vp.cellPx;
     vpRef.current = vp;
     r.setViewport(vp, sizeRef.current);
-    onViewport?.(vp);
+    callbacksRef.current.onViewport?.(vp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dims.width, dims.height, fitNonce]);
 
@@ -93,7 +102,7 @@ export function MapStage(props: MapStageProps) {
     const applyVp = (vp: Viewport) => {
       vpRef.current = vp;
       rendererRef.current?.setViewport(vp, sizeRef.current);
-      onViewport?.(vp);
+      callbacksRef.current.onViewport?.(vp);
     };
 
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -126,8 +135,9 @@ export function MapStage(props: MapStageProps) {
       }
       if (ev.button === 0) {
         const cell = pxToCell(vp, x, y);
-        dragRef.current = { down: true, moved: false, cell: inBounds(dims, cell) ? cell : null };
-        if (inBounds(dims, cell)) onCellDown?.(cell);
+        const start = inBounds(dims, cell) ? cell : null;
+        dragRef.current = { down: true, moved: false, start, last: start };
+        if (start) callbacksRef.current.onCellDown?.(start);
         host.setPointerCapture(ev.pointerId);
       }
     };
@@ -141,16 +151,25 @@ export function MapStage(props: MapStageProps) {
         return;
       }
       const cell = pxToCell(vp, x, y);
-      onHover?.(inBounds(dims, cell) ? cell : null);
-      if (dragRef.current.down) {
-        if (dragRef.current.cell && (cell.x !== dragRef.current.cell.x || cell.y !== dragRef.current.cell.y)) {
-          dragRef.current.moved = true;
+      callbacksRef.current.onHover?.(inBounds(dims, cell) ? cell : null);
+      const gesture = dragRef.current;
+      if (gesture.down && gesture.start) {
+        const crossedCell = cell.x !== gesture.start.x || cell.y !== gesture.start.y;
+        if (!gesture.moved && crossedCell) {
+          gesture.moved = true;
+          // Treat the first movement as a brush stroke beginning at the pressed cell.
+          callbacksRef.current.onCellDrag?.(gesture.start);
+          gesture.last = gesture.start;
         }
-        if (dragRef.current.moved && inBounds(dims, cell)) {
-          dragRef.current.cell = cell;
-          onCellDrag?.(cell);
+        if (gesture.moved && inBounds(dims, cell) && (cell.x !== gesture.last?.x || cell.y !== gesture.last?.y)) {
+          callbacksRef.current.onCellDrag?.(cell);
+          gesture.last = cell;
         }
       }
+    };
+
+    const resetGesture = () => {
+      dragRef.current = { down: false, moved: false, start: null, last: null };
     };
 
     const onPointerUp = (ev: PointerEvent) => {
@@ -160,24 +179,48 @@ export function MapStage(props: MapStageProps) {
         host.releasePointerCapture?.(ev.pointerId);
         return;
       }
-      if (dragRef.current.down && vp) {
+      const gesture = dragRef.current;
+      if (gesture.down) {
         const { x, y } = localPos(ev);
-        const cell = pxToCell(vp, x, y);
-        if (!dragRef.current.moved && inBounds(dims, cell)) {
-          onCellClick?.(cell, { shift: ev.shiftKey, meta: ev.metaKey || ev.ctrlKey });
+        const cell = vp ? pxToCell(vp, x, y) : null;
+        const end = cell && inBounds(dims, cell) ? cell : null;
+        const crossed = Boolean(gesture.start && cell && (cell.x !== gesture.start.x || cell.y !== gesture.start.y));
+        const dragged = gesture.moved || crossed;
+        if (dragged && gesture.start) {
+          if (!gesture.moved) callbacksRef.current.onCellDrag?.(gesture.start);
+          if (end && (end.x !== gesture.last?.x || end.y !== gesture.last?.y)) callbacksRef.current.onCellDrag?.(end);
+        } else if (gesture.start && end && end.x === gesture.start.x && end.y === gesture.start.y) {
+          callbacksRef.current.onCellClick?.(end, { shift: ev.shiftKey, meta: ev.metaKey || ev.ctrlKey });
         }
-        if (inBounds(dims, cell)) onCellUp?.(cell);
-        dragRef.current = { down: false, moved: false, cell: null };
+        const finalCell = end ?? gesture.last ?? gesture.start;
+        if (finalCell) callbacksRef.current.onCellUp?.(finalCell);
+        resetGesture();
         host.releasePointerCapture?.(ev.pointerId);
       }
     };
 
-    const onLeave = () => onHover?.(null);
+    const onPointerCancel = () => {
+      if (panRef.current.active) panRef.current.active = false;
+      const gesture = dragRef.current;
+      if (gesture.down) {
+        const finalCell = gesture.last ?? gesture.start;
+        if (finalCell) callbacksRef.current.onCellUp?.(finalCell);
+        resetGesture();
+      }
+    };
+
+    const onLostPointerCapture = () => {
+      onPointerCancel();
+    };
+
+    const onLeave = () => callbacksRef.current.onHover?.(null);
 
     host.addEventListener('wheel', onWheel, { passive: false });
     host.addEventListener('pointerdown', onPointerDown);
     host.addEventListener('pointermove', onPointerMove);
     host.addEventListener('pointerup', onPointerUp);
+    host.addEventListener('pointercancel', onPointerCancel);
+    host.addEventListener('lostpointercapture', onLostPointerCapture);
     host.addEventListener('pointerleave', onLeave);
     return () => {
       globalThis.removeEventListener?.('keydown', onKeyDown);
@@ -186,6 +229,8 @@ export function MapStage(props: MapStageProps) {
       host.removeEventListener('pointerdown', onPointerDown);
       host.removeEventListener('pointermove', onPointerMove);
       host.removeEventListener('pointerup', onPointerUp);
+      host.removeEventListener('pointercancel', onPointerCancel);
+      host.removeEventListener('lostpointercapture', onLostPointerCapture);
       host.removeEventListener('pointerleave', onLeave);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

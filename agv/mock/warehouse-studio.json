@@ -1,0 +1,72 @@
+{
+  "schema_version": "agv-dispatch-problem/1.0",
+  "id": "agv-warehouse-studio",
+  "tags": {
+    "name": "智能仓库 · 两列立体货架",
+    "description": "18×12 局部仓库：双列多层货架、交叉通道、入库/出库工位；两车三任务，供真实调度与三维沙盘演示。",
+    "expect": "FEASIBLE，任务和路径由 AGV 引擎求解"
+  },
+  "map": {
+    "cells": [
+      "..................",
+      "..................",
+      ".....##....##.....",
+      ".....##....##.....",
+      ".....##....##.....",
+      ".....##....##.....",
+      ".....##....##.....",
+      ".....##....##.....",
+      ".....##....##.....",
+      "..................",
+      "..................",
+      ".................."
+    ]
+  },
+  "time_model": {
+    "timestep": "discrete",
+    "horizon": 120
+  },
+  "vehicles": [
+    { "id": "AMR-01", "start": [2, 1] },
+    { "id": "AMR-02", "start": [15, 10] }
+  ],
+  "stations": [
+    { "id": "INBOUND", "cells": [[1, 5], [1, 6]], "capacity": 1 },
+    { "id": "OUTBOUND", "cells": [[16, 5], [16, 6]], "capacity": 1 }
+  ],
+  "tasks": [
+    {
+      "id": "PICK-01",
+      "pickup": { "station": "INBOUND" },
+      "dropoff": { "station": "OUTBOUND" },
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 0,
+      "priority": 2
+    },
+    {
+      "id": "PICK-02",
+      "pickup": { "station": "INBOUND" },
+      "dropoff": { "station": "OUTBOUND" },
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 3,
+      "priority": 1
+    },
+    {
+      "id": "PICK-03",
+      "pickup": [3, 9],
+      "dropoff": [14, 2],
+      "pickup_service": 1,
+      "dropoff_service": 1,
+      "release_step": 2,
+      "priority": 1
+    }
+  ],
+  "objective": { "kind": "lexicographic-weighted" },
+  "solver": {
+    "algorithm": "insertion-ls",
+    "time_limit_ms": 5000,
+    "seed": 42
+  }
+}

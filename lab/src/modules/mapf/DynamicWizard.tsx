@@ -21,12 +21,19 @@ export interface DynamicWizardProps {
   busy: boolean;
   events: DynamicEventInput[];
   kind: WizardKind;
+  pending: DynamicEventInput | null;
+  editingIndex: number | null;
+  until: number | null;
   robot: string;
   frozenSteps: number;
   pickLabel: string | null;
   onPickKind: (kind: WizardKind, robot?: string) => void;
   onRobotChange: (robot: string) => void;
   onRemoveEvent: (index: number) => void;
+  onEditEvent: (index: number) => void;
+  onAddPending: () => void;
+  onClearPending: () => void;
+  onUntilChange: (until: number | null) => void;
   onFrozenChange: (n: number) => void;
   onSubmit: (problemText: string, frozenAt: number) => void;
   onCancel: () => void;
@@ -39,15 +46,48 @@ const KINDS: Array<{ id: DynamicEventInput['kind']; label: string; hint: string 
   { id: 'path_invalid', label: '作废路径', hint: '选择一台机器人：其规划路径作废重排' },
 ];
 
+function eventLabel(e: DynamicEventInput): string {
+  switch (e.kind) {
+    case 'obstacle_add':
+      return `加障碍 (${e.cell[0]},${e.cell[1]}) at=${e.at}${e.until != null ? ` until=${e.until}` : '（持续到时域末）'}`;
+    case 'obstacle_remove':
+      return `移除障碍 (${e.cell[0]},${e.cell[1]}) at=${e.at}`;
+    case 'goal_change':
+      return `${e.robot} 改目标 → (${e.goal[0]},${e.goal[1]}) at=${e.at}`;
+    case 'path_invalid':
+      return `作废 ${e.robot} 的路径 at=${e.at}`;
+  }
+}
+
 export function DynamicWizard(props: DynamicWizardProps) {
-  const { scene, solution, time, maxT, maxEvents, busy, events, kind, robot, frozenSteps } = props;
+  const { scene, solution, time, maxT, maxEvents, busy, events, kind, robot, frozenSteps, pending, editingIndex } = props;
 
   const built = useMemo(
     () => buildDynamic({ scene, solution, time, frozenSteps, events, maxEvents }),
     [scene, solution, time, frozenSteps, events, maxEvents],
   );
-  const issues = useMemo(() => precheckDynamic(events, built, scene), [events, built, scene]);
+  const issues = useMemo(
+    () => precheckDynamic(events, built, scene, maxEvents, solution.horizon ?? maxT),
+    [events, built, scene, maxEvents, solution.horizon, maxT],
+  );
+  const previewEvents = useMemo(() => {
+    if (!pending) return events;
+    if (editingIndex == null) return [...events, pending];
+    return events.map((event, index) => (index === editingIndex ? pending : event));
+  }, [events, pending, editingIndex]);
+  const previewBuilt = useMemo(
+    () => buildDynamic({ scene, solution, time, frozenSteps, events: previewEvents, maxEvents }),
+    [scene, solution, time, frozenSteps, previewEvents, maxEvents],
+  );
+  const previewIssues = useMemo(
+    () => precheckDynamic(previewEvents, previewBuilt, scene, maxEvents, solution.horizon ?? maxT),
+    [previewEvents, previewBuilt, scene, maxEvents, solution.horizon, maxT],
+  );
+  const pendingIssues = pending
+    ? previewIssues.filter((issue) => issue.eventIndex === (editingIndex ?? events.length) || issue.eventIndex == null)
+    : [];
   const needsRobot = kind === 'goal_change' || kind === 'path_invalid';
+  const maxHorizon = solution.horizon ?? maxT;
 
   return (
     <div className="dynamic-wizard">
@@ -59,7 +99,7 @@ export function DynamicWizard(props: DynamicWizardProps) {
       </header>
       <ol className="wizard-steps">
         <li className="muted small">
-          时间轴已定位 t={time}（0–{maxT}）；事件生效时刻 at = {time}
+          快照时间已锁定 T={time}（0–{maxT}）；事件按所选类型在 at = T 生效。要换时刻，请关闭向导后再定位回放。
         </li>
         <li>
           事件类型：
@@ -84,15 +124,53 @@ export function DynamicWizard(props: DynamicWizardProps) {
           )}
           {props.pickLabel && <p className="muted small">▸ {props.pickLabel}</p>}
         </li>
+        {kind === 'obstacle_add' && (
+          <li>
+            <label className="field">
+              障碍持续到（until，可空 = 持续到时域末）
+              <input
+                type="number"
+                min={time + 1}
+                max={maxHorizon}
+                value={props.until ?? ''}
+                onChange={(e) => props.onUntilChange(e.target.value === '' ? null : Math.max(time + 1, Number(e.target.value) || time + 1))}
+              />
+            </label>
+            <p className="muted small">until 必须晚于 at=T；当前解到 t={maxT}，时域上限 {maxHorizon}。</p>
+          </li>
+        )}
+        {pending && (
+          <li className="wizard-draft">
+            <b>{editingIndex == null ? '待加入事件' : `正在修改事件 #${editingIndex + 1}`}</b>
+            <span>{eventLabel(pending)}</span>
+            {pendingIssues.length > 0 && (
+              <ul className="violation-list">
+                {pendingIssues.map((issue, index) => <li key={index}>{issue.message}</li>)}
+              </ul>
+            )}
+            <div className="solve-row">
+              <button
+                type="button"
+                className="btn tiny primary"
+                disabled={busy || pendingIssues.length > 0 || (editingIndex == null && events.length >= maxEvents)}
+                onClick={props.onAddPending}
+              >
+                {editingIndex == null ? '加入事件列表' : '保存修改'}
+              </button>
+              <button type="button" className="btn tiny" disabled={busy} onClick={props.onClearPending}>清除草稿</button>
+            </div>
+          </li>
+        )}
         <li>
-          已排事件（{events.length}）：{events.length === 0 && <span className="muted small">在地图上点选目标格</span>}
+          已排事件（{events.length}/{maxEvents}）：{events.length === 0 && <span className="muted small">选择类型、目标并加入事件列表</span>}
           <ul className="event-list">
             {events.map((e, i) => (
-              <li key={i}>
-                <code>{e.kind}</code> {'cell' in e ? `(${e.cell[0]},${e.cell[1]})` : 'robot' in e ? e.robot : ''} at={e.at}
-                <button type="button" className="btn tiny" onClick={() => props.onRemoveEvent(i)}>
-                  移除
-                </button>
+              <li key={`${e.kind}-${i}`}>
+                <span>{eventLabel(e)}</span>
+                <div className="solve-row">
+                  <button type="button" className="btn tiny" onClick={() => props.onEditEvent(i)} disabled={busy}>编辑</button>
+                  <button type="button" className="btn tiny" onClick={() => props.onRemoveEvent(i)} disabled={busy}>移除</button>
+                </div>
               </li>
             ))}
           </ul>
@@ -119,7 +197,7 @@ export function DynamicWizard(props: DynamicWizardProps) {
         <button
           type="button"
           className="btn primary tiny"
-          disabled={busy || events.length === 0 || issues.length > 0}
+          disabled={busy || events.length === 0 || issues.length > 0 || pending != null}
           onClick={() => {
             const problem: Record<string, unknown> = {
               schema_version: scene.schema_version,

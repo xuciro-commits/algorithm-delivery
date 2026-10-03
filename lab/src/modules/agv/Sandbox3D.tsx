@@ -9,8 +9,9 @@
  * 前端零伪造：所有路径/相位/时间只来自引擎输出。
  */
 
-import { useFrame } from '@react-three/fiber';
-import { useMemo, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import type { ThreeEvent } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
 import type * as THREE from 'three';
 import type { Cell, GridDims } from '../../components/grid-map/types';
 import {
@@ -19,11 +20,12 @@ import {
   GlowPath,
   GroundPlate,
   IsoCamera,
-  ObstacleField,
   SandboxScene,
   SB,
   SB_PHASE_COLOR,
   StationPad,
+  WarehouseEnvironment,
+  WarehouseRackField,
   cellsToWorld,
   sbRobotColor,
   stepInterp,
@@ -44,7 +46,6 @@ export interface AgvSandbox3DProps {
   invalidCells: Cell[];
   conflictCells: Cell[];
   view: 'iso' | 'top';
-  painting: boolean;
   clock: PlaybackClock | null;
   playing: boolean;
   onCellClick?: (cell: Cell) => void;
@@ -76,7 +77,7 @@ function stationOccupancy(solution: AgvSolution | null, cells: Array<[number, nu
 }
 
 export function AgvSandbox3D(props: AgvSandbox3DProps) {
-  const { scene, solution, t, primary, layers, view, painting, clock, playing } = props;
+  const { scene, solution, t, primary, layers, view, clock, playing } = props;
   const width = scene.map.cells[0]?.length ?? 0;
   const height = scene.map.cells.length;
   const dims: GridDims = { width, height };
@@ -110,11 +111,12 @@ export function AgvSandbox3D(props: AgvSandbox3DProps) {
 
   return (
     <SandboxScene width={width} height={height} className="sandbox-stage" active={playing}>
-      <IsoCamera span={span} view={view} rotatable={!painting} />
+      <IsoCamera span={span} width={width} height={height} view={view} rotatable={false} />
       <GroundPlate width={width} height={height} />
+      <WarehouseEnvironment width={width} height={height} />
 
-      {/* 货架 / 设备底座（冷灰蓝变体） */}
-      <ObstacleField cells={blocked} variant="cold" height={0.55} />
+      {/* 货架实体从真实占用格投影；每格包含立柱、横梁、层板、托盘与货箱。 */}
+      <WarehouseRackField cells={blocked} />
 
       {/* 工作站泊位（发光垫面 + 容量灯条） */}
       {layers.markers &&
@@ -207,6 +209,7 @@ export function AgvSandbox3D(props: AgvSandbox3DProps) {
             solution={solution}
             index={v.index}
             clock={clock}
+            playing={playing}
           />
         ))}
 
@@ -232,6 +235,7 @@ function AgvRobot({
   solution,
   index,
   clock,
+  playing,
 }: {
   timeline: Array<[number, number]>;
   color: string;
@@ -241,6 +245,7 @@ function AgvRobot({
   solution: AgvSolution | null;
   index: number;
   clock: PlaybackClock | null;
+  playing: boolean;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const still = stepInterp(timeline, t) ?? { x: 0.5, z: 0.5, heading: 0 };
@@ -256,7 +261,7 @@ function AgvRobot({
       g.position.set(pos.x, 0, pos.z);
       g.rotation.y = -pos.heading;
     }
-    invalidate();
+    if (playing) invalidate();
   });
 
   return (
@@ -288,44 +293,93 @@ function PickPlane({
   onCellUp?: (cell: Cell) => void;
   onHover?: (cell: Cell | null) => void;
 }) {
-  const downRef = useRef<Cell | null>(null);
-  const lastRef = useRef<Cell | null>(null);
+  const gestureRef = useRef<{ start: Cell | null; last: Cell | null; moved: boolean }>({ start: null, last: null, moved: false });
+  const { gl } = useThree();
+  const resetGesture = () => {
+    gestureRef.current = { start: null, last: null, moved: false };
+  };
+  useEffect(() => {
+    const onLostCapture = () => {
+      const gesture = gestureRef.current;
+      if (!gesture.start) return;
+      onCellUp?.(gesture.last ?? gesture.start);
+      resetGesture();
+    };
+    gl.domElement.addEventListener('lostpointercapture', onLostCapture);
+    return () => gl.domElement.removeEventListener('lostpointercapture', onLostCapture);
+  }, [gl, onCellUp]);
+  const capture = (ev: ThreeEvent<PointerEvent>, release = false) => {
+    const target = ev.nativeEvent.currentTarget as (EventTarget & {
+      setPointerCapture?: (id: number) => void;
+      releasePointerCapture?: (id: number) => void;
+    }) | null;
+    try {
+      if (release) target?.releasePointerCapture?.(ev.pointerId);
+      else target?.setPointerCapture?.(ev.pointerId);
+    } catch {
+      // Capture can be unavailable for synthetic/unsupported pointer events; normal
+      // canvas events still work, and the canvas lost-capture listener below always settles history.
+    }
+  };
+  const cellAt = (point: THREE.Vector3 | null | undefined) =>
+    point ? cellFromWorld(point.x, point.z, dims.width, dims.height) : null;
+  const finish = (ev: ThreeEvent<PointerEvent>, cancelled: boolean) => {
+    const gesture = gestureRef.current;
+    if (!gesture.start) {
+      resetGesture();
+      return;
+    }
+    const cell = cellAt(ev.point);
+    const end = cell ?? gesture.last ?? gesture.start;
+    const crossed = Boolean(cell && (cell.x !== gesture.start.x || cell.y !== gesture.start.y));
+    const dragged = gesture.moved || crossed;
+    if (!cancelled && dragged) {
+      if (!gesture.moved) onCellDrag?.(gesture.start);
+      if (cell && (cell.x !== gesture.last?.x || cell.y !== gesture.last?.y)) onCellDrag?.(cell);
+    } else if (!cancelled && cell && !dragged && cell.x === gesture.start.x && cell.y === gesture.start.y) {
+      onCellClick?.(cell);
+    }
+    onCellUp?.(end);
+    resetGesture();
+    capture(ev, true);
+  };
+
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[dims.width / 2, 0.02, dims.height / 2]}
       onPointerMove={(ev) => {
-        if (!ev.point) return;
-        const cell = cellFromWorld(ev.point.x, ev.point.z, dims.width, dims.height);
+        const cell = cellAt(ev.point);
         onHover?.(cell);
-        if (downRef.current && cell && (cell.x !== lastRef.current?.x || cell.y !== lastRef.current?.y)) {
-          lastRef.current = cell;
+        const gesture = gestureRef.current;
+        if (!gesture.start || !cell) return;
+        const crossedStart = cell.x !== gesture.start.x || cell.y !== gesture.start.y;
+        if (!gesture.moved && crossedStart) {
+          gesture.moved = true;
+          onCellDrag?.(gesture.start);
+          gesture.last = gesture.start;
+        }
+        if (gesture.moved && (cell.x !== gesture.last?.x || cell.y !== gesture.last?.y)) {
           onCellDrag?.(cell);
+          gesture.last = cell;
         }
       }}
       onPointerDown={(ev) => {
-        if (!ev.point) return;
-        const cell = cellFromWorld(ev.point.x, ev.point.z, dims.width, dims.height);
-        downRef.current = cell;
-        lastRef.current = cell;
-        if (cell) {
-          onCellDown?.(cell);
-          onCellDrag?.(cell);
-        }
+        if (ev.button !== 0) return;
+        ev.stopPropagation();
+        const cell = cellAt(ev.point);
+        gestureRef.current = { start: cell, last: cell, moved: false };
+        if (cell) onCellDown?.(cell);
+        capture(ev);
       }}
       onPointerUp={(ev) => {
-        if (!ev.point) return;
-        const cell = cellFromWorld(ev.point.x, ev.point.z, dims.width, dims.height);
-        if (cell && downRef.current && cell.x === downRef.current.x && cell.y === downRef.current.y) onCellClick?.(cell);
-        if (cell) onCellUp?.(cell);
-        downRef.current = null;
-        lastRef.current = null;
+        ev.stopPropagation();
+        finish(ev, false);
       }}
-      onPointerLeave={() => {
-        downRef.current = null;
-        lastRef.current = null;
-        onHover?.(null);
+      onPointerCancel={(ev) => {
+        finish(ev, true);
       }}
+      onPointerLeave={() => onHover?.(null)}
     >
       <planeGeometry args={[dims.width, dims.height]} />
       <meshBasicMaterial transparent opacity={0} depthWrite={false} />

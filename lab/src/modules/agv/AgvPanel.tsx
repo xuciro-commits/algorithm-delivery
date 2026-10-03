@@ -81,6 +81,10 @@ export function AgvPanel(props: AgvPanelProps) {
     active: boolean;
     kind: AgvWizardKind;
     events: AgvDynamicEventInput[];
+    snapshotTime: number;
+    pendingCell: [number, number] | null;
+    editingIndex: number | null;
+    taskPickTarget: 'pickup' | 'dropoff';
     draft: {
       id: string;
       pickup: [number, number] | null;
@@ -100,6 +104,10 @@ export function AgvPanel(props: AgvPanelProps) {
     active: false,
     kind: null,
     events: [],
+    snapshotTime: 0,
+    pendingCell: null,
+    editingIndex: null,
+    taskPickTarget: 'pickup',
     draft: {
       id: '',
       pickup: null,
@@ -224,7 +232,7 @@ export function AgvPanel(props: AgvPanelProps) {
     clockRef.current?.setRange(maxT, 0);
   }, [maxT]);
 
-  // 首屏：默认载入 a03（多车多任务）
+  // 首屏先给出完整、可直接求解的仓库原型；若旧构建清单没有该样例，退回 a03。
   const loadMock = useCallback(
     async (file: string) => {
       try {
@@ -235,6 +243,7 @@ export function AgvPanel(props: AgvPanelProps) {
         historyRef.current.load({ ...parsed, id: `${parsed.id}-copy` });
         setScene(historyRef.current.doc);
         setSolution(null);
+        setWizard((w) => ({ ...w, active: false, kind: null, events: [], pendingCell: null, editingIndex: null }));
         setRaw('');
         setVerifyChecks(null);
         setViolations([]);
@@ -251,22 +260,43 @@ export function AgvPanel(props: AgvPanelProps) {
   );
 
   useEffect(() => {
-    const target = manifest?.mocks?.find((m) => m.file.includes('a03')) ?? manifest?.mocks?.[0];
+    const target =
+      manifest?.mocks?.find((m) => m.file.includes('warehouse-studio')) ??
+      manifest?.mocks?.find((m) => m.file.includes('a03')) ??
+      manifest?.mocks?.[0];
     if (target) void loadMock(target.file);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manifest]);
 
-  const exec = useCallback((cmd: AgvCommand) => {
-    const next = historyRef.current.exec(cmd);
-    if (next) setScene(next);
+  const clearComputedSolution = useCallback(() => {
+    setSolution(null);
+    setRaw('');
+    setProblemUsed('');
+    setVerifyChecks(null);
+    setViolations([]);
+    setT(0);
+    setPlaying(false);
+    setNotice(null);
+    clockRef.current?.setRange(0, 0);
   }, []);
+
+  const exec = useCallback((cmd: AgvCommand) => {
+    const before = historyRef.current.doc;
+    const next = historyRef.current.exec(cmd);
+    if (next !== before) {
+      setScene(next);
+      clearComputedSolution();
+    }
+  }, [clearComputedSolution]);
 
   // —— 笔画级撤销：一笔障碍 = 一个历史步（V2 §4）——
   const beginStroke = useCallback(() => {
+    if (wizard.active || (tool !== 'wall' && tool !== 'erase')) return;
     historyRef.current.beginStroke();
-  }, []);
+  }, [tool, wizard.active]);
 
   const endStroke = useCallback(() => {
+    if (!historyRef.current.stroking) return;
     historyRef.current.endStroke();
     setScene(historyRef.current.doc);
     setHistNonce((n) => n + 1);
@@ -274,7 +304,7 @@ export function AgvPanel(props: AgvPanelProps) {
 
   // —— 求解 ——
   const solve = useCallback(
-    async (dynamicProblem?: string) => {
+    async (dynamicProblem?: string, dynamicTime?: number) => {
       if (!handle) return;
       if (errors.length > 0) {
         setNotice(`场景存在 ${errors.length} 项结构性问题，先修复后再求解`);
@@ -299,7 +329,7 @@ export function AgvPanel(props: AgvPanelProps) {
       if (sol?.plan?.vehicles?.length) {
         clockRef.current?.setRange(
           sol.plan.vehicles.reduce((m, v) => Math.max(m, (v.timeline?.length ?? 1) - 1), 0),
-          dynamicProblem ? Math.min(t, sol.plan.vehicles.reduce((m, v) => Math.max(m, (v.timeline?.length ?? 1) - 1), 0)) : 0,
+          dynamicProblem ? Math.min(dynamicTime ?? t, sol.plan.vehicles.reduce((m, v) => Math.max(m, (v.timeline?.length ?? 1) - 1), 0)) : 0,
         );
         if (!dynamicProblem) setT(0);
         setPrimary(sol.plan.vehicles[0]?.id ?? null);
@@ -355,27 +385,30 @@ export function AgvPanel(props: AgvPanelProps) {
 
   const onCellClick = useCallback(
     (cell: Cell) => {
-      // 动态向导优先：点选的格子直接变成事件
-      if (wizard.active && wizard.kind) {
+      // 动态向导是独立子模式：地图选择只生成草稿，不会立刻入队或编辑基础地图。
+      if (wizard.active) {
+        if (!wizard.kind) {
+          setNotice('先选择动态事件类型；当前地图点击不会修改基础场景');
+          return;
+        }
         setWizard((w) => {
+          if (!w.kind) return w;
           if (w.kind === 'obstacle_add' || w.kind === 'obstacle_remove') {
-            return {
-              ...w,
-              events:
-                w.kind === 'obstacle_add'
-                  ? [...w.events, { kind: 'obstacle_add', cell: [cell.x, cell.y], until: w.until }]
-                  : [...w.events, { kind: 'obstacle_remove', cell: [cell.x, cell.y] }],
-            };
+            return { ...w, pendingCell: [cell.x, cell.y] };
           }
           if (w.kind === 'task_add') {
             const draft = { ...w.draft };
-            if (!draft.pickup) draft.pickup = [cell.x, cell.y];
-            else if (!draft.dropoff) draft.dropoff = [cell.x, cell.y];
-            if (!draft.id) draft.id = `T-dyn-${scene.tasks.length + 1}`;
-            return { ...w, draft };
+            if (!draft.id) draft.id = `T-dyn-${scene.tasks.length + w.events.length + 1}`;
+            if (w.taskPickTarget === 'pickup') {
+              draft.pickup = [cell.x, cell.y];
+              return { ...w, draft, taskPickTarget: 'dropoff' };
+            }
+            draft.dropoff = [cell.x, cell.y];
+            return { ...w, draft, taskPickTarget: 'pickup' };
           }
           return w;
         });
+        setNotice(null);
         return;
       }
       const blocked = isAgvBlocked(scene, cell.x, cell.y);
@@ -471,17 +504,25 @@ export function AgvPanel(props: AgvPanelProps) {
 
   const onCellDrag = useCallback(
     (cell: Cell) => {
+      if (wizard.active || (tool !== 'wall' && tool !== 'erase')) return;
       if (tool === 'wall') {
-        if (cellOwner(cell)) return;
-        historyRef.current.exec({ type: 'toggleWall', cell: [cell.x, cell.y], blocked: true });
-        setScene(historyRef.current.doc);
-      } else if (tool === 'erase') {
-        historyRef.current.exec({ type: 'toggleWall', cell: [cell.x, cell.y], blocked: false });
-        setScene(historyRef.current.doc);
+        const owner = cellOwner(cell);
+        if (owner) {
+          const target = owner.kind === 'task' ? `任务点 ${owner.id}` : owner.kind === 'station' ? `工作站 ${owner.id}` : `车辆 ${owner.id}`;
+          setNotice(`${target} 占用了 (${cell.x},${cell.y})，未放置障碍`);
+          return;
+        }
+      }
+      const before = historyRef.current.doc;
+      const next = historyRef.current.exec({ type: 'toggleWall', cell: [cell.x, cell.y], blocked: tool === 'wall' });
+      if (next !== before) {
+        setScene(next);
+        setNotice(null);
+        clearComputedSolution();
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, scene],
+    [tool, scene, wizard.active, clearComputedSolution],
   );
 
   // pendingStation → 应用命令
@@ -507,7 +548,7 @@ export function AgvPanel(props: AgvPanelProps) {
   }, [solution, primary, t]);
 
   return (
-    <section className="panel mapf-panel mapf-visual agv-panel">
+    <section className="panel mapf-panel mapf-visual agv-panel" data-visual-module="agv" data-solution-status={solution?.status ?? 'idle'} data-solution-vehicles={solution?.plan?.vehicles?.length ?? 0}>
       <div className="engine-banner">
         <span>
           <b>AGV 引擎</b> rust-agv-dispatch <code>v{engineVersion}</code>（wasm-light，浏览器内计算）
@@ -532,6 +573,7 @@ export function AgvPanel(props: AgvPanelProps) {
               <button
                 type="button"
                 className="btn tiny"
+                disabled={wizard.active}
                 onClick={() => {
                   const s = blankAgvScene(12, 6);
                   historyRef.current.load(s);
@@ -547,6 +589,7 @@ export function AgvPanel(props: AgvPanelProps) {
               <button
                 type="button"
                 className="btn tiny"
+                disabled={wizard.active}
                 onClick={() => {
                   const s = blankAgvScene(20, 12);
                   historyRef.current.load(s);
@@ -560,7 +603,7 @@ export function AgvPanel(props: AgvPanelProps) {
             </div>
             <div className="scene-list">
               {(manifest?.mocks ?? []).map((entry) => (
-                <button key={entry.file} type="button" className="scene-card" onClick={() => void loadMock(entry.file)} title={entry.description}>
+                <button key={entry.file} type="button" className="scene-card" disabled={wizard.active} onClick={() => void loadMock(entry.file)} title={entry.description}>
                   <b>{entry.name}</b>
                   <span className="muted small">
                     {entry.vehicles != null ? `${entry.vehicles} 车 ` : ''}
@@ -577,14 +620,14 @@ export function AgvPanel(props: AgvPanelProps) {
             <h4>编辑工具</h4>
             <div className="tool-grid">
               {TOOLS.map((tl) => (
-                <button key={tl.id} type="button" className={`btn tiny tool-btn ${tool === tl.id ? 'primary' : ''}`} title={tl.hint} onClick={() => setTool(tl.id)}>
+                <button key={tl.id} type="button" className={`btn tiny tool-btn ${tool === tl.id ? 'primary' : ''}`} disabled={wizard.active} title={tl.hint} onClick={() => setTool(tl.id)}>
                   {tl.label}
                 </button>
               ))}
-              <button type="button" className="btn tiny" disabled={!historyRef.current.canUndo} onClick={() => setScene(historyRef.current.undo() ?? scene)}>
+              <button type="button" className="btn tiny" disabled={wizard.active || !historyRef.current.canUndo} onClick={() => { const next = historyRef.current.undo(); if (next) { setScene(next); clearComputedSolution(); setHistNonce((n) => n + 1); } }}>
                 ↶ 撤销
               </button>
-              <button type="button" className="btn tiny" disabled={!historyRef.current.canRedo} onClick={() => setScene(historyRef.current.redo() ?? scene)}>
+              <button type="button" className="btn tiny" disabled={wizard.active || !historyRef.current.canRedo} onClick={() => { const next = historyRef.current.redo(); if (next) { setScene(next); clearComputedSolution(); setHistNonce((n) => n + 1); } }}>
                 ↷ 重做
               </button>
             </div>
@@ -617,7 +660,7 @@ export function AgvPanel(props: AgvPanelProps) {
             <h4>求解参数</h4>
             <label className="field">
               算法
-              <select value={scene.solver.algorithm} onChange={(e) => setScene({ ...scene, solver: { ...scene.solver, algorithm: e.target.value as AgvScene['solver']['algorithm'] } })}>
+              <select value={scene.solver.algorithm} disabled={wizard.active} onChange={(e) => setScene({ ...scene, solver: { ...scene.solver, algorithm: e.target.value as AgvScene['solver']['algorithm'] } })}>
                 <option value="insertion-ls">insertion-ls（正式）</option>
                 <option value="baseline">baseline（基线）</option>
                 <option value="auto">auto</option>
@@ -625,12 +668,13 @@ export function AgvPanel(props: AgvPanelProps) {
             </label>
             <label className="field">
               预算 ms
-              <input type="number" min={100} max={limits.maxBudgetMs} step={500} value={scene.solver.time_limit_ms} onChange={(e) => setScene({ ...scene, solver: { ...scene.solver, time_limit_ms: Number(e.target.value) || 5000 } })} />
+              <input type="number" min={100} max={limits.maxBudgetMs} step={500} value={scene.solver.time_limit_ms} disabled={wizard.active} onChange={(e) => setScene({ ...scene, solver: { ...scene.solver, time_limit_ms: Number(e.target.value) || 5000 } })} />
             </label>
             <label className="field">
               时域
               <select
                 value={String(scene.time_model.horizon)}
+                disabled={wizard.active}
                 onChange={(e) => setScene({ ...scene, time_model: { ...scene.time_model, horizon: e.target.value === 'auto' ? 'auto' : Number(e.target.value) } })}
               >
                 <option value="auto">auto（引擎自定）</option>
@@ -646,7 +690,7 @@ export function AgvPanel(props: AgvPanelProps) {
           <section className="rail-group">
             <h4>求解控制</h4>
             <div className="solve-row">
-              <button type="button" className="btn primary" disabled={!solvable} onClick={() => void solve()}>
+              <button type="button" className="btn primary" disabled={wizard.active || !solvable} onClick={() => void solve()}>
                 {solving ? '求解中…' : '求解调度'}
               </button>
               <button type="button" className="btn" disabled={!solving} onClick={() => cancelSolve()}>
@@ -665,12 +709,13 @@ export function AgvPanel(props: AgvPanelProps) {
 
           <details className="mapf-details json-drawer">
             <summary>高级 · JSON（agv-dispatch-problem/1.0）</summary>
-            <textarea rows={10} value={jsonDraft || serializeAgvScene(scene)} spellCheck={false} onChange={(e) => setJsonDraft(e.target.value)} />
+            <textarea rows={10} value={jsonDraft || serializeAgvScene(scene)} disabled={wizard.active} spellCheck={false} onChange={(e) => setJsonDraft(e.target.value)} />
             {jsonError && <p className="bad-text small">{jsonError}</p>}
             <div className="solve-row">
               <button
                 type="button"
                 className="btn tiny"
+                disabled={wizard.active}
                 onClick={() => {
                   try {
                     const parsed = parseAgvScene(jsonDraft);
@@ -685,7 +730,7 @@ export function AgvPanel(props: AgvPanelProps) {
               >
                 应用
               </button>
-              <button type="button" className="btn tiny" onClick={() => setJsonDraft('')}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => setJsonDraft('')}>
                 刷新自场景
               </button>
             </div>
@@ -706,7 +751,6 @@ export function AgvPanel(props: AgvPanelProps) {
                 invalidCells={invalidCells}
                 conflictCells={conflictCells}
                 view={camView}
-                painting={tool === 'wall' || tool === 'erase'}
                 clock={clockRef.current}
                 playing={playing}
                 onCellClick={onCellClick}
@@ -747,17 +791,23 @@ export function AgvPanel(props: AgvPanelProps) {
                   type="button"
                   className="btn tiny"
                   title="在回放当前时刻注入动态事件并重调度"
-                  onClick={() =>
+                  onClick={() => {
+                    clockRef.current?.pause();
                     setWizard((w) => ({
                       ...w,
                       active: true,
                       kind: null,
                       events: [],
+                      snapshotTime: t,
+                      pendingCell: null,
+                      editingIndex: null,
+                      taskPickTarget: 'pickup',
+                      until: null,
                       targetTask: scene.tasks[0]?.id ?? '',
                       targetVehicle: scene.vehicles[0]?.id ?? '',
                       draft: { ...w.draft, id: `T-dyn-${scene.tasks.length + 1}`, pickup: null, dropoff: null },
-                    }))
-                  }
+                    }));
+                  }}
                 >
                   ⚡ 注入动态事件
                 </button>
@@ -807,12 +857,15 @@ export function AgvPanel(props: AgvPanelProps) {
               <AgvDynamicWizard
                 scene={scene}
                 solution={solution}
-                time={t}
+                time={wizard.snapshotTime}
                 maxT={maxT}
                 maxEvents={limits.maxEvents}
                 busy={solving}
                 events={wizard.events}
                 kind={wizard.kind}
+                pendingCell={wizard.pendingCell}
+                editingIndex={wizard.editingIndex}
+                taskPickTarget={wizard.taskPickTarget}
                 draft={wizard.draft}
                 targetTask={wizard.targetTask}
                 targetVehicle={wizard.targetVehicle}
@@ -820,65 +873,99 @@ export function AgvPanel(props: AgvPanelProps) {
                 until={wizard.until}
                 pickLabel={
                   wizard.kind === 'obstacle_add'
-                    ? '点击地图：选择新障碍格'
+                    ? '点击地图选择障碍格；确认后加入事件列表'
                     : wizard.kind === 'obstacle_remove'
-                      ? '点击地图：选择要移除的障碍格'
+                      ? '点击地图选择要移除的障碍格；确认后加入事件列表'
                       : wizard.kind === 'task_add'
-                        ? '点击地图：先点取货点，再点送达点'
+                        ? `点击地图设置${wizard.taskPickTarget === 'pickup' ? '取货点' : '送达点'}`
                         : null
                 }
-                onPickKind={(kind) => setWizard((w) => ({ ...w, kind }))}
+                onPickKind={(kind) => setWizard((w) => ({ ...w, kind, pendingCell: null, editingIndex: null }))}
                 onDraftChange={(patch) => setWizard((w) => ({ ...w, draft: { ...w.draft, ...patch } }))}
                 onTargetTaskChange={(id) => setWizard((w) => ({ ...w, targetTask: id }))}
                 onTargetVehicleChange={(id) => setWizard((w) => ({ ...w, targetVehicle: id }))}
                 onPriorityChange={(n) => setWizard((w) => ({ ...w, priority: n }))}
                 onUntilChange={(n) => setWizard((w) => ({ ...w, until: n }))}
-                onRemoveEvent={(i) => setWizard((w) => ({ ...w, events: w.events.filter((_, j) => j !== i) }))}
-                onAddEvent={() =>
+                onTaskPickTargetChange={(target) => setWizard((w) => ({ ...w, taskPickTarget: target }))}
+                onRemoveEvent={(i) =>
                   setWizard((w) => {
-                    if (w.kind === 'task_add') {
-                      const d = w.draft;
-                      if (!d.id.trim() || !d.pickup || !d.dropoff) return w;
+                    const editingIndex = w.editingIndex === i ? null : w.editingIndex != null && i < w.editingIndex ? w.editingIndex - 1 : w.editingIndex;
+                    return { ...w, events: w.events.filter((_, j) => j !== i), editingIndex, pendingCell: w.editingIndex === i ? null : w.pendingCell };
+                  })
+                }
+                onEditEvent={(i) =>
+                  setWizard((w) => {
+                    const event = w.events[i];
+                    if (!event) return w;
+                    const base = { ...w, kind: event.kind, editingIndex: i, pendingCell: null, until: null };
+                    if (event.kind === 'obstacle_add') return { ...base, pendingCell: [...event.cell] as [number, number], until: event.until ?? null };
+                    if (event.kind === 'obstacle_remove') return { ...base, pendingCell: [...event.cell] as [number, number] };
+                    if (event.kind === 'task_add') {
                       return {
-                        ...w,
-                        events: [
-                          ...w.events,
-                          {
-                            kind: 'task_add',
-                            taskId: d.id.trim(),
-                            pickup: d.pickup,
-                            dropoff: d.dropoff,
-                            pickupService: d.pickupService,
-                            dropoffService: d.dropoffService,
-                            releaseStep: d.releaseStep,
-                            priority: d.priority,
-                            dueStep: d.dueStep,
-                            requiredCapability: d.requiredCapability.trim() || null,
-                          },
-                        ],
-                        draft: { ...d, id: `T-dyn-${scene.tasks.length + w.events.length + 2}`, pickup: null, dropoff: null },
+                        ...base,
+                        taskPickTarget: 'pickup' as const,
+                        draft: {
+                          id: event.taskId,
+                          pickup: Array.isArray(event.pickup) ? [...event.pickup] as [number, number] : null,
+                          dropoff: Array.isArray(event.dropoff) ? [...event.dropoff] as [number, number] : null,
+                          pickupService: event.pickupService,
+                          dropoffService: event.dropoffService,
+                          releaseStep: event.releaseStep,
+                          priority: event.priority,
+                          dueStep: event.dueStep,
+                          requiredCapability: event.requiredCapability ?? '',
+                        },
                       };
                     }
-                    if (w.kind === 'task_cancel') {
-                      return w.targetTask ? { ...w, events: [...w.events, { kind: 'task_cancel', task: w.targetTask }] } : w;
+                    if (event.kind === 'task_cancel') return { ...base, targetTask: event.task };
+                    if (event.kind === 'task_priority') return { ...base, targetTask: event.task, priority: event.priority };
+                    return { ...base, targetVehicle: event.vehicle };
+                  })
+                }
+                onAddEvent={() =>
+                  setWizard((w) => {
+                    if (!w.kind) return w;
+                    let event: AgvDynamicEventInput | null = null;
+                    if (w.kind === 'obstacle_add' && w.pendingCell) event = { kind: 'obstacle_add', cell: w.pendingCell, until: w.until };
+                    else if (w.kind === 'obstacle_remove' && w.pendingCell) event = { kind: 'obstacle_remove', cell: w.pendingCell };
+                    else if (w.kind === 'task_add') {
+                      const d = w.draft;
+                      if (!d.id.trim() || !d.pickup || !d.dropoff) return w;
+                      event = {
+                        kind: 'task_add',
+                        taskId: d.id.trim(),
+                        pickup: d.pickup,
+                        dropoff: d.dropoff,
+                        pickupService: d.pickupService,
+                        dropoffService: d.dropoffService,
+                        releaseStep: d.releaseStep,
+                        priority: d.priority,
+                        dueStep: d.dueStep,
+                        requiredCapability: d.requiredCapability.trim() || null,
+                      };
+                    } else if (w.kind === 'task_cancel' && w.targetTask) event = { kind: 'task_cancel', task: w.targetTask };
+                    else if (w.kind === 'task_priority' && w.targetTask) event = { kind: 'task_priority', task: w.targetTask, priority: w.priority };
+                    else if (w.kind === 'vehicle_pause' && w.targetVehicle) event = { kind: 'vehicle_pause', vehicle: w.targetVehicle };
+                    else if (w.kind === 'vehicle_resume' && w.targetVehicle) event = { kind: 'vehicle_resume', vehicle: w.targetVehicle };
+                    if (!event) return w;
+
+                    const events = [...w.events];
+                    if (w.editingIndex != null) events[w.editingIndex] = event;
+                    else {
+                      if (events.length >= limits.maxEvents) return w;
+                      events.push(event);
                     }
-                    if (w.kind === 'task_priority') {
-                      return w.targetTask ? { ...w, events: [...w.events, { kind: 'task_priority', task: w.targetTask, priority: w.priority }] } : w;
-                    }
-                    if (w.kind === 'vehicle_pause') {
-                      return w.targetVehicle ? { ...w, events: [...w.events, { kind: 'vehicle_pause', vehicle: w.targetVehicle }] } : w;
-                    }
-                    if (w.kind === 'vehicle_resume') {
-                      return w.targetVehicle ? { ...w, events: [...w.events, { kind: 'vehicle_resume', vehicle: w.targetVehicle }] } : w;
-                    }
-                    return w;
+                    const draft = w.kind === 'task_add'
+                      ? { ...w.draft, id: `T-dyn-${scene.tasks.length + events.filter((item) => item.kind === 'task_add').length + 1}`, pickup: null, dropoff: null }
+                      : w.draft;
+                    return { ...w, events, draft, pendingCell: null, editingIndex: null, taskPickTarget: 'pickup' };
                   })
                 }
                 onSubmit={(built) => {
-                  setWizard((w) => ({ ...w, active: false, kind: null }));
-                  void solve(withDynamicBlock(serializeAgvScene(scene), built));
+                  setWizard((w) => ({ ...w, active: false, kind: null, pendingCell: null, editingIndex: null }));
+                  void solve(withDynamicBlock(serializeAgvScene(scene), built), built.snapshot.time);
                 }}
-                onCancel={() => setWizard((w) => ({ ...w, active: false, kind: null }))}
+                onCancel={() => setWizard((w) => ({ ...w, active: false, kind: null, pendingCell: null, editingIndex: null }))}
               />
             )}
             <div className="mapf-legend muted small">
@@ -889,22 +976,22 @@ export function AgvPanel(props: AgvPanelProps) {
 
           <div className="mapf-bottom">
             <div className="mapf-play">
-              <button type="button" className="btn tiny" onClick={() => clockRef.current?.seek(0)}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => clockRef.current?.seek(0)}>
                 ⏮
               </button>
-              <button type="button" className="btn tiny" onClick={() => clockRef.current?.step(-1)}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => clockRef.current?.step(-1)}>
                 ◀
               </button>
-              <button type="button" className="btn tiny primary" onClick={() => clockRef.current?.toggle()}>
+              <button type="button" className="btn tiny primary" disabled={wizard.active} onClick={() => clockRef.current?.toggle()}>
                 {playing ? '⏸' : '▶'}
               </button>
-              <button type="button" className="btn tiny" onClick={() => clockRef.current?.step(1)}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => clockRef.current?.step(1)}>
                 ⏭
               </button>
               <span className="tabular-nums mapf-t-readout">
                 t = {t} / {maxT}
               </span>
-              <select value={speed} onChange={(e) => setSpeed(Number(e.target.value) as Speed)} aria-label="播放速度">
+              <select value={speed} disabled={wizard.active} onChange={(e) => setSpeed(Number(e.target.value) as Speed)} aria-label="播放速度">
                 {SPEEDS.map((s) => (
                   <option key={s} value={s}>
                     {s}×
@@ -913,7 +1000,7 @@ export function AgvPanel(props: AgvPanelProps) {
               </select>
               {phaseLabel && <span className="muted small">当前相位：{phaseLabel}</span>}
             </div>
-            <AgvTimeline solution={solution} t={t} maxT={maxT} primary={primary} onSeek={(tt) => clockRef.current?.seek(tt)} onSelectVehicle={(id) => setPrimary(id)} />
+            <AgvTimeline solution={solution} t={t} maxT={maxT} primary={primary} disabled={wizard.active} onSeek={(tt) => clockRef.current?.seek(tt)} onSelectVehicle={(id) => setPrimary(id)} />
             <div className="mapf-metrics muted small">
               {solution ? (
                 <>

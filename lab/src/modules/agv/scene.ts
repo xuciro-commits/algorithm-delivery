@@ -269,8 +269,10 @@ export function applyAgvCommand(doc: AgvScene, cmd: AgvCommand): AgvScene {
       const [x, y] = cmd.cell;
       const row = doc.map.cells[y];
       if (!row || x < 0 || x >= row.length) return doc;
+      const nextCell = cmd.blocked ? '#' : '.';
+      if (row[x] === nextCell) return doc;
       const cells = [...doc.map.cells];
-      cells[y] = row.substring(0, x) + (cmd.blocked ? '#' : '.') + row.substring(x + 1);
+      cells[y] = row.substring(0, x) + nextCell + row.substring(x + 1);
       return { ...doc, map: { cells } };
     }
     case 'addVehicle':
@@ -380,6 +382,7 @@ export class AgvSceneHistory {
 
   /** 开始一笔（pointerdown）。 */
   beginStroke(): void {
+    if (this.strokeBase) this.endStroke();
     this.strokeBase = this.doc;
   }
 
@@ -410,6 +413,7 @@ export class AgvSceneHistory {
   }
 
   undo(): AgvScene | null {
+    this.endStroke();
     const prev = this.past.pop();
     if (!prev) return null;
     this.future.unshift(this.doc);
@@ -418,6 +422,7 @@ export class AgvSceneHistory {
   }
 
   redo(): AgvScene | null {
+    this.endStroke();
     const next = this.future.shift();
     if (!next) return null;
     this.past.push(this.doc);

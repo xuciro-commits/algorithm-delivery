@@ -38,9 +38,9 @@ export function ObstacleField({ cells, height = 0.42, variant = 'wall' }: Obstac
 
   return (
     <group ref={groupRef}>
-      <Instances limit={Math.max(64, tinted.length)} range={tinted.length} castShadow={false} receiveShadow={false}>
+      <Instances limit={Math.max(64, tinted.length)} range={tinted.length} castShadow receiveShadow>
         <boxGeometry args={[0.94, 1, 0.94]} />
-        <meshStandardMaterial color={color} roughness={0.82} metalness={0.42} />
+        <meshStandardMaterial color={color} roughness={0.72} metalness={0.32} envMapIntensity={0.72} />
         {tinted.map((c, i) => (
           <Instance
             key={`${c.x},${c.y}`}

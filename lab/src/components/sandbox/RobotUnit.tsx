@@ -1,7 +1,7 @@
 /**
- * 机器人单元（MAPF）与 AGV 小车的程序化模型基础。
- * 精致倒角几何体 + 发光状态灯 + 选中环；哑光金属材质（V2 §二-2）。
- * 位置由调用方按「离散时间步插值」提供（stepInterp），本组件不做时间推进。
+ * Compact MAPF mobile robot with a structural chassis, four drive wheels, lidar cap,
+ * front ranging sensor and semantic status lights. Movement remains owned by the
+ * caller and is keyed to the algorithm's discrete path time.
  */
 
 import { RoundedBox } from '@react-three/drei';
@@ -15,9 +15,7 @@ export interface RobotUnitProps {
   heading: number;
   color: string;
   selected?: boolean;
-  /** 状态：run=执行中（灯常亮）；service=服务中（琥珀脉冲）；idle=待机（暗）。 */
   status?: 'run' | 'service' | 'idle';
-  /** 载货（AGV）：显示托盘+货箱。 */
   loaded?: boolean;
   size?: number;
 }
@@ -27,78 +25,94 @@ export function RobotUnit({ x, z, heading, color, selected = false, status = 'ru
   const lightColor = status === 'service' ? SB.amber : color;
   const lightIntensity = status === 'idle' ? 0.45 : 1;
   const bodyMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color('#232f45'),
-        roughness: 0.55,
-        metalness: 0.6,
-      }),
+    () => new THREE.MeshPhysicalMaterial({ color: '#3c4c58', roughness: 0.39, metalness: 0.64, clearcoat: 0.24, clearcoatRoughness: 0.42, envMapIntensity: 1.05 }),
+    [],
+  );
+  const steelMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: '#76858d', roughness: 0.32, metalness: 0.8, envMapIntensity: 1.05 }),
+    [],
+  );
+  const rubberMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: '#12191d', roughness: 0.93, metalness: 0.015 }),
     [],
   );
   const accentMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color(color),
-        roughness: 0.4,
-        metalness: 0.3,
-        emissive: new THREE.Color(color),
-        emissiveIntensity: 0.55 * lightIntensity,
-      }),
+    () => new THREE.MeshStandardMaterial({ color, roughness: 0.36, metalness: 0.4, emissive: color, emissiveIntensity: 0.2 * lightIntensity, envMapIntensity: 0.85 }),
     [color, lightIntensity],
   );
   const lightMat = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color(lightColor),
-        transparent: true,
-        opacity: 0.95 * lightIntensity,
-      }),
+    () => new THREE.MeshBasicMaterial({ color: lightColor, transparent: true, opacity: 0.94 * lightIntensity }),
     [lightColor, lightIntensity],
+  );
+  const glassMat = useMemo(
+    () => new THREE.MeshPhysicalMaterial({ color: '#31556a', roughness: 0.16, metalness: 0.16, transmission: 0.1, clearcoat: 1, envMapIntensity: 1.15 }),
+    [],
   );
 
   return (
-    <group position={[x, 0, z]} rotation={[0, -heading, 0]}>
-      {/* 底盘（倒角，深金属） */}
-      <RoundedBox args={[0.72 * s, 0.22 * s, 0.82 * s]} radius={0.06 * s} smoothness={3} position={[0, 0.16 * s, 0]} material={bodyMat} />
-      {/* 车身（略窄，配色 Accent 侧条） */}
-      <RoundedBox args={[0.54 * s, 0.26 * s, 0.62 * s]} radius={0.07 * s} smoothness={3} position={[0, 0.36 * s, 0]} material={bodyMat} />
-      {/* 两侧识别色条（发光） */}
-      <mesh position={[0.28 * s, 0.36 * s, 0]} material={accentMat}>
-        <boxGeometry args={[0.035 * s, 0.18 * s, 0.5 * s]} />
+    <group position={[x, 0, z]} rotation={[0, -heading, 0]} scale={s}>
+      {/* Low chassis and serviceable rubber drive wheels. */}
+      <RoundedBox args={[0.78, 0.14, 0.9]} radius={0.045} smoothness={3} position={[0, 0.15, 0]} material={steelMat} castShadow receiveShadow />
+      {[-0.34, 0.34].flatMap((wx) => [-0.31, 0.31].map((wz) => (
+        <mesh key={`${wx}-${wz}`} position={[wx, 0.11, wz]} rotation={[0, 0, Math.PI / 2]} material={rubberMat} castShadow receiveShadow>
+          <cylinderGeometry args={[0.105, 0.105, 0.1, 18]} />
+        </mesh>
+      )))}
+
+      {/* Powder-coated shell, machined deck and side recognition rails. */}
+      <RoundedBox args={[0.64, 0.24, 0.72]} radius={0.075} smoothness={4} position={[0, 0.35, 0]} material={bodyMat} castShadow receiveShadow />
+      <RoundedBox args={[0.52, 0.038, 0.62]} radius={0.018} smoothness={3} position={[0, 0.49, 0]} material={steelMat} />
+      {[-1, 1].map((side) => (
+        <mesh key={side} position={[side * 0.33, 0.35, 0]} material={accentMat}>
+          <boxGeometry args={[0.026, 0.12, 0.56]} />
+        </mesh>
+      ))}
+
+      {/* Front ranging window and direction / state indicators. */}
+      <RoundedBox args={[0.44, 0.075, 0.026]} radius={0.018} smoothness={3} position={[0, 0.3, 0.371]} material={glassMat} />
+      {[-0.15, 0, 0.15].map((sx) => (
+        <mesh key={sx} position={[sx, 0.3, 0.393]} material={lightMat}>
+          <sphereGeometry args={[0.021, 10, 8]} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.52, 0.08]} material={lightMat}>
+        <sphereGeometry args={[0.047, 14, 12]} />
       </mesh>
-      <mesh position={[-0.28 * s, 0.36 * s, 0]} material={accentMat}>
-        <boxGeometry args={[0.035 * s, 0.18 * s, 0.5 * s]} />
+
+      {/* Lidar turret: brushed base, dark lens and a restrained ring. */}
+      <mesh position={[0, 0.56, -0.2]} material={steelMat} castShadow>
+        <cylinderGeometry args={[0.13, 0.15, 0.06, 28]} />
       </mesh>
-      {/* 前向指示（朝向轴小灯） */}
-      <mesh position={[0, 0.3 * s, 0.43 * s]} material={lightMat}>
-        <boxGeometry args={[0.16 * s, 0.05 * s, 0.03 * s]} />
+      <mesh position={[0, 0.595, -0.2]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.104, 0.01, 6, 28]} />
+        <meshStandardMaterial color={color} roughness={0.28} metalness={0.4} emissive={color} emissiveIntensity={0.14} />
       </mesh>
-      {/* 顶部状态灯 */}
-      <mesh position={[0, 0.52 * s, 0]} material={lightMat}>
-        <sphereGeometry args={[0.055 * s, 10, 10]} />
+      <mesh position={[0, 0.6, -0.2]} material={glassMat}>
+        <cylinderGeometry args={[0.06, 0.07, 0.022, 20]} />
       </mesh>
-      {/* 载货：托盘 + 货箱（AGV 取送段） */}
+
       {loaded && (
-        <>
-          <mesh position={[0, 0.52 * s, 0]} material={accentMat}>
-            <boxGeometry args={[0.4 * s, 0.04 * s, 0.44 * s]} />
+        <group>
+          <mesh position={[0, 0.54, 0]}>
+            <boxGeometry args={[0.42, 0.035, 0.46]} />
+            <meshStandardMaterial color="#76583c" roughness={0.9} />
           </mesh>
-          <mesh position={[0, 0.64 * s, 0]}>
-            <boxGeometry args={[0.3 * s, 0.2 * s, 0.32 * s]} />
-            <meshStandardMaterial color="#8a6a3c" roughness={0.9} metalness={0.05} />
+          <mesh position={[0, 0.67, 0]}>
+            <boxGeometry args={[0.31, 0.21, 0.33]} />
+            <meshStandardMaterial color="#92734f" roughness={0.92} metalness={0.01} />
           </mesh>
-        </>
+        </group>
       )}
-      {/* 选中环（贴地细环 + 外晕） */}
+
       {selected && (
         <>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-            <ringGeometry args={[0.5 * s, 0.56 * s, 32]} />
+            <ringGeometry args={[0.52, 0.58, 40]} />
             <meshBasicMaterial color={color} transparent opacity={0.9} />
           </mesh>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 0]}>
-            <circleGeometry args={[0.78 * s, 24]} />
-            <meshBasicMaterial color={color} transparent opacity={0.1} blending={THREE.AdditiveBlending} depthWrite={false} />
+            <circleGeometry args={[0.8, 28]} />
+            <meshBasicMaterial color={color} transparent opacity={0.08} blending={THREE.AdditiveBlending} depthWrite={false} />
           </mesh>
         </>
       )}

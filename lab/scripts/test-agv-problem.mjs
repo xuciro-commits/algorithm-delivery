@@ -89,6 +89,18 @@ const {
     }
   }
   check(`全部 AGV mock roundtrip 语义等价（${okCount}/${files.length}）`, okCount === files.length);
+  const warehousePath = join(mockDir, 'warehouse-studio.json');
+  if (existsSync(warehousePath)) {
+    try {
+      const warehouse = parseAgvScene(readFileSync(warehousePath, 'utf8'));
+      const issues = precheckAgvScene(warehouse, { maxVehicles: 64, maxTasks: 128, maxCells: 16384, maxBudgetMs: 120000 });
+      check('warehouse-studio 原型通过 AGV 结构预检', !issues.some((issue) => issue.level === 'error'), issues.map((issue) => issue.code).join(', '));
+    } catch (err) {
+      check('warehouse-studio 原型通过 AGV 结构预检', false, err.message);
+    }
+  } else {
+    check('warehouse-studio 原型已随 AGV mocks 同步', false);
+  }
 }
 
 // ---- 2) 真实 WASM 集成（vendored 胶水 + dist 产物） ----
@@ -122,6 +134,13 @@ const {
     check('a10 动态汇总块（snapshot_time=3 / T3-new / 语义指纹）',
       dyn?.snapshot_time === 3 && dyn?.tasks_added?.[0] === 'T3-new' && String(dyn?.semantic_digest ?? '').startsWith('sha256:'));
     check('a10 完成任务数 = 3（含新增）', r10.solution?.metrics?.completed_tasks === 3);
+
+    // M0 warehouse prototype: require the real engine, not UI-side path fabrication.
+    const warehouse = readFileSync(join(labDir, 'public', 'mock', 'warehouse-studio.json'), 'utf8');
+    const rw = engine.solve(warehouse);
+    check('warehouse-studio 真实调度 FEASIBLE + 独立核验通过', rw.status === 'FEASIBLE' && rw.solution?.verified === true, rw.status);
+    check('warehouse-studio 引擎结果包含 2 车 / 3 个完成任务',
+      rw.solution?.plan?.vehicles?.length === 2 && rw.solution?.metrics?.completed_tasks === 3);
 
     // 确定性
     const again = engine.solve(a01);

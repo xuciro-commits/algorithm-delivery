@@ -20,6 +20,7 @@ export interface MapfTimelineProps {
   conflictAt: number | null;
   frozenAt: number | null;
   onSeek: (t: number) => void;
+  disabled?: boolean;
   onSelectRobot: (id: string) => void;
 }
 
@@ -28,7 +29,7 @@ const H_HEAD = 22;
 const H_PAD = 6;
 
 export function MapfTimeline(props: MapfTimelineProps) {
-  const { solution, t, maxT, primary, selected, events, conflictAt, frozenAt, onSeek, onSelectRobot } = props;
+  const { solution, t, maxT, primary, selected, events, conflictAt, frozenAt, onSeek, onSelectRobot, disabled = false } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
   const draggingRef = useRef(false);
@@ -205,7 +206,9 @@ export function MapfTimeline(props: MapfTimelineProps) {
       ref={canvasRef}
       className="mapf-timeline"
       aria-label={`时间轴 t=${t}/${maxT}`}
+      aria-disabled={disabled}
       onPointerDown={(ev) => {
+        if (disabled) return;
         const p = locate(ev.nativeEvent);
         if (!p) return;
         const ti = trackAt(p.y);
@@ -231,7 +234,7 @@ export function MapfTimeline(props: MapfTimelineProps) {
         }
       }}
       onPointerMove={(ev) => {
-        if (!draggingRef.current) return;
+        if (disabled || !draggingRef.current) return;
         const p = locate(ev.nativeEvent);
         if (p) onSeek(Math.max(0, Math.min(maxT, timeAt(p.x))));
       }}

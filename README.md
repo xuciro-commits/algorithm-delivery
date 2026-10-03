@@ -120,7 +120,8 @@ npm run test:all
 - [mapf-quality.yml](.github/workflows/mapf-quality.yml)：格式、Clippy、Rust 测试、M01–M12 验收、契约、基准快跑、WASM 与 Worker 取消回归。
 - [agv-rust.yml](.github/workflows/agv-rust.yml)：AGV 代码变更时运行可复用 Rust 质量门。
 - [agv-quality.yml](.github/workflows/agv-quality.yml)：格式、Clippy、Rust 测试、A01–A16 验收、45 项契约符合性、B01–B03 基准、WASM 与 Worker 取消回归。
-- [lab.yml](.github/workflows/lab.yml)：构建/测试 Lab（含 MAPF/AGV 场景内核与集成测试）；合并到 `main` 后发布 Pages。
+- [lab.yml](.github/workflows/lab.yml)：构建/测试 Lab 并在成功构建后上传 production 产物；合并到 `main` 且质量门通过后发布 Pages。
+- [lab-visual-acceptance.yml](.github/workflows/lab-visual-acceptance.yml)：独立 Ubuntu/Playwright Chromium 视觉验收，消费同一次 production build，采集 APS/MAPF/AGV WebGL 截图、console 日志和实际引擎状态（30 天 Artifact）。
 - [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。
 
 ### 创建正式 Release

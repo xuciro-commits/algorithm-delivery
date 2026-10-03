@@ -127,7 +127,11 @@ export function MapfPanel(props: MapfPanelProps) {
     robot: string;
     events: DynamicEventInput[];
     frozenSteps: number;
-  }>({ active: false, kind: null, robot: '', events: [], frozenSteps: 1 });
+    snapshotTime: number;
+    pending: DynamicEventInput | null;
+    editingIndex: number | null;
+    until: number | null;
+  }>({ active: false, kind: null, robot: '', events: [], frozenSteps: 1, snapshotTime: 0, pending: null, editingIndex: null, until: null });
 
   // —— 场景库 ——
   const [localScenes, setLocalScenes] = useState<LocalScene[]>([]);
@@ -255,21 +259,37 @@ export function MapfPanel(props: MapfPanelProps) {
   const refreshLocal = useCallback(() => setLocalScenes(listLocalScenes()), []);
   useEffect(() => {
     refreshLocal();
-    // 首屏：默认载入 m02（交叉示例）
+    // 首屏：以仓储巷道原型展示有纵深的货架结构；旧清单回退到 m02 交叉示例。
+    const warehouse = manifest?.mocks?.find((m) => m.file.includes('m00-warehouse-aisles'));
     const m02 = manifest?.mocks?.find((m) => m.file.includes('m02'));
-    if (m02) void loadMockFile(m02.file);
+    if (warehouse) void loadMockFile(warehouse.file);
+    else if (m02) void loadMockFile(m02.file);
     else if (manifest?.mocks?.length) void loadMockFile(manifest.mocks[0].file);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manifest]);
 
   // —— 场景操作 ——
+  const clearComputedSolution = useCallback(() => {
+    setSolution(null);
+    setGhost(null);
+    setRaw('');
+    setVerifyChecks(null);
+    setVerifyViolations([]);
+    setFrozenAt(null);
+    setT(0);
+    setPlaying(false);
+    clockRef.current?.setRange(0, 0);
+  }, []);
+
   const execCommand = useCallback((cmd: SceneCommand) => {
+    const before = historyRef.current.doc;
     const next = historyRef.current.exec(cmd);
-    if (next) {
+    if (next !== before) {
       setDoc(next);
       setMode('edit');
+      clearComputedSolution();
     }
-  }, []);
+  }, [clearComputedSolution]);
 
   const loadDoc = useCallback((next: SceneDoc, resetView = true) => {
     historyRef.current.load(next);
@@ -280,7 +300,7 @@ export function MapfPanel(props: MapfPanelProps) {
     setVerifyChecks(null);
     setVerifyViolations([]);
     setFrozenAt(null);
-    setWizard((w) => ({ ...w, active: false, events: [], kind: null }));
+    setWizard((w) => ({ ...w, active: false, events: [], kind: null, pending: null, editingIndex: null }));
     setMode('edit');
     setPrimary(next.robots[0]?.id ?? null);
     setSelected([]);
@@ -379,18 +399,22 @@ export function MapfPanel(props: MapfPanelProps) {
   // —— 地图点击分派 ——
   const onCellClick = useCallback(
     (cell: Cell, mods: { shift: boolean; meta: boolean }) => {
-      // 动态向导优先
-      if (wizard.active && wizard.kind) {
+      // 动态向导是独立子模式：不允许地图点击落入基础场景编辑分派。
+      if (wizard.active) {
+        if (!wizard.kind) {
+          setNotice('先选择动态事件类型；当前地图点击不会修改基础场景');
+          return;
+        }
         setWizard((w) => {
           if (!w.kind) return w;
-          if (w.kind === 'obstacle_add' || w.kind === 'obstacle_remove') {
-            return { ...w, events: [...w.events, { kind: w.kind, cell: [cell.x, cell.y], at: mode === 'playback' ? t : 0 }] };
-          }
-          if (w.kind === 'goal_change') {
-            return { ...w, events: [...w.events, { kind: 'goal_change', robot: w.robot, goal: [cell.x, cell.y], at: t }] };
-          }
-          return w;
+          let pending: DynamicEventInput | null = null;
+          if (w.kind === 'obstacle_add') pending = { kind: 'obstacle_add', cell: [cell.x, cell.y], at: w.snapshotTime, until: w.until };
+          else if (w.kind === 'obstacle_remove') pending = { kind: 'obstacle_remove', cell: [cell.x, cell.y], at: w.snapshotTime };
+          else if (w.kind === 'goal_change') pending = { kind: 'goal_change', robot: w.robot, goal: [cell.x, cell.y], at: w.snapshotTime };
+          else return w;
+          return { ...w, pending, editingIndex: null };
         });
+        setNotice(null);
         return;
       }
       const robotAt = (c: Cell): string | null => {
@@ -481,25 +505,37 @@ export function MapfPanel(props: MapfPanelProps) {
 
   const onCellDrag = useCallback(
     (cell: Cell) => {
-      if (wizard.active) return;
-      if (tool === 'wall' || tool === 'erase') {
-        if (tool === 'wall') {
-          const occupied = doc.robots.some((r) => (r.start && r.start[0] === cell.x && r.start[1] === cell.y) || (r.goal && r.goal[0] === cell.x && r.goal[1] === cell.y));
-          if (occupied) return;
+      if (wizard.active || (tool !== 'wall' && tool !== 'erase')) return;
+      if (tool === 'wall') {
+        const owner = doc.robots.find((r) =>
+          (r.start && r.start[0] === cell.x && r.start[1] === cell.y) ||
+          (r.goal && r.goal[0] === cell.x && r.goal[1] === cell.y),
+        );
+        if (owner) {
+          setNotice(`不能在 ${owner.id} 的起点/终点上画障碍（移动或删除该机器人后重试）`);
+          return;
         }
-        historyRef.current.exec({ type: 'toggleWall', cell: [cell.x, cell.y], blocked: tool === 'wall' });
-        setDoc(historyRef.current.doc);
+      }
+      const before = historyRef.current.doc;
+      const next = historyRef.current.exec({ type: 'toggleWall', cell: [cell.x, cell.y], blocked: tool === 'wall' });
+      if (next !== before) {
+        setDoc(next);
+        setMode('edit');
+        setNotice(null);
+        clearComputedSolution();
       }
     },
-    [tool, wizard.active, doc],
+    [tool, wizard.active, doc, clearComputedSolution],
   );
 
   // —— 笔画级撤销：一笔障碍 = 一个历史步（V2 §4）——
   const beginStroke = useCallback(() => {
+    if (wizard.active || (tool !== 'wall' && tool !== 'erase')) return;
     historyRef.current.beginStroke();
-  }, []);
+  }, [tool, wizard.active]);
 
   const endStroke = useCallback(() => {
+    if (!historyRef.current.stroking) return;
     historyRef.current.endStroke();
     setDoc(historyRef.current.doc);
     setHistNonce((n) => n + 1);
@@ -545,16 +581,16 @@ export function MapfPanel(props: MapfPanelProps) {
   const wizardPickLabel =
     wizard.active && wizard.kind
       ? wizard.kind === 'obstacle_add'
-        ? '点击地图：选择新障碍格'
+        ? '点击地图选择障碍格，然后确认加入事件列表'
         : wizard.kind === 'obstacle_remove'
-          ? '点击地图：选择要移除的障碍格'
+          ? '点击地图选择要移除的障碍格，然后确认加入事件列表'
           : wizard.kind === 'goal_change'
-            ? `点击地图：为 ${wizard.robot || '？'} 选新终点`
-            : null
+            ? `点击地图为 ${wizard.robot || '？'} 选择新终点，然后确认加入事件列表`
+            : '选择机器人后确认加入事件列表'
       : null;
 
   return (
-    <section className="panel mapf-panel mapf-visual">
+    <section className="panel mapf-panel mapf-visual" data-visual-module="mapf" data-solution-status={solution?.status ?? 'idle'} data-solution-agents={solution?.robots?.length ?? 0}>
       <div className="engine-banner">
         <span>
           <b>MAPF 引擎</b> rust-ecbs-cbs <code>v{engineVersion}</code>（wasm-light，浏览器内计算）
@@ -681,6 +717,7 @@ export function MapfPanel(props: MapfPanelProps) {
                   key={tl.id}
                   type="button"
                   className={`btn tiny tool-btn ${tool === tl.id ? 'primary' : ''}`}
+                  disabled={wizard.active}
                   title={tl.hint}
                   onClick={() => {
                     setTool(tl.id);
@@ -693,9 +730,13 @@ export function MapfPanel(props: MapfPanelProps) {
               <button
                 type="button"
                 className="btn tiny"
-                disabled={!historyRef.current.canUndo}
+                disabled={wizard.active || !historyRef.current.canUndo}
                 onClick={() => {
-                  setDoc(historyRef.current.undo() ?? doc);
+                  const next = historyRef.current.undo();
+                  if (!next) return;
+                  setDoc(next);
+                  setMode('edit');
+                  clearComputedSolution();
                   setHistNonce((n) => n + 1);
                 }}
               >
@@ -704,9 +745,13 @@ export function MapfPanel(props: MapfPanelProps) {
               <button
                 type="button"
                 className="btn tiny"
-                disabled={!historyRef.current.canRedo}
+                disabled={wizard.active || !historyRef.current.canRedo}
                 onClick={() => {
-                  setDoc(historyRef.current.redo() ?? doc);
+                  const next = historyRef.current.redo();
+                  if (!next) return;
+                  setDoc(next);
+                  setMode('edit');
+                  clearComputedSolution();
                   setHistNonce((n) => n + 1);
                 }}
               >
@@ -725,6 +770,7 @@ export function MapfPanel(props: MapfPanelProps) {
                   min={1}
                   max={256}
                   value={dims.width}
+                  disabled={wizard.active}
                   onChange={(e) => execCommand({ type: 'resize', width: Math.max(1, Math.min(256, Number(e.target.value) || 1)), height: dims.height })}
                 />
               </label>
@@ -735,6 +781,7 @@ export function MapfPanel(props: MapfPanelProps) {
                   min={1}
                   max={256}
                   value={dims.height}
+                  disabled={wizard.active}
                   onChange={(e) => execCommand({ type: 'resize', width: dims.width, height: Math.max(1, Math.min(256, Number(e.target.value) || 1)) })}
                 />
               </label>
@@ -745,7 +792,7 @@ export function MapfPanel(props: MapfPanelProps) {
             <h4>规划参数</h4>
             <label className="field">
               目标
-              <select value={doc.objective.kind} onChange={(e) => setDoc({ ...doc, objective: { ...doc.objective, kind: e.target.value as 'soc' | 'makespan' } })}>
+              <select value={doc.objective.kind} disabled={wizard.active} onChange={(e) => setDoc({ ...doc, objective: { ...doc.objective, kind: e.target.value as 'soc' | 'makespan' } })}>
                 <option value="soc">SOC（总耗时）</option>
                 <option value="makespan">Makespan（完时）</option>
               </select>
@@ -758,6 +805,7 @@ export function MapfPanel(props: MapfPanelProps) {
                 max={limits.maxBudgetMs}
                 step={100}
                 value={doc.solver.time_limit_ms}
+                disabled={wizard.active}
                 onChange={(e) => setDoc({ ...doc, solver: { ...doc.solver, time_limit_ms: Number(e.target.value) || 3000 } })}
               />
             </label>
@@ -769,13 +817,14 @@ export function MapfPanel(props: MapfPanelProps) {
                 max={3}
                 step={0.05}
                 value={doc.solver.suboptimality_factor}
+                disabled={wizard.active}
                 onChange={(e) => setDoc({ ...doc, solver: { ...doc.solver, suboptimality_factor: Number(e.target.value) } })}
               />
               <span className="muted small">{doc.solver.suboptimality_factor.toFixed(2)}</span>
             </label>
             <label className="field">
               规划器
-              <select value={doc.solver.planner} onChange={(e) => setDoc({ ...doc, solver: { ...doc.solver, planner: e.target.value as typeof doc.solver.planner } })}>
+              <select value={doc.solver.planner} disabled={wizard.active} onChange={(e) => setDoc({ ...doc, solver: { ...doc.solver, planner: e.target.value as typeof doc.solver.planner } })}>
                 <option value="auto">auto</option>
                 <option value="ecbs">ECBS</option>
                 <option value="pp">优先搜索 PP</option>
@@ -785,6 +834,7 @@ export function MapfPanel(props: MapfPanelProps) {
               时域
               <select
                 value={String(doc.time_model.horizon)}
+                disabled={wizard.active}
                 onChange={(e) =>
                   setDoc({ ...doc, time_model: { ...doc.time_model, horizon: e.target.value === 'auto' ? 'auto' : Number(e.target.value) } })
                 }
@@ -799,14 +849,14 @@ export function MapfPanel(props: MapfPanelProps) {
             </label>
             <label className="field">
               种子
-              <input type="number" value={doc.solver.seed} onChange={(e) => setDoc({ ...doc, solver: { ...doc.solver, seed: Number(e.target.value) || 0 } })} />
+              <input type="number" value={doc.solver.seed} disabled={wizard.active} onChange={(e) => setDoc({ ...doc, solver: { ...doc.solver, seed: Number(e.target.value) || 0 } })} />
             </label>
           </section>
 
           <section className="rail-group">
             <h4>求解控制</h4>
             <div className="solve-row">
-              <button type="button" className="btn primary" disabled={!solvable} onClick={() => void solve()}>
+              <button type="button" className="btn primary" disabled={wizard.active || !solvable} onClick={() => void solve()}>
                 {solving ? '求解中…' : '求解'}
               </button>
               <button type="button" className="btn" disabled={!solving} onClick={() => cancelSolve()}>
@@ -830,19 +880,18 @@ export function MapfPanel(props: MapfPanelProps) {
           <details className="mapf-details json-drawer">
             <summary>高级 · JSON</summary>
             <p className="muted small">场景即契约 mapf-problem/1.0；【应用】经结构预检后进编辑器。</p>
-            <textarea rows={10} value={jsonDraft || serializeScene(doc)} spellCheck={false} onChange={(e) => setJsonDraft(e.target.value)} />
+            <textarea rows={10} value={jsonDraft || serializeScene(doc)} disabled={wizard.active} spellCheck={false} onChange={(e) => setJsonDraft(e.target.value)} />
             {jsonError && <p className="bad-text small">{jsonError}</p>}
             <div className="solve-row">
               <button
                 type="button"
                 className="btn tiny"
+                disabled={wizard.active}
                 onClick={() => {
                   try {
                     const parsed = parseScene(jsonDraft);
-                    historyRef.current.exec({ type: 'replace', doc: parsed });
-                    setDoc(parsed);
+                    loadDoc(parsed);
                     setJsonError(null);
-                    setFitNonce((n) => n + 1);
                   } catch (err) {
                     setJsonError((err as Error).message);
                   }
@@ -850,7 +899,7 @@ export function MapfPanel(props: MapfPanelProps) {
               >
                 应用
               </button>
-              <button type="button" className="btn tiny" onClick={() => setJsonDraft('')}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => setJsonDraft('')}>
                 刷新自场景
               </button>
             </div>
@@ -874,7 +923,6 @@ export function MapfPanel(props: MapfPanelProps) {
                 conflictCells={conflictCells}
                 eventMarks={eventMarks}
                 view={camView}
-                painting={tool === 'wall' || tool === 'erase'}
                 clock={clockRef.current}
                 playing={playing}
                 onCellClick={onCellClick}
@@ -938,7 +986,7 @@ export function MapfPanel(props: MapfPanelProps) {
                 <button
                   type="button"
                   className="btn tiny"
-                  onClick={() => setWizard({ active: true, kind: null, robot: solution?.robots?.[0]?.id ?? '', events: [], frozenSteps: 1 })}
+                  onClick={() => { clockRef.current?.pause(); setWizard({ active: true, kind: null, robot: solution?.robots?.[0]?.id ?? '', events: [], frozenSteps: 1, snapshotTime: t, pending: null, editingIndex: null, until: null }); }}
                 >
                   ⚡ 注入动态事件
                 </button>
@@ -974,29 +1022,84 @@ export function MapfPanel(props: MapfPanelProps) {
               <DynamicWizard
                 scene={doc}
                 solution={solution}
-                time={t}
+                time={wizard.snapshotTime}
                 maxT={maxT}
                 maxEvents={limits.maxEvents}
                 busy={solving}
                 events={wizard.events}
                 kind={wizard.kind}
+                pending={wizard.pending}
+                editingIndex={wizard.editingIndex}
+                until={wizard.until}
                 robot={wizard.robot}
                 frozenSteps={wizard.frozenSteps}
                 pickLabel={wizardPickLabel}
-                onPickKind={(kind, robot) => {
-                  setWizard((w) => ({ ...w, kind, robot: robot ?? w.robot }));
-                  if (kind === 'path_invalid') {
-                    setWizard((w) => ({ ...w, kind: null, events: [...w.events, { kind: 'path_invalid', robot: w.robot || (solution.robots?.[0]?.id ?? ''), at: t }] }));
-                  }
-                }}
-                onRobotChange={(robot) => setWizard((w) => ({ ...w, robot }))}
-                onRemoveEvent={(i) => setWizard((w) => ({ ...w, events: w.events.filter((_, j) => j !== i) }))}
+                onPickKind={(kind, robot) =>
+                  setWizard((w) => {
+                    const nextRobot = robot ?? w.robot;
+                    const pending: DynamicEventInput | null =
+                      kind === 'path_invalid' && nextRobot
+                        ? { kind: 'path_invalid', robot: nextRobot, at: w.snapshotTime }
+                        : null;
+                    return { ...w, kind, robot: nextRobot, pending, editingIndex: null };
+                  })
+                }
+                onRobotChange={(robot) =>
+                  setWizard((w) => ({
+                    ...w,
+                    robot,
+                    pending:
+                      w.pending?.kind === 'goal_change' || w.pending?.kind === 'path_invalid'
+                        ? { ...w.pending, robot }
+                        : w.pending,
+                  }))
+                }
+                onRemoveEvent={(i) =>
+                  setWizard((w) => {
+                    const editingIndex = w.editingIndex === i ? null : w.editingIndex != null && i < w.editingIndex ? w.editingIndex - 1 : w.editingIndex;
+                    return { ...w, events: w.events.filter((_, j) => j !== i), editingIndex, pending: w.editingIndex === i ? null : w.pending };
+                  })
+                }
+                onEditEvent={(i) =>
+                  setWizard((w) => {
+                    const event = w.events[i];
+                    if (!event) return w;
+                    return {
+                      ...w,
+                      kind: event.kind,
+                      robot: event.kind === 'goal_change' || event.kind === 'path_invalid' ? event.robot : w.robot,
+                      until: event.kind === 'obstacle_add' ? event.until ?? null : null,
+                      pending: event,
+                      editingIndex: i,
+                    };
+                  })
+                }
+                onAddPending={() =>
+                  setWizard((w) => {
+                    if (!w.pending) return w;
+                    const events = [...w.events];
+                    if (w.editingIndex != null) events[w.editingIndex] = w.pending;
+                    else {
+                      if (events.length >= limits.maxEvents) return w;
+                      events.push(w.pending);
+                    }
+                    return { ...w, events, pending: null, editingIndex: null };
+                  })
+                }
+                onClearPending={() => setWizard((w) => ({ ...w, pending: null, editingIndex: null }))}
+                onUntilChange={(until) =>
+                  setWizard((w) => ({
+                    ...w,
+                    until,
+                    pending: w.pending?.kind === 'obstacle_add' ? { ...w.pending, until } : w.pending,
+                  }))
+                }
                 onFrozenChange={(n) => setWizard((w) => ({ ...w, frozenSteps: n }))}
                 onSubmit={(problemText, fa) => {
-                  setWizard((w) => ({ ...w, active: false, events: [], kind: null }));
+                  setWizard((w) => ({ ...w, active: false, events: [], kind: null, pending: null, editingIndex: null }));
                   void solve(problemText, fa);
                 }}
-                onCancel={() => setWizard((w) => ({ ...w, active: false, kind: null, events: [] }))}
+                onCancel={() => setWizard((w) => ({ ...w, active: false, kind: null, events: [], pending: null, editingIndex: null }))}
               />
             )}
             {compare && (
@@ -1035,20 +1138,20 @@ export function MapfPanel(props: MapfPanelProps) {
           {/* 时间轴 + 指标带 */}
           <div className="mapf-bottom">
             <div className="mapf-play">
-              <button type="button" className="btn tiny" onClick={() => clockRef.current?.seek(0)}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => clockRef.current?.seek(0)}>
                 ⏮
               </button>
-              <button type="button" className="btn tiny" onClick={() => clockRef.current?.step(-1)}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => clockRef.current?.step(-1)}>
                 ◀
               </button>
-              <button type="button" className="btn tiny primary" onClick={() => clockRef.current?.toggle()}>
+              <button type="button" className="btn tiny primary" disabled={wizard.active} onClick={() => clockRef.current?.toggle()}>
                 {playing ? '⏸' : '▶'}
               </button>
-              <button type="button" className="btn tiny" onClick={() => clockRef.current?.step(1)}>
+              <button type="button" className="btn tiny" disabled={wizard.active} onClick={() => clockRef.current?.step(1)}>
                 ⏭
               </button>
               <span className="tabular-nums mapf-t-readout">t = {t} / {maxT}</span>
-              <select value={speed} onChange={(e) => setSpeed(Number(e.target.value) as Speed)} aria-label="播放速度">
+              <select value={speed} disabled={wizard.active} onChange={(e) => setSpeed(Number(e.target.value) as Speed)} aria-label="播放速度">
                 {SPEEDS.map((s) => (
                   <option key={s} value={s}>
                     {s}×
@@ -1065,6 +1168,7 @@ export function MapfPanel(props: MapfPanelProps) {
               events={eventMarks.map((e) => ({ at: e.at }))}
               conflictAt={null}
               frozenAt={frozenAt}
+              disabled={wizard.active}
               onSeek={(tt) => clockRef.current?.seek(tt)}
               onSelectRobot={(id) => setPrimary(id)}
             />

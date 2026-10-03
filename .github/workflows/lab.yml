@@ -2,7 +2,7 @@ name: Algorithm Lab
 
 on:
   push:
-    branches: [main]
+    branches: [main, "arena/**"]
     paths:
       - "lab/**"
       - "aps/**"
@@ -12,6 +12,7 @@ on:
       - ".github/workflows/mapf-quality.yml"
       - ".github/workflows/agv-quality.yml"
       - ".github/workflows/lab.yml"
+      - ".github/workflows/lab-visual-acceptance.yml"
   pull_request:
     paths:
       - "lab/**"
@@ -22,6 +23,7 @@ on:
       - ".github/workflows/mapf-quality.yml"
       - ".github/workflows/agv-quality.yml"
       - ".github/workflows/lab.yml"
+      - ".github/workflows/lab-visual-acceptance.yml"
   workflow_dispatch:
     inputs:
       engine_tag:
@@ -52,6 +54,8 @@ jobs:
   build-lab:
     name: 构建与验证 Lab
     needs: [aps-quality, mapf-quality, agv-quality]
+    outputs:
+      production_ready: ${{ steps.upload-preview.outcome == 'success' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -186,7 +190,18 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: 同步引擎、类型检查与生产构建
+        id: production-build
         run: npm run build
+
+      - name: 上传临时预览产物（保留 14 天）
+        id: upload-preview
+        if: ${{ always() && steps.production-build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-preview
+          path: lab/dist
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Lab 冒烟、Worker 生命周期、渲染与产物检查
         run: |
@@ -200,24 +215,22 @@ jobs:
           npm run test:dist
           npm run test:pages
 
-      - name: 上传临时预览产物（保留 14 天）
-        uses: actions/upload-artifact@v4
-        with:
-          name: lab-preview
-          path: lab/dist
-          if-no-files-found: error
-          retention-days: 14
-
       - name: 准备 GitHub Pages 部署产物
         if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: lab/dist
 
+  visual-acceptance:
+    name: 三维视觉验收（真实 WebGL）
+    needs: build-lab
+    if: ${{ always() && needs.build-lab.outputs.production_ready == 'true' }}
+    uses: ./.github/workflows/lab-visual-acceptance.yml
+
   deploy-pages:
     name: 部署 GitHub Pages
     if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
-    needs: build-lab
+    needs: [build-lab, visual-acceptance]
     runs-on: ubuntu-latest
     permissions:
       contents: read

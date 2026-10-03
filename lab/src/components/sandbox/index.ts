@@ -7,6 +7,8 @@ export { SandboxScene } from './SandboxScene';
 export { IsoCamera } from './IsoCamera';
 export { GroundPlate } from './GroundPlate';
 export { ObstacleField } from './ObstacleField';
+export { WarehouseEnvironment, WarehouseRackField } from './WarehouseEnvironment';
+export { FactoryEnvironment } from './FactoryEnvironment';
 export { GlowPath } from './GlowPath';
 export { GlowNode } from './GlowNode';
 export { RobotUnit } from './RobotUnit';

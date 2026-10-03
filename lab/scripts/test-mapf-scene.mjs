@@ -146,6 +146,18 @@ const {
       }
     }
     check(`全部 mock roundtrip 语义等价（${okCount}/${files.length}）`, okCount === files.length);
+    const warehousePath = join(mockDir, 'm00-warehouse-aisles.json');
+    if (existsSync(warehousePath)) {
+      try {
+        const warehouse = parseScene(readFileSync(warehousePath, 'utf8'));
+        const errors = precheckScene(warehouse, FALLBACK_LIMITS).filter((issue) => issue.level === 'error');
+        check('仓库原型 m00 起终点与地图结构可解', errors.length === 0, errors.map((issue) => issue.code).join(', '));
+      } catch (err) {
+        check('仓库原型 m00 起终点与地图结构可解', false, err.message);
+      }
+    } else {
+      check('仓库原型 m00 已随 MAPF mocks 同步', false);
+    }
   }
 }
 

@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { GlowPath, GroundPlate, IsoCamera, MachineUnit, SandboxScene, SB, sbRobotColor } from '../../components/sandbox';
+import { FactoryEnvironment, GlowPath, GroundPlate, IsoCamera, MachineUnit, SandboxScene, SB, sbRobotColor } from '../../components/sandbox';
 
 export interface ApsSandbox3DProps {
   /** 资源（机器）id，按数组顺序铺产线。 */
@@ -28,31 +28,25 @@ export interface ApsSandbox3DProps {
   onSelectOp?: (opId: string | null) => void;
 }
 
-/** 产线网格间距（世界单位）。 */
-const PITCH = 2.6;
+/** 设备中心之间的节距（世界单位），沿生产流向排成一条可读产线。 */
+const PITCH = 3.25;
 /** 工件/状态光高度（贴设备台面）。 */
-const PATH_Y = 0.02;
+const PATH_Y = 0.055;
 
 export function ApsSandbox3D({ machines, ops, minMs, maxMs, step, steps, playing, selectedOp, onSelectOp }: ApsSandbox3DProps) {
   // 回放时刻 = 整数步线性映射到引擎毫秒区间（不插值加工过程，只定位工序区间）
   const now = minMs + ((maxMs - minMs) * Math.max(0, Math.min(steps, step))) / Math.max(1, steps);
-  const cols = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, machines.length))));
-  const rows = Math.max(1, Math.ceil(Math.max(1, machines.length) / cols));
-  const width = Math.max(4, cols * PITCH);
-  const height = Math.max(4, rows * PITCH);
+  const width = Math.max(7.2, machines.length * PITCH + 0.8);
+  const height = 7.4;
 
   const layout = useMemo(() => {
     const byId = new Map<string, { x: number; z: number }>();
     machines.forEach((id, i) => {
-      const cx = i % cols;
-      const cy = Math.floor(i / cols);
-      // 以产线中心为原点
-      const x = (cx - (cols - 1) / 2) * PITCH;
-      const z = (cy - (rows - 1) / 2) * PITCH;
-      byId.set(id, { x, z });
+      // 统一沿 X 方向排列，保留真实工序关系线的空间先后。
+      byId.set(id, { x: 1.95 + i * PITCH, z: 3.0 });
     });
     return byId;
-  }, [machines, cols, rows]);
+  }, [machines]);
 
   const orderColors = useMemo(() => {
     const ids = [...new Set(ops.map((o) => o.orderId))].sort();
@@ -114,8 +108,9 @@ export function ApsSandbox3D({ machines, ops, minMs, maxMs, step, steps, playing
 
   return (
     <SandboxScene width={width} height={height} className="sandbox-stage" active={playing}>
-      <IsoCamera span={span} view="iso" />
+      <IsoCamera span={span} width={width} height={height} view="iso" />
       <GroundPlate width={width} height={height} />
+      <FactoryEnvironment width={width} height={height} />
 
       {/* 产线网格地面线（细发光线，标识设备位） */}
       {machines.map((id) => {

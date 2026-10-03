@@ -1,51 +1,69 @@
 /**
- * 等距相机 + 轨道控制：默认等距视角（方位 45°、俯角 ~35°），
- * 支持平滑切到正交俯视；旋转/缩放/平移全开，按需渲染下由 drei 自动 invalidate。
- *
- * 正交相机的可视世界宽度 = 画布像素宽 / zoom（three.js makeOrthographic 语义，
- * R3F 把 left/right/top/bottom 设为 ±size/2）。因此这里按「场地跨度 + 画布宽度」
- * 计算适配 zoom，保证 8×8 到 32×32 的沙盘都能完整落进取景框。
+ * Responsive orthographic camera for square and long-form industrial sand tables.
+ * Fit uses both canvas dimensions and the projected board bounds, then recomputes on
+ * every ResizeObserver update from React Three Fiber.
  */
 
 import { OrbitControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 
 export interface IsoCameraProps {
-  /** 场地尺寸（格数），决定相机距离与适配缩放。 */
+  /** Legacy maximum extent; retained for callers that only know a single span. */
   span: number;
-  /** 视角预设。 */
+  /** Actual board bounds improve framing for long / wide scenes. */
+  width?: number;
+  height?: number;
   view?: 'iso' | 'top';
-  /** 是否允许旋转（编辑模式下可锁定为俯视更精准）。 */
+  /** 编辑模式下锁定旋转，避免与笔刷冲突。 */
   rotatable?: boolean;
 }
 
-const ISO_DIR = new THREE.Vector3(0.9, 1.05, 0.9).normalize();
+// True 45° azimuth + 45° elevation for an affine, symmetric isometric projection.
+const ISO_DIR = new THREE.Vector3(1, Math.SQRT2, 1).normalize();
 const TOP_DIR = new THREE.Vector3(0.001, 1, 0.001).normalize();
 
-/** 适配 zoom：留 28% 边距给轨迹悬浮与节点。 */
-export function fitZoom(canvasWidth: number, span: number): number {
-  const w = Math.max(320, canvasWidth);
-  return Math.max(4, Math.min(800, w / Math.max(4, span * 1.28)));
+/**
+ * Fit an orthographic camera against the *projected* isometric diamond, not only the
+ * longest grid side. Optional arguments keep the old two-parameter API compatible.
+ */
+export function fitZoom(
+  canvasWidth: number,
+  span: number,
+  canvasHeight = canvasWidth,
+  boardWidth = span,
+  boardHeight = span,
+  view: 'iso' | 'top' = 'iso',
+): number {
+  const viewportWidth = Math.max(240, canvasWidth);
+  const viewportHeight = Math.max(240, canvasHeight);
+  const w = Math.max(1, boardWidth);
+  const h = Math.max(1, boardHeight);
+  const projectedWidth = view === 'top' ? w + 1.6 : (w + h) * Math.SQRT1_2 + 1.9;
+  const projectedHeight = view === 'top' ? h + 1.6 : (w + h) * 0.5 + 3.5;
+  const fit = Math.min(viewportWidth / projectedWidth, viewportHeight / projectedHeight) * 0.94;
+  return Math.max(3, Math.min(800, fit));
 }
 
-export function IsoCamera({ span, view = 'iso', rotatable = true }: IsoCameraProps) {
+export function IsoCamera({ span, width = span, height = span, view = 'iso', rotatable = true }: IsoCameraProps) {
   const { camera, invalidate, size } = useThree();
-  const center = useMemo(() => new THREE.Vector3(span / 2, 0, span / 2), [span]);
-  const fitRef = useRef(60);
+  const [fit, setFit] = useState(48);
+  const center = useMemo(() => new THREE.Vector3(width / 2, 0, height / 2), [width, height]);
 
   useEffect(() => {
-    const zoom = fitZoom(size.width, span);
-    fitRef.current = zoom;
-    const dist = span * 1.6;
-    const dir = view === 'top' ? TOP_DIR : ISO_DIR;
-    camera.position.copy(center).addScaledVector(dir, dist);
+    const zoom = fitZoom(size.width, span, size.height, width, height, view);
+    setFit(zoom);
+    const distance = Math.max(width, height, span) * 1.7;
+    const direction = view === 'top' ? TOP_DIR : ISO_DIR;
+    camera.position.copy(center).addScaledVector(direction, distance);
     camera.lookAt(center);
+    camera.near = 0.1;
+    camera.far = Math.max(500, Math.max(width, height, span) * 8 + 100);
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
     invalidate();
-  }, [view, span, size.width, size.height, camera, center, invalidate]);
+  }, [view, span, width, height, size.width, size.height, camera, center, invalidate]);
 
   return (
     <OrbitControls
@@ -54,8 +72,8 @@ export function IsoCamera({ span, view = 'iso', rotatable = true }: IsoCameraPro
       enableDamping
       dampingFactor={0.12}
       enableRotate={rotatable}
-      minZoom={Math.max(2, fitRef.current * 0.35)}
-      maxZoom={Math.min(2000, fitRef.current * 8)}
+      minZoom={Math.max(2, fit * 0.35)}
+      maxZoom={Math.min(2000, fit * 8)}
       minPolarAngle={0.12}
       maxPolarAngle={Math.PI / 2 - 0.04}
     />

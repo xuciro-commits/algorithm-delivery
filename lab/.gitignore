@@ -3,6 +3,7 @@
 node_modules/
 dist/
 .vite/
+artifacts/
 
 # sync-engine 生成物：真正的来源是 aps/rust（wasm/胶水）与 aps/mock（数据）
 # 这些文件由 `npm run sync` 自动生成，因此不入库，避免“多份副本互相漂移”。

@@ -55,15 +55,23 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run test:core` | 核心冒烟：加载真实 WASM 求解，并断言实验室纯逻辑（30+ 项） |
 | `npm run test:runner` | 运行器生命周期：取消（终止 Worker）→ 自动重建 → 再求解；`dispose()` |
 | `npm run test:render` | 渲染冒烟：外壳/参数区/MAPF Visual Lab 与 AGV 面板骨架/待接入模块/空态（SSR，无需浏览器） |
-| `npm run test:mapf:scene` | MAPF 场景内核：命令撤销栈、预检逐错误码、序列化白名单、13 mock roundtrip、动态块构造与预检拦截 |
+| `npm run test:mapf:scene` | MAPF 场景内核：命令撤销栈、预检逐错误码、序列化白名单、14 mock roundtrip、仓库原型结构预检、动态块构造与预检拦截 |
 | `npm run test:mapf:playback` | MAPF 回放时钟：seek/暂停/限速不变式（曾抓出 dt 毫秒未除 1000 的真 bug） |
 | `npm run test:mapf:runs` | MAPF 运行历史：RunRecord 投影、指纹分组、diffRuns 对比方向语义 |
-| `npm run test:agv` | AGV Lab：场景内核 + 13 mock roundtrip + **真实 WASM 集成**（a01/a07/a10 求解断言与 CLI 同源、确定性、篡改必拒、动态汇总块） |
+| `npm run test:agv` | AGV Lab：场景内核 + 14 mock roundtrip + 仓库原型结构预检 + **真实 WASM 集成**（a01/a07/a10 与 warehouse-studio 求解断言、独立核验、确定性、篡改必拒、动态汇总块） |
 | `npm run test:dist` | 构建产物校验：子路径资源引用、清单 sha256 与产物一致、体积 |
 | `npm run test:pages` | **Pages 子路径仿真**：把 dist 挂到 `/algorithm-delivery/` 下用真实 HTTP 跑一遍 |
-| `npm run test:all` | 先同步/构建，再运行以上全部 Lab 检查（要求已有 Rust WASM 产物） |
+| `npm run test:visual` | Playwright Chromium 检查真实 production WebGL 场景、HDRI、非黑屏、相机交互和真实引擎结果；需要已构建的真实 dist 与 `npx playwright install --with-deps chromium`，产出九张图及 JSON/HTML/console Artifact |
+| `npm run test:all` | 先同步/构建，再运行以上 Lab 检查（要求已有 Rust WASM 产物；视觉检查在独立 Actions job 运行） |
 
-## 2. 数据来源与“单一来源”原则
+## 2. Three.js 场景与视觉验收
+
+- 视觉验收门槛、九张截图、检查项与当前未完成项：[`design/VISUAL-ACCEPTANCE.md`](design/VISUAL-ACCEPTANCE.md)。
+- 资产来源、格式、文件大小、再分发说明及未解决的参考图授权项：[`design/assets/ASSET-REGISTER.md`](design/assets/ASSET-REGISTER.md)。
+- Actions 由 [`../.github/workflows/lab-visual-acceptance.yml`](../.github/workflows/lab-visual-acceptance.yml) 独立运行；它消费同一次 `build-lab` 上传的 production `lab-preview`，并固定在 Ubuntu 执行 `npx playwright install --with-deps chromium`。Artifacts 保留 30 天。
+- 屏幕截图和非黑屏检测是浏览器功能证据，不等于美术通过；CI SwiftShader 不作为实体 GPU 帧率结论。AGV 原型还需真实桌面浏览器人工验收。
+
+## 3. 数据来源与“单一来源”原则
 
 引擎与构建期规模基准仍以 APS 源码/Mock 为单一来源，由 `scripts/sync-engine.mjs` 同步；四个小型
 Mock JSON 另由前端直接导入，作为 manifest/WASM 不可用时的离线数据目录（不是手工维护的副本）。
@@ -82,7 +90,7 @@ baseline 能解出 24 道工序、分析类导出可用。任何一项不满足�
 `public/wasm/`、`public/mock/`、`src/vendor/`、`engine-manifest.json` 都在 `.gitignore` 里，
 因为它们是生成物；真正的来源只有一个：`aps/rust` 与 `aps/mock`。
 
-## 3. 在实验室里做什么（APS 模块）
+## 4. 在实验室里做什么（APS 模块）
 
 - **数据**：基础车间 / 设备故障 / 到货延迟 / 无解四个内置场景直接打包在页面里；即使
   `engine-manifest.json` 或 WASM 未加载，仍可选择、查看案例与参数。引擎清单只补充规模基准。
@@ -116,16 +124,17 @@ baseline 能解出 24 道工序、分析类导出可用。任何一项不满足�
 
 不一致会显式告警（例如手工替换了 wasm 却忘了重新生成清单）。
 
-## 4. 构建与部署（全自动）
+## 5. 构建与部署（全自动）
 
 ```
-GitHub Actions: lab.yml
+GitHub Actions: lab.yml + lab-visual-acceptance.yml
   push/PR（lab/**、aps/rust/web/**、aps/mock/** …）
     → 构建 WASM（或下载指定 Release 的产物）
     → npm ci → sync（自检）→ build（tsc + vite）
+    → 上传本次 production `lab-preview`（14 天）
     → test:core / test:runner / test:dist / test:pages
-    → 上传 **CI 临时 Artifact**（14 天）
-    → push 到 main 时：部署到 GitHub Pages
+    → 独立 Ubuntu Playwright job 消费同一份 dist，真实 WebGL + 引擎运行检查，上传视觉 Artifact（30 天）
+    → push 到 main 且质量门通过时：部署到 GitHub Pages
 ```
 
 - **子路径**：GitHub Pages 项目站点在 `https://<owner>.github.io/algorithm-delivery/`，
@@ -139,7 +148,7 @@ GitHub Actions: lab.yml
   macOS ARM64 / WebAssembly 四个平台产物 + `SHA256SUMS` + 版本信息；任一平台构建失败则
   **不发布**（publish job 依赖全部构建成功）。
 
-## 5. 新增一个算法模块
+## 6. 新增一个算法模块
 
 各算法**保留自己的问题结构、计算引擎与可视化**，不强行统一到同一数学模型。
 接入只需要三步：
@@ -171,7 +180,7 @@ registerModule(myModule);
 - 计算优先放在 WebAssembly/Worker 内，保证页面不卡、无需常驻服务器；
 - 结果与指标以引擎输出为准，前端不重算目标值/约束（避免“两个真相”）。
 
-## 6. 排障
+## 7. 排障
 
 | 现象 | 原因与处理 |
 | --- | --- |

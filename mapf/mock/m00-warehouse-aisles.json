@@ -1,0 +1,36 @@
+{
+  "schema_version": "mapf-problem/1.0",
+  "id": "m00-warehouse-aisles",
+  "map": {
+    "cells": [
+      "............",
+      "...##....##.",
+      "...##....##.",
+      "...##....##.",
+      "...##....##.",
+      "...##....##.",
+      "............",
+      "............",
+      "............"
+    ]
+  },
+  "time_model": { "timestep": "discrete", "horizon": 48 },
+  "objective": { "kind": "soc", "direction": "min" },
+  "robots": [
+    { "id": "AMR-A", "start": [1, 1], "goal": [11, 1] },
+    { "id": "AMR-B", "start": [10, 7], "goal": [1, 7] },
+    { "id": "AMR-C", "start": [5, 0], "goal": [6, 8] }
+  ],
+  "solver": {
+    "planner": "auto",
+    "time_limit_ms": 5000,
+    "seed": 42,
+    "suboptimality_factor": 1.5
+  },
+  "tags": {
+    "name": "仓储交叉通道 · 三车避让",
+    "description": "12×9 立体货架通道抽象：两组货架形成纵向巷道，三台机器人在横向交叉通道中避让。",
+    "kind": "scenario",
+    "expect": "路径由 MAPF 引擎规划并由独立验证器校验"
+  }
+}

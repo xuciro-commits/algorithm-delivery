@@ -21,6 +21,9 @@ export interface AgvDynamicWizardProps {
   busy: boolean;
   events: AgvDynamicEventInput[];
   kind: AgvWizardKind;
+  pendingCell: [number, number] | null;
+  editingIndex: number | null;
+  taskPickTarget: 'pickup' | 'dropoff';
   /** 新任务草稿（task_add 用）。 */
   draft: {
     id: string;
@@ -47,6 +50,8 @@ export interface AgvDynamicWizardProps {
   onPriorityChange: (n: number) => void;
   onUntilChange: (n: number | null) => void;
   onRemoveEvent: (index: number) => void;
+  onEditEvent: (index: number) => void;
+  onTaskPickTargetChange: (target: 'pickup' | 'dropoff') => void;
   onAddEvent: () => void;
   onSubmit: (built: BuiltAgvDynamic) => void;
   onCancel: () => void;
@@ -84,7 +89,7 @@ function eventLabel(e: AgvDynamicEventInput): string {
 }
 
 export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
-  const { scene, solution, time, maxT, maxEvents, busy, events, kind, draft, pickLabel } = props;
+  const { scene, solution, time, maxT, maxEvents, busy, events, kind, draft, pickLabel, pendingCell, editingIndex, taskPickTarget } = props;
 
   const built = useMemo(
     () => buildAgvDynamic({ scene, solution, time, events, maxEvents }),
@@ -98,6 +103,47 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
     maxEvents,
     built,
   ]);
+  const draftEvent = useMemo<AgvDynamicEventInput | null>(() => {
+    if (!kind) return null;
+    if (kind === 'obstacle_add' && pendingCell) return { kind, cell: pendingCell, until: props.until };
+    if (kind === 'obstacle_remove' && pendingCell) return { kind, cell: pendingCell };
+    if (kind === 'task_add' && draft.id.trim() && draft.pickup && draft.dropoff) {
+      return {
+        kind,
+        taskId: draft.id.trim(),
+        pickup: draft.pickup,
+        dropoff: draft.dropoff,
+        pickupService: draft.pickupService,
+        dropoffService: draft.dropoffService,
+        releaseStep: draft.releaseStep,
+        priority: draft.priority,
+        dueStep: draft.dueStep,
+        requiredCapability: draft.requiredCapability.trim() || null,
+      };
+    }
+    if (kind === 'task_cancel' && props.targetTask) return { kind, task: props.targetTask };
+    if (kind === 'task_priority' && props.targetTask) return { kind, task: props.targetTask, priority: props.priority };
+    if (kind === 'vehicle_pause' && props.targetVehicle) return { kind, vehicle: props.targetVehicle };
+    if (kind === 'vehicle_resume' && props.targetVehicle) return { kind, vehicle: props.targetVehicle };
+    return null;
+  }, [kind, pendingCell, props.until, draft, props.targetTask, props.targetVehicle, props.priority]);
+  const previewEvents = useMemo(() => {
+    if (!draftEvent) return events;
+    if (editingIndex == null) return [...events, draftEvent];
+    return events.map((event, index) => (index === editingIndex ? draftEvent : event));
+  }, [events, draftEvent, editingIndex]);
+  const previewBuilt = useMemo(
+    () => buildAgvDynamic({ scene, solution, time, events: previewEvents, maxEvents }),
+    [scene, solution, time, previewEvents, maxEvents],
+  );
+  const previewIssues = useMemo(
+    () => precheckAgvDynamic({ scene, solution, time, events: previewEvents, maxEvents }, previewBuilt),
+    [scene, solution, time, previewEvents, maxEvents, previewBuilt],
+  );
+  const draftIssues = draftEvent
+    ? previewIssues.filter((issue) => issue.eventIndex === (editingIndex ?? events.length) || issue.eventIndex == null)
+    : [];
+  const cannotAddDraft = busy || !draftEvent || draftIssues.length > 0 || (editingIndex == null && events.length >= maxEvents);
 
   const needsCell = kind === 'obstacle_add' || kind === 'obstacle_remove';
   const needsTask = kind === 'task_cancel' || kind === 'task_priority';
@@ -145,27 +191,11 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
               </label>
               <label className="field">
                 取货点
-                <input
-                  value={draft.pickup ? `${draft.pickup[0]},${draft.pickup[1]}` : ''}
-                  readOnly
-                  placeholder="点地图或填 x,y"
-                  onChange={(e) => {
-                    const m = /^(\d+)\s*,\s*(\d+)$/.exec(e.target.value);
-                    if (m) props.onDraftChange({ pickup: [Number(m[1]), Number(m[2])] });
-                  }}
-                />
+                <input value={draft.pickup ? `${draft.pickup[0]},${draft.pickup[1]}` : ''} readOnly placeholder="选择后在地图点格" />
               </label>
               <label className="field">
                 送达点
-                <input
-                  value={draft.dropoff ? `${draft.dropoff[0]},${draft.dropoff[1]}` : ''}
-                  readOnly
-                  placeholder="点地图或填 x,y"
-                  onChange={(e) => {
-                    const m = /^(\d+)\s*,\s*(\d+)$/.exec(e.target.value);
-                    if (m) props.onDraftChange({ dropoff: [Number(m[1]), Number(m[2])] });
-                  }}
-                />
+                <input value={draft.dropoff ? `${draft.dropoff[0]},${draft.dropoff[1]}` : ''} readOnly placeholder="选择后在地图点格" />
               </label>
               <label className="field">
                 取货服务
@@ -197,16 +227,14 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
                 <input value={draft.requiredCapability} onChange={(e) => props.onDraftChange({ requiredCapability: e.target.value })} placeholder="如 cold" />
               </label>
             </div>
-            <div className="solve-row">
-              <button
-                type="button"
-                className="btn tiny primary"
-                disabled={busy || !draft.id.trim() || !draft.pickup || !draft.dropoff}
-                onClick={props.onAddEvent}
-              >
-                加入事件列表
+            <div className="wizard-target-pick">
+              <button type="button" className={`btn tiny ${taskPickTarget === 'pickup' ? 'primary' : ''}`} onClick={() => props.onTaskPickTargetChange('pickup')}>
+                地图选择取货点
               </button>
-              <span className="muted small">取/送点也可直接在舞台地图上点选</span>
+              <button type="button" className={`btn tiny ${taskPickTarget === 'dropoff' ? 'primary' : ''}`} onClick={() => props.onTaskPickTargetChange('dropoff')}>
+                地图选择送达点
+              </button>
+              <span className="muted small">当前地图点击设置：{taskPickTarget === 'pickup' ? '取货点' : '送达点'}</span>
             </div>
           </li>
         )}
@@ -229,11 +257,6 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
                 <input type="number" min={1} value={props.priority} onChange={(e) => props.onPriorityChange(Math.max(1, Number(e.target.value) || 1))} />
               </label>
             )}
-            <div className="solve-row">
-              <button type="button" className="btn tiny primary" disabled={busy || !props.targetTask} onClick={props.onAddEvent}>
-                加入事件列表
-              </button>
-            </div>
           </li>
         )}
 
@@ -249,26 +272,52 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
                 ))}
               </select>
             </label>
-            <div className="solve-row">
-              <button type="button" className="btn tiny primary" disabled={busy || !props.targetVehicle} onClick={props.onAddEvent}>
-                加入事件列表
-              </button>
-            </div>
           </li>
         )}
 
         {needsCell && (
           <li>
-            <label className="field">
-              持续到（until，可空 = 永久）
-              <input
-                type="number"
-                min={time + 1}
-                value={props.until ?? ''}
-                onChange={(e) => props.onUntilChange(e.target.value === '' ? null : Math.max(time + 1, Number(e.target.value) || 0))}
-              />
-            </label>
-            <p className="muted small">{pickLabel ?? '在舞台地图上点选格子（落格即加入事件列表）'}</p>
+            {kind === 'obstacle_add' && (
+              <label className="field">
+                持续到（until，可空 = 永久）
+                <input
+                  type="number"
+                  min={time + 1}
+                  value={props.until ?? ''}
+                  onChange={(e) => props.onUntilChange(e.target.value === '' ? null : Math.max(time + 1, Number(e.target.value) || 0))}
+                />
+              </label>
+            )}
+            <p className="muted small">
+              {pickLabel ?? '在舞台地图上点选格子'}；
+              {pendingCell ? ` 当前选择 (${pendingCell[0]},${pendingCell[1]})，确认后加入事件列表` : '地图选择只建立草稿，不会直接入队'}
+            </p>
+            {pendingCell && (
+              <div className="solve-row">
+                <button type="button" className="btn tiny primary" disabled={cannotAddDraft} onClick={props.onAddEvent}>
+                  {editingIndex != null ? '保存事件修改' : '加入事件列表'}
+                </button>
+              </div>
+            )}
+          </li>
+        )}
+
+        {kind && draftEvent && (
+          <li className="wizard-draft">
+            <b>{editingIndex != null ? `正在修改第 ${editingIndex + 1} 项` : '待加入事件'}</b>
+            <p>{eventLabel(draftEvent)}</p>
+            {draftIssues.length > 0 && (
+              <div className="error-panel small">
+                {draftIssues.map((issue, index) => <p key={index}>⚠ {issue.message}</p>)}
+              </div>
+            )}
+            {!needsCell && (
+              <div className="solve-row">
+                <button type="button" className="btn tiny primary" disabled={cannotAddDraft} onClick={props.onAddEvent}>
+                  {editingIndex != null ? '保存事件修改' : '加入事件列表'}
+                </button>
+              </div>
+            )}
           </li>
         )}
 
@@ -283,9 +332,14 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
                   <span>
                     #{i + 1} {eventLabel(e)}
                   </span>
-                  <button type="button" className="btn tiny" onClick={() => props.onRemoveEvent(i)} disabled={busy}>
-                    ✕
-                  </button>
+                  <div className="event-actions">
+                    <button type="button" className="btn tiny" onClick={() => props.onEditEvent(i)} disabled={busy}>
+                      编辑
+                    </button>
+                    <button type="button" className="btn tiny" onClick={() => props.onRemoveEvent(i)} disabled={busy}>
+                      删除
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -309,7 +363,7 @@ export function AgvDynamicWizard(props: AgvDynamicWizardProps) {
             <button
               type="button"
               className="btn primary"
-              disabled={busy || issues.length > 0 || events.length === 0}
+              disabled={busy || issues.length > 0 || events.length === 0 || draftEvent != null || pendingCell != null}
               onClick={() => props.onSubmit(built)}
             >
               {busy ? '重调度中…' : '提交重调度'}

@@ -26,8 +26,10 @@ export function applyCommand(doc: SceneDoc, cmd: SceneCommand): SceneDoc {
       const [x, y] = cmd.cell;
       const row = doc.map.cells[y];
       if (!row || x < 0 || x >= row.length) return doc;
+      const nextCell = cmd.blocked ? '#' : '.';
+      if (row[x] === nextCell) return doc;
       const cells = [...doc.map.cells];
-      cells[y] = row.substring(0, x) + (cmd.blocked ? '#' : '.') + row.substring(x + 1);
+      cells[y] = row.substring(0, x) + nextCell + row.substring(x + 1);
       return { ...doc, map: { cells } };
     }
     case 'addRobot': {
@@ -107,6 +109,7 @@ export class SceneHistory {
 
   /** 开始一笔（pointerdown）：此后同笔的 toggleWall 合并为一个撤销步。 */
   beginStroke(): void {
+    if (this.strokeBase) this.endStroke();
     this.strokeBase = this.doc;
   }
 
@@ -139,6 +142,7 @@ export class SceneHistory {
   }
 
   undo(): SceneDoc | null {
+    this.endStroke();
     const prev = this.past.pop();
     if (!prev) return null;
     this.future.unshift(this.doc);
@@ -147,6 +151,7 @@ export class SceneHistory {
   }
 
   redo(): SceneDoc | null {
+    this.endStroke();
     const next = this.future.shift();
     if (!next) return null;
     this.past.push(this.doc);

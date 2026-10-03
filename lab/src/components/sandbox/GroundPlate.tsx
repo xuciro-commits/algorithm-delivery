@@ -1,6 +1,6 @@
 /**
- * 空间底板：有厚度的倒角基座 + 细密工程网格（双色刻线）+ 边缘金属框线。
- * 栅格被转换为「具有轻微厚度的空间底板」（V2 §五-MAPF）。
+ * PBR micro-lab floor: a cast metal/satin-concrete plinth, inset floor panel,
+ * reusable engineering grid and four distinct machined edge rails.
  */
 
 import { Grid, RoundedBox } from '@react-three/drei';
@@ -16,34 +16,59 @@ export interface GroundPlateProps {
 }
 
 export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: GroundPlateProps) {
+  const edge = 0.4;
+  const centerX = width / 2;
+  const centerZ = height / 2;
   return (
-    <group>
-      {/* 基座：倒角厚板 */}
+    <group name="machined-base-plate">
+      {/* 主基座：有厚度的石墨合金底板，顶面留给地坪层。 */}
       <RoundedBox
-        args={[width + 0.8, 0.5, height + 0.8]}
-        radius={0.12}
-        smoothness={3}
-        position={[width / 2, -0.28, height / 2]}
+        args={[width + edge * 2, 0.46, height + edge * 2]}
+        radius={0.13}
+        smoothness={4}
+        position={[centerX, -0.25, centerZ]}
+        receiveShadow
+        castShadow
       >
-        <meshStandardMaterial color={SB.plate} roughness={0.85} metalness={0.35} />
+        <meshStandardMaterial color="#25313a" roughness={0.64} metalness={0.46} envMapIntensity={0.72} />
       </RoundedBox>
-      {/* 顶面边缘金属框线（略大于基座顶面，形成精密边框） */}
-      <mesh position={[width / 2, 0.004, height / 2]}>
-        <boxGeometry args={[width + 0.72, 0.05, height + 0.72]} />
-        <meshStandardMaterial color={SB.plateEdge} roughness={0.6} metalness={0.55} />
+
+      {/* Industrial floor coating: a separate, matte PBR surface with visible value range. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centerX, -0.012, centerZ]} receiveShadow>
+        <planeGeometry args={[width, height]} />
+        <meshStandardMaterial color="#38444a" roughness={0.88} metalness={0.08} envMapIntensity={0.24} />
       </mesh>
-      {/* 工程网格（着色器平面，置于基座顶面） */}
+
+      {/* Four edge rails (not a solid overlay, so the floor and grid remain visible). */}
+      <mesh position={[centerX, 0.008, -edge / 2]} castShadow receiveShadow>
+        <boxGeometry args={[width + edge * 2, 0.07, 0.12]} />
+        <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
+      </mesh>
+      <mesh position={[centerX, 0.008, height + edge / 2]} castShadow receiveShadow>
+        <boxGeometry args={[width + edge * 2, 0.07, 0.12]} />
+        <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
+      </mesh>
+      <mesh position={[-edge / 2, 0.008, centerZ]} castShadow receiveShadow>
+        <boxGeometry args={[0.12, 0.07, height + edge * 2]} />
+        <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
+      </mesh>
+      <mesh position={[width + edge / 2, 0.008, centerZ]} castShadow receiveShadow>
+        <boxGeometry args={[0.12, 0.07, height + edge * 2]} />
+        <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
+      </mesh>
+
+      {/* Fine etched coordinate grid and restrained five-cell reference marks. */}
       <Grid
-        position={[width / 2, 0.011, height / 2]}
+        position={[centerX, -0.004, centerZ]}
         args={[width, height]}
         cellSize={cellSize}
-        cellThickness={0.6}
-        cellColor={SB.plateLine}
+        cellThickness={0.48}
+        cellColor="#596b77"
         sectionSize={sectionSize}
-        sectionThickness={1.1}
-        sectionColor={SB.plateEdge}
+        sectionThickness={0.88}
+        sectionColor="#82919b"
         fadeDistance={Math.max(width, height) * 3.2}
-        fadeStrength={1.2}
+        fadeStrength={1.12}
         followCamera={false}
         infiniteGrid={false}
       />

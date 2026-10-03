@@ -2074,6 +2074,38 @@ select optgroup {
   align-items: center;
 }
 
+.event-list li > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.event-actions,
+.wizard-target-pick {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.wizard-draft {
+  padding: 8px;
+  border: 1px solid rgba(47, 125, 225, 0.38);
+  border-radius: 8px;
+  background: rgba(47, 125, 225, 0.08);
+}
+
+.wizard-draft > p,
+.wizard-draft > span {
+  display: block;
+  margin: 4px 0 7px;
+  overflow-wrap: anywhere;
+}
+
+.mapf-timeline[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
 /* AGV 专属 */
 .pending-station {
   display: flex;
@@ -2441,10 +2473,34 @@ select optgroup {
   font-size: 10.5px;
 }
 
-/* APS 3D 产线舞台（V2：浮动玻璃 + 等距产线网格） */
+/* APS 3D 产线舞台：横向工位线 + 求解前静态结构预览。 */
+.aps-static-preview {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aps-preview-heading {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
 .aps-stage {
-  height: 560px;
+  height: clamp(500px, 60vh, 740px);
+  min-height: 460px;
   margin-bottom: 12px;
+}
+
+.aps-empty-state {
+  padding: 18px 14px;
+}
+
+.aps-empty-state .empty-tags {
+  display: none;
 }
 
 /* APS 工业甘特玻璃板（V2：发丝边框 + 暗玻璃 + 轻晕影） */
