@@ -607,7 +607,8 @@ export function ApsPanel({
                       ops={aps3d.ops}
                       minMs={aps3d.minMs}
                       maxMs={aps3d.maxMs}
-                      clock={apsClockRef.current}
+                      step={apsStep}
+                      steps={APS_STEPS}
                       playing={apsPlaying}
                       selectedOp={selectedOp}
                       onSelectOp={(opId) => setSelectedOp(opId)}
@@ -622,7 +623,14 @@ export function ApsPanel({
                     </div>
                     <div className="stage-float stage-float-bl">
                       <div className="mapf-play">
-                        <button type="button" className="btn tiny" onClick={() => apsClockRef.current?.seek(0)}>
+                        <button
+                          type="button"
+                          className="btn tiny"
+                          onClick={() => {
+                            apsClockRef.current?.seek(0);
+                            setApsStep(0);
+                          }}
+                        >
                           ⏮
                         </button>
                         <button type="button" className="btn tiny" onClick={() => apsClockRef.current?.step(-1)}>
@@ -640,7 +648,11 @@ export function ApsPanel({
                           max={APS_STEPS}
                           value={apsStep}
                           aria-label="排程回放进度"
-                          onChange={(e) => apsClockRef.current?.seek(Number(e.target.value))}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            apsClockRef.current?.seek(v);
+                            setApsStep(v);
+                          }}
                           style={{ width: 180 }}
                         />
                         <select

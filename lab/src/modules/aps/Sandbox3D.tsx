@@ -10,9 +10,8 @@
  * 前端零伪造：工序区间、设备归属、先后顺序全部来自引擎输出。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { GlowPath, GroundPlate, IsoCamera, MachineUnit, SandboxScene, SB, sbRobotColor } from '../../components/sandbox';
-import type { PlaybackClock } from '../mapf/playback/clock';
 
 export interface ApsSandbox3DProps {
   /** 资源（机器）id，按数组顺序铺产线。 */
@@ -21,7 +20,9 @@ export interface ApsSandbox3DProps {
   ops: Array<{ opId: string; orderId: string; machineId: string; startMs: number; endMs: number }>;
   minMs: number;
   maxMs: number;
-  clock: PlaybackClock | null;
+  /** 回放步（整数，量程 steps）。 */
+  step: number;
+  steps: number;
   playing: boolean;
   selectedOp: string | null;
   onSelectOp?: (opId: string | null) => void;
@@ -32,8 +33,9 @@ const PITCH = 2.6;
 /** 工件/状态光高度（贴设备台面）。 */
 const PATH_Y = 0.02;
 
-export function ApsSandbox3D({ machines, ops, minMs, maxMs, clock, playing, selectedOp, onSelectOp }: ApsSandbox3DProps) {
-  const [now, setNow] = useState(minMs);
+export function ApsSandbox3D({ machines, ops, minMs, maxMs, step, steps, playing, selectedOp, onSelectOp }: ApsSandbox3DProps) {
+  // 回放时刻 = 整数步线性映射到引擎毫秒区间（不插值加工过程，只定位工序区间）
+  const now = minMs + ((maxMs - minMs) * Math.max(0, Math.min(steps, step))) / Math.max(1, steps);
   const cols = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, machines.length))));
   const rows = Math.max(1, Math.ceil(Math.max(1, machines.length) / cols));
   const width = Math.max(4, cols * PITCH);
@@ -92,26 +94,6 @@ export function ApsSandbox3D({ machines, ops, minMs, maxMs, clock, playing, sele
     }
     return m;
   }, [ops, now]);
-
-  // 时钟帧驱动（毫秒时间轴）
-  const frameRef = useRef<(t: number, frac: number) => void>(() => {});
-  frameRef.current = (t: number, frac: number) => {
-    const span = Math.max(1, maxMs - minMs);
-    setNow(Math.min(maxMs, minMs + (t + frac) * span));
-  };
-  useEffect(() => {
-    if (!clock) {
-      setNow(minMs);
-      return;
-    }
-    const listener = (t: number, frac: number) => frameRef.current(t, frac);
-    clock.onFrame(listener);
-    return () => clock.onFrame(null);
-  }, [clock]);
-
-  useEffect(() => {
-    if (!clock) setNow(minMs);
-  }, [clock, minMs]);
 
   const handlePick = useCallback(
     (machineId: string) => {
