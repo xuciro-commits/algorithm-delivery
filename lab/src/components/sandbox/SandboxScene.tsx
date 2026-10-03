@@ -38,7 +38,7 @@ export interface SandboxSceneProps {
   lighting?: 'legacy' | 'art';
   /** 艺术化模式覆盖（默认跟随应用顶栏的全局视觉模式）。 */
   artMode?: ArtModeId;
-  /** true（默认）= 正交等距；false = 透视（英雄设备/近距离观察）。 */
+  /** false（默认）= 真实 3D 透视（远小近大，消除倒梯形错觉）；true = 正交等距。 */
   orthographic?: boolean;
   /** 透视相机位置（orthographic=false 时生效）。 */
   cameraPosition?: [number, number, number];
@@ -61,9 +61,9 @@ export function SandboxScene({
   active = false,
   lighting = 'legacy',
   artMode,
-  orthographic = true,
+  orthographic = false,
   cameraPosition = [12, 9, 12],
-  fov = 32,
+  fov = 38,
   zoom = 48,
   hdri = true,
 }: SandboxSceneProps) {

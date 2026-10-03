@@ -829,8 +829,8 @@ export function AgvPanel(props: AgvPanelProps) {
                   value={camView}
                   onChange={setCamView}
                   options={[
-                    { id: 'iso', label: '等距', title: '等距视角（微缩仓库）' },
-                    { id: 'top', label: '俯视', title: '正交俯视（精确对格）' },
+                    { id: 'iso', label: '透视', title: '3D 透视视角（真实远小近大）' },
+                    { id: 'top', label: '俯视', title: '俯视对格（垂直观察）' },
                   ]}
                 />
               )}
