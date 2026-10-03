@@ -27,13 +27,23 @@ The three concept images already exist in the repository and are copied into the
 
 ## Investigated but not shipped
 
-| Candidate | Source / author / license | Decision |
-|---|---|---|
-| Poly Haven `Machine Shop 01` indoor HDRI | [polyhaven.com/a/machine_shop_01](https://polyhaven.com/a/machine_shop_01) · page credits Sergej Majboroda · CC0 according to the source page | Not copied into the build. The sandbox's direct binary download attempt ended with a TLS connection failure; using a live third-party URL would violate the offline/local-asset requirement. The current environment uses the original local HDR panorama above instead. No author credit is required for the unshipped candidate. |
-| Sketchfab / other downloadable industrial GLB candidates | No model with a verified redistribution grant and locally obtained source file was accepted for this iteration | Not shipped; no remote runtime dependency or unverifiable model is used. The rack, AGV, machine and conveyor are custom procedural geometry until a suitable model's exact author/license and redistribution conditions are reviewed. |
+## Downloaded 3D model library (3dassets.dev / CC0 1.0 Universal)
+
+A comprehensive set of **475 optimized low-poly GLB models and 16 pre-assembled large scenes** downloaded via the `3dassets` MCP tool and categorized under `lab/design/assets/` for AI 3D modeling and visual prototyping. All assets use the **CC0 1.0 Universal** dedication (free personal and commercial use without attribution). Complete machine-readable metadata is recorded in [`ASSET-CATALOG.json`](./ASSET-CATALOG.json) and browsable in [`README.md`](./README.md).
+
+| Category | Path | Model count | Description & key assets |
+|---|---|---:|---|
+| **Pre-Assembled Large Scenes** | `lab/design/assets/assembled-scenes/` | **16** | 完整大场景沙盘：机加工龙门吊厂房、汽车总装流水线、高位立体仓库、物流自动分拣中心、机器人研发机库、数据中心机房、中控室大屏与密集立库等，可一键整体载入后按需增删 |
+| **AGV & Smart Warehouse** | `lab/design/assets/agv-warehouse/` | 110 | Low-profile AGV loaders, movers, tuggers, forklifts, pallet trucks, pallet racking, cantilever racks, stillages, cargo pallets, safety barriers, charging stations |
+| **APS Machining & Manufacturing** | `lab/design/assets/aps-machining/` | 112 | CNC machining centres, engine lathes, vertical mills, hydraulic presses, press brakes, 6-axis welding robots, andon light towers, gantry cranes, workpieces |
+| **Conveyors & Sorting** | `lab/design/assets/conveyors-logistics/` | 123 | Powered belt conveyors, free roller conveyors, curve conveyors, 3-way splitters, 4-way junctions, barcode scanners, weighing conveyors, vertical pallet lifts |
+| **Digital Lab & Cleanroom** | `lab/design/assets/lab-cleanroom/` | 63 | Modular lab benches, fume cupboards, biosafety cabinets, air showers, centrifuges, autoclaves, incubators, analytical balances, test tube racks |
+| **MAPF Mobile Robots & Telemetry** | `lab/design/assets/mapf-robotics/` | 51 | Biped service robots, patrol bots, delivery bots, quadrupeds, 4WD/6WD rovers, tracked UGVs, robot arms, antenna trackers, round/square charging pads |
 
 ## Acceptance notes
 
 - A project-level software license is not present in this checkout. The local original assets have no third-party redistribution restrictions, but downstream reuse should follow the license selected by the repository owner.
+- The 459 GLB models in `lab/design/assets/` are under CC0 1.0 Universal. They can be safely loaded into Three.js/R3F scenes without remote network requests or attribution obligations.
 - The concept PNG creator/license metadata is an open documentation gap. Their presence in the existing repository is confirmed; this register does **not** infer ownership from presence.
 - No external GLB, JPG, EXR, HDR, font, or texture is loaded by the running app. The only environment map is bundled under `lab/src/assets`.
+
