@@ -74,7 +74,7 @@ check('数据目录在 manifest 尚未加载时仍展示全部内置案例',
   ['基础车间（baseline）', '设备故障（machine-breakdown）', '到货延迟（material-delay）', '无解（infeasible-no-welder）'].every((name) => html.includes(name)));
 check('标准 benchmark 与 JSON 导入入口可见',
   html.includes('选择文件') && html.includes('FJSPLib / Brandimarte') && html.includes('OR-Library JSSP'));
-check('结果区为空态而非假数据', html.includes('还没有结果'));
+check('结果区为空态而非假数据', html.includes('还没有结果') || html.includes('还没有排程结果'));
 
 // ---- 2) path-planning 已就绪：渲染 MAPF 面板（引擎横幅），且不含任何假数据 ----
 html = render('#path-planning');

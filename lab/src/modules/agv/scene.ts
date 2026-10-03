@@ -123,8 +123,8 @@ export function serializeAgvScene(scene: AgvScene): string {
     seed: scene.solver.seed,
     ...(scene.solver.mapf ? { mapf: { ...scene.solver.mapf } } : {}),
   };
-  if (scene.tags?.name || scene.tags?.description) {
-    out.tags = { ...(scene.tags.name ? { name: scene.tags.name } : {}), ...(scene.tags.description ? { description: scene.tags.description } : {}) };
+  if (scene.tags && typeof scene.tags === 'object' && Object.keys(scene.tags).length > 0) {
+    out.tags = { ...scene.tags };
   }
   if (scene.extra) {
     for (const [k, v] of Object.entries(scene.extra)) {
