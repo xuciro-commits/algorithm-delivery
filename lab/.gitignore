@@ -1,0 +1,16 @@
+# 实验室构建产物与依赖（不纳入版本库；CI 每次自动生成）
+
+node_modules/
+dist/
+.vite/
+
+# sync-engine 生成物：真正的来源是 aps/rust（wasm/胶水）与 aps/mock（数据）
+# 这些文件由 `npm run sync` 自动生成，因此不入库，避免“多份副本互相漂移”。
+public/wasm/
+public/mock/
+public/engine-manifest.json
+src/vendor/aps-worker.js
+
+# 本地缓存
+node_modules/.lab-smoke/
+*.tsbuildinfo

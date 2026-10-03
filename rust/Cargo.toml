@@ -1,0 +1,33 @@
+[package]
+name = "aps-engine"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "APS PlanProblem v1 独立校验器 + 独立排程验证器 + 启发式/局部修复排程引擎（native 与 wasm32 共用同一核心）"
+license = "Apache-2.0"
+repository = "https://github.com/xuciro-commits/algorithm-delivery"
+publish = false
+
+# 说明：本 crate 刻意保持“零第三方依赖”。
+#   1) 契约层（JSON 解析/序列化、ISO 8601 时间、SHA-256、峰值内存统计）全部自带实现，
+#      便于在内网/离线环境复现构建，避免外包交付中的依赖锁定与许可证风险；
+#   2) 同一份源码同时编译为 native CLI 与 wasm32-unknown-unknown 模块，浏览器 Web Worker 可用；
+#   3) 如后续允许引入 serde/chrono，只需替换 json.rs / datetime.rs 两个模块，其余逻辑不变。
+[dependencies]
+
+[lib]
+name = "aps_engine"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "aps"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+opt-level = 1

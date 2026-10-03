@@ -1,0 +1,37 @@
+{
+  "name": "algorithm-delivery-lab",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Algorithm Delivery 统一算法实验室：浏览器内 WASM 计算、可视化与性能评测",
+  "scripts": {
+    "sync": "node scripts/sync-engine.mjs",
+    "predev": "npm run sync",
+    "dev": "vite",
+    "prebuild": "npm run sync",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "prepreview": "npm run sync",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:dist",
+    "test:core": "node scripts/smoke-lab.mjs",
+    "test:runner": "node scripts/test-runner-lifecycle.mjs",
+    "test:render": "node scripts/test-render.mjs",
+    "test:dist": "node scripts/check-dist.mjs",
+    "test:pages": "node scripts/check-pages.mjs",
+    "test:all": "npm run test:core && npm run test:runner && npm run test:render && npm run build && npm run test:dist && npm run test:pages",
+    "build:all": "bash scripts/build-all.sh"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

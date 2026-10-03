@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+/**
+ * GitHub Pages 子路径**仿真**测试。
+ *
+ * 做法：把 `dist/` 放到一个临时目录的 `<base>/` 子路径下（模拟
+ * `https://<owner>.github.io/algorithm-delivery/`），用内置 HTTP 服务器提供，
+ * 然后：
+ *   1. 抓 `index.html`，解析出所有本地资源引用并**逐个请求**，要求 200；
+ *   2. 抓 `engine-manifest.json`，校验 wasm/worker/数据文件的 URL 在子路径下可访问；
+ *   3. 把 wasm 字节与清单 sha256 比对（证明“Pages 上跑的确实是这一版产物”）；
+ *   4. 用同一份胶水在 Node 里实例化这些字节并求解 baseline（端到端链路：页面同源资源 → WASM → 解）。
+ *
+ * 这能在部署前抓出“本地根路径能跑、Pages 子路径 404”的经典问题。
+ *
+ * 用法：node scripts/check-pages.mjs [--base /algorithm-delivery/]
+ */
+
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const labDir = resolve(here, '..');
+
+function arg(name, fallback) {
+  const i = process.argv.indexOf(`--${name}`);
+  if (i >= 0 && process.argv[i + 1]) return process.argv[i + 1];
+  const prefixed = process.argv.find((a) => a.startsWith(`--${name}=`));
+  return prefixed ? prefixed.slice(name.length + 3) : fallback;
+}
+
+const base = arg('base', process.env.LAB_BASE ?? '/algorithm-delivery/');
+const distDir = resolve(labDir, 'dist');
+
+const failures = [];
+const check = (name, ok, detail = '') => {
+  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) failures.push(name);
+};
+
+if (!existsSync(distDir)) {
+  console.error(`✗ 找不到 dist：${distDir}（先运行 npm run build）`);
+  process.exit(2);
+}
+
+// ---- 组装“站点根目录”：<root>/<base 去掉首尾斜杠>/ = dist ----
+const siteRoot = mkdtempSync(join(tmpdir(), 'lab-pages-'));
+const subPath = normalize(base).replace(/^\/+|\/+$/g, '');
+const mounted = join(siteRoot, subPath);
+cpSync(distDir, mounted, { recursive: true });
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const rel = decodeURIComponent(url.pathname);
+  const filePath = join(siteRoot, rel);
+  if (!filePath.startsWith(siteRoot)) {
+    res.writeHead(403).end('forbidden');
+    return;
+  }
+  if (!existsSync(filePath)) {
+    res.writeHead(404, { 'content-type': 'text/plain' }).end(`not found: ${rel}`);
+    return;
+  }
+  const body = readFileSync(filePath);
+  res.writeHead(200, {
+    'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
+    'content-length': body.length,
+    // GitHub Pages 的行为：不缓存 HTML，静态资源长缓存
+    'cache-control': rel.endsWith('.html') ? 'max-age=0' : 'max-age=600',
+  });
+  res.end(body);
+});
+
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const port = server.address().port;
+const origin = `http://127.0.0.1:${port}`;
+const baseUrl = `${origin}${base}`;
+
+try {
+  // ---- 1) index.html 的所有本地引用都能取到 ----
+  const indexRes = await fetch(`${baseUrl}index.html`);
+  check('子路径下 index.html 可访问', indexRes.ok, `${baseUrl}index.html → ${indexRes.status}`);
+  const html = await indexRes.text();
+
+  const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+    .map((m) => m[1])
+    .filter((u) => !/^https?:|^data:|^#/.test(u));
+  check('index.html 引用了本地资源', refs.length > 0, refs.join(', '));
+
+  for (const ref of refs) {
+    const url = new URL(ref, baseUrl).href;
+    const res = await fetch(url);
+    check(`资源可访问 ${ref}`, res.ok, `HTTP ${res.status}`);
+  }
+
+  // ---- 2) 清单与运行时资源 ----
+  const manifestUrl = `${baseUrl}engine-manifest.json`;
+  const manifestRes = await fetch(manifestUrl);
+  check('子路径下 engine-manifest.json 可访问', manifestRes.ok, `HTTP ${manifestRes.status}`);
+  const manifest = await manifestRes.json();
+
+  const wasmUrl = `${baseUrl}${manifest.wasm.file}`;
+  const wasmRes = await fetch(wasmUrl);
+  const wasmBytes = new Uint8Array(await wasmRes.arrayBuffer());
+  check('子路径下 wasm 可访问', wasmRes.ok, `HTTP ${wasmRes.status}`);
+  check(
+    'wasm 以 application/wasm 提供（instantiateStreaming 需要）',
+    (wasmRes.headers.get('content-type') ?? '').includes('wasm'),
+    wasmRes.headers.get('content-type') ?? '',
+  );
+  const digest = createHash('sha256').update(wasmBytes).digest('hex');
+  check('页面取到的 wasm 与清单 sha256 一致', digest === manifest.wasm.sha256, digest.slice(0, 16) + '…');
+
+  const workerRes = await fetch(`${baseUrl}${manifest.worker.file}`);
+  check('子路径下 Worker 入口可访问', workerRes.ok, `HTTP ${workerRes.status}`);
+  check(
+    'Worker 以 JS MIME 提供（module worker 需要）',
+    (workerRes.headers.get('content-type') ?? '').includes('javascript'),
+    workerRes.headers.get('content-type') ?? '',
+  );
+
+  for (const mock of manifest.mocks ?? []) {
+    const res = await fetch(`${baseUrl}${mock.file}`);
+    check(`数据文件可访问 ${mock.file}`, res.ok, `HTTP ${res.status}`);
+  }
+
+  // ---- 3) 端到端：用页面同源取到的字节跑一次求解 ----
+  const glueUrl = `${baseUrl}${manifest.worker.file}`;
+  const glue = await import(`${pathToFileURL(join(mounted, manifest.worker.file)).href}`);
+  const engine = await glue.createEngine(wasmBytes);
+  check('用页面字节可实例化引擎', typeof engine.version === 'string', `v${engine.version}`);
+
+  const baseline = manifest.mocks.find((m) => m.kind === 'baseline') ?? manifest.mocks[0];
+  const problem = JSON.parse(readFileSync(join(mounted, baseline.file), 'utf8'));
+  problem.objective = { ...(problem.objective ?? {}), time_limit_ms: 500 };
+  const solved = engine.solve(JSON.stringify(problem));
+  check(
+    '端到端求解成功（页面同源数据 → WASM → 解）',
+    solved.status === 'FEASIBLE' || solved.status === 'OPTIMAL',
+    `${solved.status} · ${solved.solution?.operations?.length ?? 0} 工序`,
+  );
+} finally {
+  server.close();
+  rmSync(siteRoot, { recursive: true, force: true });
+}
+
+if (failures.length > 0) {
+  console.error(`\n汇总: ${failures.length} 项失败\n  - ${failures.join('\n  - ')}`);
+  process.exit(1);
+}
+console.log(`\n✓ Pages 子路径仿真通过（base=${base}）`);

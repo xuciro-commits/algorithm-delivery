@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aps/plan-solution.schema.json",
+  "title": "PlanSolution v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "status",
+    "optimality_proven",
+    "operations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "plan-solution/1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "problem_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engine_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compiler_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "options": {
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "OPTIMAL",
+        "FEASIBLE",
+        "INFEASIBLE",
+        "UNKNOWN",
+        "MODEL_INVALID",
+        "NO_SOLUTION_FOUND",
+        "UNSUPPORTED_CONSTRAINT",
+        "CANCELLED"
+      ]
+    },
+    "optimality_proven": {
+      "type": "boolean"
+    },
+    "verified": {
+      "type": "boolean"
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "objective": {
+      "type": "object"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order_id",
+          "operation_id",
+          "machine_id",
+          "worker_id",
+          "tool_ids",
+          "start_at",
+          "end_at"
+        ],
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "machine_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "worker_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
