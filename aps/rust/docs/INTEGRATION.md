@@ -75,6 +75,52 @@ aps explain --problem <sid>.json --solution <job>.json --operation ORD-001-CUT -
 （`max_operations=600`，不证明最优/无解）。**服务端任务不受页面关闭影响**（SRS §5 要求）：
 浏览器只做预览与局部调整，正式计划必须走服务端 native。
 
+**装载方式**（`createEngine`，三种都支持，Node 冒烟测试逐一覆盖）：
+
+| 传入 | 行为 |
+|------|------|
+| `WebAssembly.Module`（预编译，推荐） | `await WebAssembly.instantiate(module, imports)` 直接得到 **Instance** |
+| `Uint8Array`/`ArrayBuffer`（字节码） | 返回 `{ module, instance }`，只取 `instance` |
+| URL 字符串 | `fetch` + `WebAssembly.instantiateStreaming`（带降级） |
+
+> 早期版本把预编译分支当成“字节码分支”解构 `{instance}`，导致浏览器预编译路径直接抛错；
+> 现由 `scripts/smoke_wasm.mjs`（bytes / module / `APS_SMOKE_URL`）封堵。
+
+**取消语义（重要）**：wasm 求解是**同步**的，Worker 在求解期间不处理 `message` 事件，
+因此“发一条 cancel 消息”不可能打断求解。`web/aps-worker.js` 因此把取消实现为
+**`worker.terminate()` + 拒绝在途 Promise + 自动重建 Worker**：
+
+- `spawnSolver(workerSource, { wasmUrl | wasm, workerOptions })` 返回控制器；
+- `solver.cancel()` 仅在有待决求解时返回 `true`，在途 Promise 以 `SolveCancelledError` 拒绝；
+- 重建后的下一次 `solve()` 正常返回（回归：`node scripts/test_worker_cancel.mjs`，9 项检查，
+  含“取消后自动重建并复算成功”）；
+- Worker 内 `init` 完成后回 `ready`（含 `version`），宿主应先等 `ready` 再投递任务；
+  自建 Worker 入口时必须传入 `workerData`（`wasmUrl` 与/或预编译 `wasm`），否则入口会因读不到而报错。
+
+**可用接口（宿主视角）**——`createEngine()` 与 `spawnSolver()` 返回同一组能力：
+
+| 调用 | 说明 |
+|------|------|
+| `solve(problemText, options?)` | 求解；`options` 为宿主级参数覆盖（见下）。返回 `{status, statusCode, error?, solution, raw, peakMemoryBytes, hasAnalysis?}` |
+| `verify(problemText, solutionText, {strict?})` | 独立核验（同一份 `src/verify.rs`），返回 `{mode, parsed, ok, counts, violations, issues}` |
+| `fingerprint(solutionText)` | 方案指纹（规范化 JSON、排除 `metrics`），与 CLI `aps fingerprint` 同源 |
+| `capabilities()` | 档位能力声明（严格符合 `solver-capabilities.schema.json`） |
+| `cancel()` / `dispose()` | 终止 Worker（即时取消）/ 释放 |
+
+- **`raw` 必须原样传递**：它是引擎输出的 JSON 文本；核验与指纹都基于它。
+  不要在宿主侧用 `JSON.stringify(solution)` 重新序列化（浮点书写格式与键序变化会改变指纹）。
+- **参数覆盖 `options`**：`seed` / `time_limit_ms` / `strategy` / `rule` / `repair` / `max_iterations`。
+  未知枚举或非法取值不会崩溃，而是返回 `statusCode=0` 且结果里带 `{error, status:"MODEL_INVALID"}`；
+  传空对象 `{}` 等价于普通 `solve`（仅 `metrics` 有差异）。
+- **ABI 分层（向后兼容）**：`aps_alloc/free/solve/cancel/result_ptr/result_len/version/peak_memory_bytes`
+  属于必需导出；`aps_verify` / `aps_fingerprint` / `aps_capabilities` / `aps_solve_with_options`
+  属于可选导出。旧 wasm 产物仍可加载与求解，只是不会获得在线核验能力
+  （宿主可据 `hasAnalysis` 或 `capabilities()` 抛错降级）。分析类导出返回码：`0` 成功（报告写入结果缓冲区）、
+  `1` 指针非法、`2` 输入 JSON 非法。
+- **档位能力**：wasm-light 声明 `can_prove_optimal=false`、`can_prove_infeasible=false`、
+  `supports_cancel=false`（浏览器取消走 `terminate()`，不是协作式取消）、`max_operations=600`；
+  超出上限会返回 `UNSUPPORTED_CONSTRAINT`，**不会**默默丢约束。
+
 ---
 
 ## 3. 请求/响应映射（SRS §6 端点）

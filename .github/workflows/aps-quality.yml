@@ -1,0 +1,87 @@
+name: aps-quality
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality:
+    name: APS 质量门（native + WASM）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aps/rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js（WASM / Worker 冒烟）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装 Rust 1.88 与 wasm32 目标
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+          rustup default 1.88.0
+          rustc --version && cargo --version
+
+      - name: 缓存 cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            aps/rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('aps/rust/Cargo.lock') }}
+
+      - name: 依赖与许可证（SBOM 最小审计）
+        run: |
+          cargo tree
+          test "$(grep -c '^\[\[package\]\]' Cargo.lock)" = "1"
+          cargo metadata --format-version 1 --no-deps \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin)["packages"][0]; assert not p["dependencies"], p["dependencies"]; print(p["name"], p["license"], "deps=0")'
+
+      - name: 格式检查（rustfmt）
+        run: cargo fmt --all -- --check
+
+      - name: 静态检查（clippy -D warnings）
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: 构建（release）
+        run: cargo build --release --locked
+
+      - name: 单元 + 集成 + 文档测试
+        run: cargo test --release --locked
+
+      - name: S01–S08 引擎验收
+        run: |
+          cd ..
+          ./rust/target/release/aps accept --json | tee rust/target/accept.json
+          python3 -c 'import json; d=json.load(open("rust/target/accept.json")); assert d["failed"] == 0 and d["all_passed"], d; print("S01–S08:", d["passed"], "passed")'
+
+      - name: 契约符合性检查
+        run: python3 scripts/check_contracts.py
+
+      - name: WASM 构建 + ABI 冒烟
+        run: bash scripts/build_wasm.sh
+
+      - name: Worker 取消 / 终止 / 重建回归
+        run: node scripts/test_worker_cancel.mjs
+
+      - name: 上传引擎产物（供 Lab 与人工下载，保留 14 天）
+        uses: actions/upload-artifact@v4
+        with:
+          name: aps-engine-artifacts
+          path: |
+            aps/rust/target/release/aps
+            aps/rust/dist/aps_engine.wasm
+            aps/rust/target/accept.json
+          if-no-files-found: error
+          retention-days: 14

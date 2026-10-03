@@ -127,6 +127,62 @@ pub fn run(aps_dir: &Path) -> Report {
         }
     };
 
+    // 状态判定：FEASIBLE 与 OPTIMAL 都是合格输出；若声称 OPTIMAL，
+    // 必须同时给出可复算的最优性证据（objective.optimality_proven = true 且 makespan = best_bound），
+    // 否则视为“伪称最优”，SRS 明令禁止。
+    fn acceptable_status(
+        out: &engine::SolveOutcome,
+        problem_text: &str,
+        details: &mut Vec<String>,
+    ) -> bool {
+        match out.status {
+            Status::Feasible => true,
+            Status::Optimal => {
+                // 独立复算：从任务文件重新编译并重算下界，再与方案自称的 best_bound 比对，
+                // 不信任求解器写入的数值本身。
+                let sol = out.solution.clone().unwrap_or(Json::Null);
+                let proven = sol
+                    .get("optimality_proven")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let ms = sol
+                    .get("objective")
+                    .and_then(|o| o.get("makespan_minutes"))
+                    .and_then(|v| v.as_i64());
+                let lb = sol
+                    .get("objective")
+                    .and_then(|o| o.get("best_bound"))
+                    .and_then(|v| v.as_i64());
+                let recomputed = (|| -> Option<i64> {
+                    let (p, _) =
+                        crate::model::parse_problem(&crate::json::parse(problem_text).ok()?);
+                    let p = p?;
+                    let c = crate::compile::compile(&p, String::new());
+                    Some(crate::objective::makespan_lower_bound(&c))
+                })();
+                let consistent = proven
+                    && ms.is_some()
+                    && lb.is_some()
+                    && ms == lb
+                    && recomputed.is_some()
+                    && lb == recomputed;
+                if consistent {
+                    details.push(format!(
+                        "✓ 声称 OPTIMAL 且独立复算通过：makespan = best_bound = {}",
+                        ms.unwrap_or(0)
+                    ));
+                    true
+                } else {
+                    details.push(format!(
+                        "✗ 声称 OPTIMAL 但证据不成立（optimality_proven={proven}, makespan={ms:?}, best_bound={lb:?}, 独立复算下界={recomputed:?}）"
+                    ));
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
     let mut summary_json: BTreeMap<&str, Json> = BTreeMap::new();
 
     // ---------------- S01 基础车间 ----------------
@@ -134,8 +190,8 @@ pub fn run(aps_dir: &Path) -> Report {
         let mut details = Vec::new();
         let opts = default_solve_options(2_000);
         let out = engine::solve_json(&base_text, &opts, &CancelToken::new());
-        let mut ok = out.status == Status::Feasible;
         details.push(format!("状态: {}", out.status.as_str()));
+        let mut ok = acceptable_status(&out, &base_text, &mut details);
         let sol = out.solution.clone().unwrap_or(Json::Null);
         let op_count = sol
             .get("operations")
@@ -229,8 +285,8 @@ pub fn run(aps_dir: &Path) -> Report {
             &default_solve_options(2_000),
             &CancelToken::new(),
         );
-        let mut ok = out.status == Status::Feasible;
         details.push(format!("状态: {}", out.status.as_str()));
+        let mut ok = acceptable_status(&out, &breakdown_text, &mut details);
         let sol = out.solution.clone().unwrap_or(Json::Null);
         // 停机区间（由故障样本读取，不硬编码）
         let mut blocked: Option<(String, String, String)> = None;

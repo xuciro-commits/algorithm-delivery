@@ -15,9 +15,10 @@
 | **独立**方案核验（生产级 verifier，不共用求解器判断路径） | ✅ 本 crate |
 | 方案对比（延期/准时/makespan/利用率/变更工序数）与工序级解释 | ✅ 本 crate |
 | 24/240/2400 规模生成（与 Python 参考生成器等价） | ✅ 本 crate |
+| **资源竞争型**基准生成（共享机器/人员/工装/物料，到货速率 > 产能） | ✅ 本 crate（`benchmark --coupled`） |
 | 浏览器/Node 的 WASM 集成 | ✅ 本 crate 提供 `.wasm` + JS 胶水（见 §9） |
 | React 前端、Go 平台 API、租户鉴权、快照生命周期、任务编排 | ❌ 平台层（Go/React） |
-| 证明全局最优、替代 CP-SAT 的完整搜索 | ❌ 不在本期；仅提供**可验证的弱下界**与诚实状态 |
+| 一般实例的全局最优证明（完整分支定界/CP 搜索） | ❌ 不在本期；提供**三类有效下界**用于质量口径，达到下界时给出**可验证的最优证明**（参考实例已可证明） |
 
 > 交付数据全部为 Mock。`duration_min` 与 `materials` 都是**整张订单批次**的值，任何调用方都**不得再乘以 `quantity`**。
 
@@ -114,8 +115,8 @@ cd aps/rust && cargo build --release
   "snapshot_id": "snapshot-baseline-v1",
   "problem_hash": "sha256:84a251f2…",
   "engine": "rust-heuristic", "engine_version": "1.0.0", "compiler_version": "plan-compiler-rust-1.0",
-  "status": "FEASIBLE",
-  "optimality_proven": false,
+  "status": "OPTIMAL",
+  "optimality_proven": true,
   "verified": true,
   "violations": [],
   "options": { "strategy": "lexicographic", "time_limit_ms": 2000, "seed": 42,
@@ -123,7 +124,7 @@ cd aps/rust && cargo build --release
   "objective": { "strategy": "lexicographic", "weighted_tardiness_minutes": 0,
                  "makespan_minutes": 1560, "total_tardiness_minutes": 0,
                  "max_tardiness_minutes": 0, "late_orders": 0,
-                 "best_bound": 270, "relative_gap": 4.7778 },
+                 "best_bound": 1560, "relative_gap": 0.0 },
   "metrics": { "compile_ms": 0.2, "first_feasible_ms": 0.1, "solve_ms": 2000.0,
                "verify_ms": 0.2, "peak_memory_bytes": 349209, "total_ms": 2000.8,
                "time_metrics_available": true },
@@ -146,7 +147,7 @@ cd aps/rust && cargo build --release
 | `MODEL_INVALID` | 契约/语义/规模校验失败（含 `worker_count>1` 等 P1 越界） | 拒绝，回报字段级 `issues` |
 | `UNSUPPORTED_CONSTRAINT` | 档位不支持的规模或特性（如 wasm-light 超 `max_operations`） | 拒绝或改走 native；**绝不静默忽略约束** |
 | `INFEASIBLE` | **仅**当可构造无解证明（资格死角、工序在任何窗口都放不下、物料总供给不足） | 可据此停线/上报，属确定性结论 |
-| `OPTIMAL` | 加权延期 = 0 **且** makespan 达到有效下界（`optimality_proven=true`） | 可作为最优方案发布 |
+| `OPTIMAL` | 加权延期 = 0 **且** makespan 达到有效下界（`optimality_proven=true`；下界可由验收方独立重算） | 可作为最优方案发布 |
 | `FEASIBLE` | 找到可行解但未证明最优（`optimality_proven=false`） | 可发布；`objective.best_bound/relative_gap` 给出质量参考 |
 | `NO_SOLUTION_FOUND` | 搜索穷尽（无时间预算限制）仍未找到可行解，且无证明可用 | 人工复核/放宽约束，**不得**当作无解 |
 | `UNKNOWN` | 时间预算耗尽、被取消、或引擎自检失败 | 保留既有方案，不要自动覆盖 |
@@ -217,6 +218,17 @@ aps verify --problem mock/baseline.json --solution tests/baseline-feasible-witne
 它会检出快照/租户绑定不一致、工序缺失/重复/未知、时间非法、机器能力、日历空档（含 `blocked`）、
 人员技能/资格、工具独占、物料透支等，并给出 `code/message/operation_id/resource_id/at` 定位。
 
+**严格模式（`--strict`，用于服务端/跨系统边界）**：
+
+```bash
+aps verify --problem mock/baseline.json --solution /tmp/plan.json --strict --json
+```
+
+- 默认（宽松）：仅核验方案与问题的**语义一致性**，`problem_hash` 缺失不报错；
+- `--strict`：额外要求方案必须绑定 `tenant_id` 与 `problem_hash`，缺失或与当前问题不符即报
+  `TENANT_MISMATCH` / `PROBLEM_HASH_MISMATCH`（两类模式下**篡改的哈希都会被检出**）。
+  平台层把方案从任务表/缓存取出后流向执行方之前，建议一律走 `--strict`。
+
 ### 4.4 `compare` — 统一口径的方案对比
 
 ```bash
@@ -253,7 +265,23 @@ aps bench --problem /tmp/b2400.json --runs 3 --time-limit-ms 2000 --seed 42 --js
 
 `aps benchmark` 与 `aps/tests/generate_benchmark.py` **输出逐字节一致**（键序与数值类型均一致），
 规模必须是 24 的整数倍（= 若干互相独立的车间单元 `CELL###__` 复制），用于 API/序列化/规模压测，
-**不能**当作耦合调度难度基准。实测数据见 `docs/BENCHMARKS.md`。
+**不能**当作耦合调度难度基准。
+
+**`--coupled`：资源竞争型基准**（新增，用于求解质量口径）
+
+```bash
+aps benchmark --baseline mock/baseline.json --operations 384 --coupled --seed 42 \
+              --out /tmp/coupled-384.json
+aps solve --problem /tmp/coupled-384.json --strategy makespan --time-limit-ms 8000 --out /tmp/plan.json
+```
+
+- `--operations` 为**订单数**，必须是 8 的倍数（整轮复制基线工艺路线）；
+- 机器/人员/工装**不复制**（喷涂只有 1 台），物料按轮数放大；
+- 日历扩展到足够的工作日（周一至周五 08–12/13–17），`horizon_end` = 最后一个可用窗口的结束；
+- 投放间隔 = 单轮瓶颈工时的 60%（到货速率 ≈ 1.67 × 产能）→ 队列累积、真实争抢；
+- 对比质量请用 `--strategy makespan`（字典序会优先压延期，makespan 不具可比性）。
+
+实测（含各规模差距与下界口径的局限）见 `docs/BENCHMARKS.md` §4–§5。
 
 ### 4.7 `accept` — 一键验收
 
@@ -266,7 +294,7 @@ aps accept --json > /tmp/accept.json
 
 | 用例 | 判据 |
 |------|------|
-| S01 基础车间 | FEASIBLE、24 道工序齐全、独立校验 0 违约、目标值可读 |
+| S01 基础车间 | 24 道工序齐全、独立校验 0 违约、目标值可读；状态为 `FEASIBLE` 或**有证据的** `OPTIMAL`（本轮为 `OPTIMAL`，并**独立重算**下界后才接受该声明） |
 | S02 设备故障 | 无工序进入 `WELD-02` 停机区间，且给出相对基线的变更工序数 |
 | S03 到货延迟 | 事件序物料账本全程非负 |
 | S04 无解 | native 返回 `INFEASIBLE` + `NO_ELIGIBLE_WORKER` 证明且 `operations=[]`；wasm-light 不伪称 |
@@ -285,18 +313,48 @@ aps accept --json > /tmp/accept.json
    逐单按拓扑序取**最早可行落位**（候选机器 × 合格人员的所有可用窗口锚点做可行性判定）。
 3. **局部修复**（`solver/repair.rs`）：按延期贡献挑选受害者做 **ruin & recreate**（整单移除后重插），
    周期性 **左移紧致化**，停滞后退火为随机重启；所有接受都要求目标严格变好且完整可行，否则整体回滚。
-4. **目标与下界**（`objective.rs`）：字典序 `(加权延期, makespan)`；下界为拓扑递推的
-   “单工序最宽松条件下最早完工”的最大值（忽略机器/人员/工装/物料竞争，取最短时长，含 `blocked` 空档）。
+4. **目标与下界**（`objective.rs`）：字典序 `(加权延期, makespan)`；`best_bound` 取三类**各自有效**的
+   下界之较大者（推导与有效性论证见 `docs/MODEL-MATH.md` §3.2）：
+   (1) 路径递推（含 `release_at`、单机窗口、`blocked` 空档）；
+   (2) 产能下界（按技能+资格+机器池分组，并纳入**物料到货门槛**的 0/1 背包推理）；
+   (3) 日历流量下界（投放节奏 × 各机器**日历**可用分钟）。
 5. **最优性声明**：只有 `加权延期 = 0（理论下界）且 makespan = 有效下界` 才返回 `OPTIMAL`
    并置 `optimality_proven=true`；否则一律 `FEASIBLE` + `best_bound/relative_gap`。
    档位一致性：`wasm-light` 声明 `can_prove_optimal=false`，因此即使本轮恰好达到下界也只报告
    `FEASIBLE`（引擎会在说明中注明“已证明最优但档位不报告”，需要 `OPTIMAL` 请使用 native）。
-   例如 `mock/baseline.json` 的最优 makespan 受 M-PAINT 到货约束，实际为 1560 分钟，
-   但弱下界只有 270，因此引擎**诚实地**报告 `FEASIBLE`（相对差距 4.78）而非伪称最优。
+   例：`mock/baseline.json` 的 makespan 由 `M-PAINT` 在 10-06T08:00 的到货门槛决定，
+   **最优值为 1560 分钟**，且三类下界之和的最大值恰为 1560 → 引擎返回 `OPTIMAL`
+   （`relative_gap=0`）。验收方可用 `aps verify` + 独立重算下界复核该结论（`aps accept` 的 S01/S02 即如此）。
+   反例：压缩交期的实例上加权延期不可能为 0，引擎绝不会返回 `OPTIMAL`（见集成测试）。
 6. **自检 + 独立复核**：结果先过求解器内部一致性自检（完整性/重叠/物料），再由独立校验器逐条核验；
    任一步失败 → `UNKNOWN` + `verified=false`。
 7. **时间预算与取消是协作式的**：在规则/迭代/重启边界检查。单次构造或单轮左移不抢占，
    因此 2400 规模下 `solve_ms` 可能略超 `time_limit_ms`（实测约 +8%，见实测表）。
+
+---
+
+### 4.8 `fingerprint` — 方案指纹（确定性校验用）
+
+```bash
+aps fingerprint --solution /tmp/plan.json           # sha256:…
+aps fingerprint --solution /tmp/plan.json --json
+# { "fingerprint": "sha256:…", "status": "OPTIMAL", "excludes": ["metrics"] }
+```
+
+指纹 = 方案 JSON 的**规范化形式**（键按字节序排序、浮点归一为整数）去掉运行期 `metrics` 后的 SHA-256。
+用途：判定“两次求解是否为同一方案”，以及平台侧做结果缓存/去重键。
+
+**确定性口径（避免误读）**
+
+- 引擎的构造与修复过程是**确定性的**：同一输入 + 同一 `(seed, strategy, profile, rule, repair, max_iterations)`
+  下，重复求解得到的**方案内容**（工序/资源/时间/目标值/状态）一致 → **指纹一致**；
+- **不承诺整份 JSON 逐字节相同**：`metrics` 里的 `compile_ms` / `solve_ms` / `peak_memory_bytes` 是
+  运行期观测值，必然随机器与负载浮动（这也是为什么指纹要排除 `metrics`）；
+- 处于**预算模式**（`--time-limit-ms` 到点才停）时，中断点取决于墙钟，方案可能不同；
+  需要可复现方案时请给出**足够的预算让搜索收敛**，或显式限制 `--max-iterations`。
+  契约文档见 `src/solver/mod.rs`；回归测试：
+  `engine_integration::deterministic_mode_is_byte_identical_across_runs`（指纹一致 + 除 metrics 外内容一致）、
+  `engine_integration::fingerprint_ignores_runtime_metrics_only`。
 
 ---
 
@@ -329,9 +387,11 @@ cd .. && python3 tests/verify_mock.py
 
 ## 7. 常见问题（FAQ）
 
-**Q1 为什么小实例也只返回 `FEASIBLE`？**
-因为 `OPTIMAL` 只有在**达到可验证下界**时才允许返回。弱下界通常远低于真实最优，
-所以引擎宁可用 `best_bound/relative_gap` 描述质量，也不伪造最优。
+**Q1 什么时候返回 `OPTIMAL`？小实例也会只给 `FEASIBLE` 吗？**
+`OPTIMAL` 只有在**达到可验证下界**时才允许返回。参考实例（`mock/baseline.json`）能达到下界，
+因此返回 `OPTIMAL`（差距 0）；而许多实例（尤其是中小规模、前置关系与班次空档相互牵制的情形）
+的下界偏弱（见 `docs/BENCHMARKS.md` §4），此时引擎返回 `FEASIBLE` 并用 `best_bound/relative_gap`
+诚实描述质量，绝不伪造最优。
 
 **Q2 `duration_min` 要不要乘 `quantity`？**
 不要。本版契约中工序时长与物料消耗都按“整张订单批次”给定（`aps/README.md` 明确警告）。

@@ -19,7 +19,7 @@
     "test:render": "node scripts/test-render.mjs",
     "test:dist": "node scripts/check-dist.mjs",
     "test:pages": "node scripts/check-pages.mjs",
-    "test:all": "npm run test:core && npm run test:runner && npm run test:render && npm run build && npm run test:dist && npm run test:pages",
+    "test:all": "npm run build && npm run test:core && npm run test:runner && npm run test:render && npm run test:dist && npm run test:pages",
     "build:all": "bash scripts/build-all.sh"
   },
   "dependencies": {

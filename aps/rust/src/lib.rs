@@ -54,7 +54,10 @@ pub mod solver;
 pub mod validate;
 pub mod verify;
 
-#[cfg(target_arch = "wasm32")]
+// WASM ABI 层：只做“指针/缓冲区 ↔ 引擎 JSON API”的薄封装，**不依赖 wasm32 特性**，
+// 因此 native 也一起编译 —— 这样同一份导出代码可以被 `cargo test` 直接单测
+// （wasm32 上的行为差异只有 `env.aps_now_ms` 注入与内存布局，见 `src/clock.rs`）。
+// 发布时由 `scripts/build_wasm.sh` 用 `wasm32-unknown-unknown` 目标再次编译同一份源码。
 pub mod wasm_api;
 
 /// 引擎标识（写入 `PlanSolution.engine` 字段，便于审计）。

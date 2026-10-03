@@ -40,11 +40,11 @@ function arg(name, fallback) {
   return fallback;
 }
 
-const wasmSrc = resolve(arg('wasm', join(repoRoot, 'aps/rust/dist/aps_engine.wasm')));
+const wasmSrc = resolve(arg('wasm', process.env.LAB_WASM ?? join(repoRoot, 'aps/rust/dist/aps_engine.wasm')));
 const workerSrc = resolve(arg('worker', join(repoRoot, 'aps/rust/web/aps-worker.js')));
 const mockDir = resolve(arg('mocks', join(repoRoot, 'aps/mock')));
 const publicDir = resolve(arg('out', join(labDir, 'public')));
-const source = arg('source', 'source:local-build');
+const source = arg('source', process.env.LAB_SOURCE ?? 'source:local-build');
 const gitTag = arg('tag', process.env.LAB_GIT_TAG ?? '');
 const gitCommit = arg('commit', process.env.GITHUB_SHA ?? process.env.LAB_GIT_COMMIT ?? '');
 const cargoToml = resolve(arg('cargo-toml', join(repoRoot, 'aps/rust/Cargo.toml')));

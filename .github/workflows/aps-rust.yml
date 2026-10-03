@@ -1,93 +1,22 @@
 name: aps-rust
 
-# 对应 SRS §8 M4 的“全部自动化测试及 CI 验证通过”：
-#   1) 格式与静态检查（rustfmt/clippy 可选，缺失不阻塞）
-#   2) 全量单元 + 集成测试
-#   3) S01–S08 验收套件
-#   4) 契约符合性检查（零依赖脚本：plan-problem / plan-solution / solver-capabilities）
-#   5) WASM 构建 + Node 冒烟（同一份源码）
-#   6) 依赖/SBOM 最小审计（零第三方依赖）
 on:
   push:
     branches: ["**"]
     paths:
       - "aps/**"
       - ".github/workflows/aps-rust.yml"
+      - ".github/workflows/aps-quality.yml"
   pull_request:
     paths:
       - "aps/**"
       - ".github/workflows/aps-rust.yml"
+      - ".github/workflows/aps-quality.yml"
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+permissions:
+  contents: read
 
 jobs:
-  rust:
-    name: Rust engine（native + WASM）
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: aps/rust
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 安装 Rust 1.88 与 wasm32 目标
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
-          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
-          rustup default 1.88.0
-          rustc --version && cargo --version
-
-      - name: 缓存 cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            aps/rust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('aps/rust/Cargo.lock') }}
-
-      - name: 依赖与许可证（SBOM 最小审计）
-        run: |
-          echo "== cargo tree =="
-          cargo tree
-          echo "== Cargo.lock 包数（应为 1，即本 crate） =="
-          test "$(grep -c '^\[\[package\]\]' Cargo.lock)" = "1"
-          cargo metadata --format-version 1 --no-deps \
-            | python3 -c 'import json,sys; p=json.load(sys.stdin)["packages"][0]; assert not p["dependencies"], p["dependencies"]; print(p["name"], p["license"], "deps=0")'
-
-      - name: 格式检查（rustfmt）
-        run: cargo fmt --all -- --check
-
-      - name: 静态检查（clippy -D warnings）
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: 构建（release）
-        run: cargo build --release --locked
-
-      - name: 单元 + 集成测试
-        run: cargo test --release --locked
-
-      - name: S01–S08 验收（aps accept）
-        run: |
-          cd ..
-          ./rust/target/release/aps accept --json | tee rust/target/accept.json
-          python3 -c 'import json;d=json.load(open("rust/target/accept.json"));assert d["failed"]==0 and d["all_passed"], d; print("S01–S08:", d["passed"], "passed")'
-
-      - name: 契约符合性检查
-        run: python3 scripts/check_contracts.py
-
-      - name: WASM 构建 + Node 冒烟
-        run: bash scripts/build_wasm.sh
-
-      - name: 上传产物（CLI + WASM + 验收报告）
-        uses: actions/upload-artifact@v4
-        with:
-          name: aps-engine-artifacts
-          path: |
-            aps/rust/target/release/aps
-            aps/rust/dist/aps_engine.wasm
-            aps/rust/target/accept.json
-          if-no-files-found: error
+  quality:
+    uses: ./.github/workflows/aps-quality.yml

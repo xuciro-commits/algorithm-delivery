@@ -634,10 +634,41 @@ pub fn solve_problem_json(
     }
 }
 
-/// 独立校验入口（CLI `aps verify` 使用）。
+/// 方案指纹：对“可复现内容”取规范化 SHA-256。
+///
+/// 契约里的 `metrics`（耗时/峰值内存）是**运行期观测值**，必然随机器与调度变化，
+/// 因此**不纳入**指纹；其余字段（含 operations/objective/status/options/绑定信息）
+/// 才是“同一输入 + 同 seed + 同迭代次数”下应当逐字节一致的内容。
+///
+/// 用途：回归对比、平台侧去重、审计留痕。CLI：`aps fingerprint --solution <file>`。
+pub fn solution_fingerprint(solution: &Json) -> String {
+    let mut stripped = solution.clone();
+    if let Json::Obj(fields) = &mut stripped {
+        fields.retain(|(k, _)| k != "metrics");
+    }
+    format!(
+        "sha256:{}",
+        crate::hash::sha256_hex(stripped.canonical().as_bytes())
+    )
+}
+
+/// 独立校验入口（CLI `aps verify` 使用；宽松模式）。
 pub fn verify_solution_json(
     problem_text: &str,
     solution_text: &str,
+) -> Result<(RawProblem, verify::RawSolution, Vec<Violation>), Vec<Issue>> {
+    verify_solution_json_with(
+        problem_text,
+        solution_text,
+        verify::VerifyOptions::permissive(),
+    )
+}
+
+/// 独立校验入口（可指定严格度）；`--strict` 使用 `VerifyOptions::strict()`。
+pub fn verify_solution_json_with(
+    problem_text: &str,
+    solution_text: &str,
+    opts: verify::VerifyOptions,
 ) -> Result<(RawProblem, verify::RawSolution, Vec<Violation>), Vec<Issue>> {
     let pj = crate::json::parse(problem_text).map_err(|e| {
         vec![Issue::error(
@@ -669,7 +700,7 @@ pub fn verify_solution_json(
         ));
         v
     })?;
-    let violations = verify::verify(&problem, &solution);
+    let violations = verify::verify_with(&problem, &solution, opts);
     Ok((problem, solution, violations))
 }
 

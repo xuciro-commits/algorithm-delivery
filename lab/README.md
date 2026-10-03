@@ -27,7 +27,7 @@ lab/
 
 ```bash
 cd lab
-npm install
+npm ci               # 按 package-lock.json 安装锁定依赖
 npm run dev          # http://localhost:5173/ （默认 base=/algorithm-delivery/，见下方说明）
 ```
 
@@ -56,7 +56,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run test:render` | 渲染冒烟：外壳/参数区/待接入模块/空态（SSR，无需浏览器） |
 | `npm run test:dist` | 构建产物校验：子路径资源引用、清单 sha256 与产物一致、体积 |
 | `npm run test:pages` | **Pages 子路径仿真**：把 dist 挂到 `/algorithm-delivery/` 下用真实 HTTP 跑一遍 |
-| `npm run test:all` | 以上全部 |
+| `npm run test:all` | 先同步/构建，再运行以上全部 Lab 检查（要求已有 Rust WASM 产物） |
 
 ## 2. 数据来源与“单一来源”原则
 

@@ -185,6 +185,8 @@ pub mod codes {
     // 契约/结构
     pub const SNAPSHOT_MISMATCH: &str = "SNAPSHOT_MISMATCH";
     pub const TENANT_MISMATCH: &str = "TENANT_MISMATCH";
+    /// 方案绑定的 problem_hash 与当前问题不一致（或严格模式下缺失）。
+    pub const PROBLEM_HASH_MISMATCH: &str = "PROBLEM_HASH_MISMATCH";
     pub const UNKNOWN_OPERATION: &str = "UNKNOWN_OPERATION";
     pub const DUPLICATE_OPERATION: &str = "DUPLICATE_OPERATION";
     pub const MISSING_OPERATION: &str = "MISSING_OPERATION";
