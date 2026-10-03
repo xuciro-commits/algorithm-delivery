@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 /**
  * GitHub Pages 项目站点部署在子路径下（`https://<owner>.github.io/<repo>/`），
@@ -14,7 +15,9 @@ const base = process.env.LAB_BASE ?? '/algorithm-delivery/';
 
 export default defineConfig({
   base,
-  plugins: [react()],
+  // Tailwind v4：styles.css 顶部 `@import 'tailwindcss'` + `@theme inline`
+  // 把 V2 设计令牌暴露为工具类（bg-surface / text-muted / border-border …）。
+  plugins: [react(), tailwindcss()],
   build: {
     outDir: 'dist',
     // 子路径部署下不要生成绝对路径；base 已处理前缀
