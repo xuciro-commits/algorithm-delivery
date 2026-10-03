@@ -28,6 +28,8 @@ import {
 import { PlaybackClock, type Speed } from '../mapf/playback/clock';
 import { agvColor, paintAgvEntitiesL2, paintAgvOverlayL3, paintAgvPathsL1, phaseAt, taskOfAt, type AgvRenderState } from './agvRender';
 import { AgvTimeline } from './AgvTimeline';
+import { AgvSandbox3D } from './Sandbox3D';
+import { Segmented } from '../../components/hud';
 
 export interface AgvPanelProps {
   manifest: AgvManifest | null;
@@ -64,6 +66,12 @@ export function AgvPanel(props: AgvPanelProps) {
   const [scene, setScene] = useState<AgvScene>(historyRef.current.doc);
   const [fitNonce, setFitNonce] = useState(0);
   const [tool, setTool] = useState<Tool>('select');
+  /** 撤销栈变化序号（笔画结算时递增，刷新 ↶/↷ 禁用态与读数）。 */
+  const [histNonce, setHistNonce] = useState(0);
+  /** 3D 沙盘 / 2D 轻量模式（默认 3D）。 */
+  const [view3d, setView3d] = useState(true);
+  /** 3D 相机预设：等距 ↔ 正交俯视。 */
+  const [camView, setCamView] = useState<'iso' | 'top'>('iso');
   const [primary, setPrimary] = useState<string | null>(null);
   const [activeTask, setActiveTask] = useState<string | null>(null);
   const [pendingStation, setPendingStation] = useState<{ id: string; cells: Array<[number, number]> } | null>(null);
@@ -202,6 +210,17 @@ export function AgvPanel(props: AgvPanelProps) {
   const exec = useCallback((cmd: AgvCommand) => {
     const next = historyRef.current.exec(cmd);
     if (next) setScene(next);
+  }, []);
+
+  // —— 笔画级撤销：一笔障碍 = 一个历史步（V2 §4）——
+  const beginStroke = useCallback(() => {
+    historyRef.current.beginStroke();
+  }, []);
+
+  const endStroke = useCallback(() => {
+    historyRef.current.endStroke();
+    setScene(historyRef.current.doc);
+    setHistNonce((n) => n + 1);
   }, []);
 
   // —— 求解 ——
@@ -487,7 +506,7 @@ export function AgvPanel(props: AgvPanelProps) {
                 ↷ 重做
               </button>
             </div>
-            <p className="muted small">{TOOLS.find((tl) => tl.id === tool)?.hint}</p>
+            <p className="muted small">{TOOLS.find((tl) => tl.id === tool)?.hint}{histNonce >= 0 && historyRef.current.steps > 0 && <span className="muted"> · 撤销栈 {historyRef.current.steps} 步</span>}</p>
             {pendingStation && (
               <div className="pending-station">
                 <span className="small">
@@ -594,21 +613,74 @@ export function AgvPanel(props: AgvPanelProps) {
         {/* 中央 */}
         <div className="mapf-center">
           <div className="mapf-stage-wrap">
-            <MapStage dims={dims} fitNonce={fitNonce} onHover={(c) => setHover(c)} onCellClick={onCellClick} onCellDrag={onCellDrag}>
-              {(renderer) => {
-                rendererRef.current = renderer;
-                renderer.setLayerPainter(1, paintAgvPathsL1(renderStateRef.current));
-                renderer.setLayerPainter(2, paintAgvEntitiesL2(renderStateRef.current));
-                renderer.setLayerPainter(3, paintAgvOverlayL3(renderStateRef.current));
-              }}
-            </MapStage>
+            {view3d ? (
+              <AgvSandbox3D
+                scene={scene}
+                solution={solution}
+                t={t}
+                primary={primary}
+                layers={{ paths: true, executed: true, markers: true, vehicles: true }}
+                hover={hover}
+                invalidCells={invalidCells}
+                conflictCells={conflictCells}
+                view={camView}
+                painting={tool === 'wall' || tool === 'erase'}
+                clock={clockRef.current}
+                playing={playing}
+                onCellClick={onCellClick}
+                onCellDrag={onCellDrag}
+                onCellDown={beginStroke}
+                onCellUp={endStroke}
+                onHover={(c) => setHover(c)}
+              />
+            ) : (
+              <MapStage
+                dims={dims}
+                fitNonce={fitNonce}
+                onHover={(c) => setHover(c)}
+                onCellClick={onCellClick}
+                onCellDrag={onCellDrag}
+                onCellDown={beginStroke}
+                onCellUp={endStroke}
+              >
+                {(renderer) => {
+                  rendererRef.current = renderer;
+                  renderer.setLayerPainter(1, paintAgvPathsL1(renderStateRef.current));
+                  renderer.setLayerPainter(2, paintAgvEntitiesL2(renderStateRef.current));
+                  renderer.setLayerPainter(3, paintAgvOverlayL3(renderStateRef.current));
+                }}
+              </MapStage>
+            )}
             <div className="mapf-toolbar">
               <button type="button" className={`btn tiny ${tool === 'select' ? 'primary' : ''}`} onClick={() => setTool('select')}>
                 选择
               </button>
-              <button type="button" className="btn tiny" onClick={() => setFitNonce((n) => n + 1)}>
-                适配
-              </button>
+              {!view3d && (
+                <button type="button" className="btn tiny" onClick={() => setFitNonce((n) => n + 1)}>
+                  适配
+                </button>
+              )}
+              <span style={{ width: 6 }} />
+              <Segmented
+                ariaLabel="视图模式"
+                value={view3d ? '3d' : '2d'}
+                onChange={(v) => setView3d(v === '3d')}
+                options={[
+                  { id: '3d', label: '3D 沙盘', title: '等距三维微缩仓库（默认）' },
+                  { id: '2d', label: '2D 轻量', title: '轻量二维模式（低性能设备兜底）' },
+                ]}
+              />
+              {view3d && (
+                <Segmented
+                  ariaLabel="相机视角"
+                  value={camView}
+                  onChange={setCamView}
+                  options={[
+                    { id: 'iso', label: '等距', title: '等距视角（微缩仓库）' },
+                    { id: 'top', label: '俯视', title: '正交俯视（精确对格）' },
+                  ]}
+                />
+              )}
               {raw && (
                 <button
                   type="button"

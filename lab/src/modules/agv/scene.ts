@@ -328,11 +328,18 @@ export const AGV_HISTORY_LIMIT = 100;
 export class AgvSceneHistory {
   private past: AgvScene[] = [];
   private future: AgvScene[] = [];
+  /** 进行中的笔画起点（拖刷）：整笔一个撤销步（与 MAPF SceneHistory 同构）。 */
+  private strokeBase: AgvScene | null = null;
   constructor(public doc: AgvScene) {}
 
   exec(cmd: AgvCommand): AgvScene {
     const next = applyAgvCommand(this.doc, cmd);
     if (next === this.doc) return this.doc;
+    if (this.strokeBase && cmd.type === 'toggleWall') {
+      this.future = [];
+      this.doc = next;
+      return next;
+    }
     this.past.push(this.doc);
     if (this.past.length > AGV_HISTORY_LIMIT) this.past.shift();
     this.future = [];
@@ -340,7 +347,32 @@ export class AgvSceneHistory {
     return next;
   }
 
+  /** 开始一笔（pointerdown）。 */
+  beginStroke(): void {
+    this.strokeBase = this.doc;
+  }
+
+  /** 结束一笔（pointerup）：有变化才入栈。 */
+  endStroke(): void {
+    const base = this.strokeBase;
+    this.strokeBase = null;
+    if (base && base !== this.doc) {
+      this.past.push(base);
+      if (this.past.length > AGV_HISTORY_LIMIT) this.past.shift();
+    }
+  }
+
+  get stroking(): boolean {
+    return this.strokeBase != null;
+  }
+
+  /** 可撤销步数（编辑器读数）。 */
+  get steps(): number {
+    return this.past.length;
+  }
+
   load(doc: AgvScene): void {
+    this.strokeBase = null;
     this.doc = doc;
     this.past = [];
     this.future = [];

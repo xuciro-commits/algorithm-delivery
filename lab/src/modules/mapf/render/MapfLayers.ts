@@ -11,8 +11,10 @@ import { GRID_COLORS } from '../../../components/grid-map/types';
 import { lodLevel } from '../../../components/grid-map/viewport';
 import type { MapfSolution } from '../../../core/mapf/types';
 import { phaseAt } from '../playback/clock';
+import { SB, SB_ROBOT_COLORS } from '../../../components/sandbox/theme';
 
-export const ROBOT_PALETTE = ['#2f7de1', '#e2593b', '#3fa45a', '#b08300', '#8a5fc9', '#1e9aa7', '#c94f7c', '#5b7c00', '#4b6eaf', '#a5572f'];
+/** 机器人识别色（V2 §三：冰蓝/青/紫罗兰/琥珀…，与 3D 沙盘完全一致）。 */
+export const ROBOT_PALETTE: readonly string[] = SB_ROBOT_COLORS;
 
 export function robotColor(i: number): string {
   return ROBOT_PALETTE[i % ROBOT_PALETTE.length];
@@ -65,7 +67,7 @@ export function paintPathsL1(state: MapfRenderState): Painter {
     if (state.ghostSolution?.robots?.length) {
       ctx.save();
       ctx.globalAlpha = 0.35;
-      ctx.strokeStyle = '#98a1ab';
+      ctx.strokeStyle = SB.inactive;
       ctx.lineWidth = Math.max(1, lineWidth - 1);
       ctx.setLineDash([4, 4]);
       for (const r of state.ghostSolution.robots) {
@@ -97,7 +99,7 @@ export function paintPathsL1(state: MapfRenderState): Painter {
         ctx.stroke();
         // 冻结前缀锁纹（虚线罩层）
         if (state.frozenAt != null && state.frozenAt > 0) {
-          ctx.strokeStyle = 'rgba(20,24,28,0.85)';
+          ctx.strokeStyle = 'rgba(6,11,22,0.85)';
           ctx.lineWidth = 1;
           ctx.setLineDash([2, 2]);
           ctx.beginPath();
@@ -209,7 +211,7 @@ export function paintEntitiesL2(state: MapfRenderState): Painter {
             const [px0, py0] = r.path[Math.max(0, state.t - 1)];
             const dx = Math.sign(x - px0);
             const dy = Math.sign(y - py0);
-            ctx.fillStyle = '#fff';
+            ctx.fillStyle = '#eaf6ff';
             ctx.beginPath();
             const wx = px + dx * rad * 0.55;
             const wy = py + dy * rad * 0.55;
@@ -217,7 +219,7 @@ export function paintEntitiesL2(state: MapfRenderState): Painter {
             ctx.fill();
           }
           if (phase === 'arrived') {
-            ctx.strokeStyle = '#fff';
+            ctx.strokeStyle = '#eaf6ff';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(px, py, rad + 2, 0, Math.PI * 2);
@@ -235,7 +237,7 @@ export function paintEntitiesL2(state: MapfRenderState): Painter {
         }
         // 序号徽标
         if (lod <= 1 || isPrimary) {
-          ctx.fillStyle = '#fff';
+          ctx.fillStyle = '#eaf6ff';
           ctx.font = `${Math.max(8, Math.round(rad))}px system-ui`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -243,7 +245,7 @@ export function paintEntitiesL2(state: MapfRenderState): Painter {
         }
         // 选中强调（描边 + 标牌）
         if (isPrimary) {
-          ctx.strokeStyle = '#101418';
+          ctx.strokeStyle = '#060b16';
           ctx.lineWidth = 2.5;
           ctx.beginPath();
           ctx.arc(px, py, rad + 2.5, 0, Math.PI * 2);
@@ -254,9 +256,9 @@ export function paintEntitiesL2(state: MapfRenderState): Painter {
             ctx.textBaseline = 'bottom';
             const label = `${r.i + 1}·${r.id}`;
             const tw = ctx.measureText(label).width;
-            ctx.fillStyle = 'rgba(16,20,24,0.82)';
+            ctx.fillStyle = 'rgba(6,11,22,0.86)';
             ctx.fillRect(px + rad + 4, py - rad - 12, tw + 8, 16);
-            ctx.fillStyle = '#fff';
+            ctx.fillStyle = '#dff0ff';
             ctx.fillText(label, px + rad + 8, py - rad + 3);
           }
         }
@@ -287,7 +289,7 @@ export function paintOverlayL3(state: MapfRenderState, nowTs: () => number = () 
     if (state.layers.conflicts) {
       const pulse = 0.5 + 0.5 * Math.sin(nowTs() / 260);
       for (const c of state.conflictCells) {
-        ctx.strokeStyle = `rgba(226, 89, 59, ${0.45 + 0.5 * pulse})`;
+        ctx.strokeStyle = `rgba(255, 111, 111, ${0.45 + 0.5 * pulse})`;
         ctx.lineWidth = 2.5;
         ctx.strokeRect(vp.tx + c.cell.x * cell - 2, vp.ty + c.cell.y * cell - 2, cell + 4, cell + 4);
       }
@@ -299,7 +301,7 @@ export function paintOverlayL3(state: MapfRenderState, nowTs: () => number = () 
         ctx.font = `${Math.max(10, Math.round(cell * 0.7))}px system-ui`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = e.kind.includes('obstacle') ? '#e2593b' : '#b08300';
+        ctx.fillStyle = e.kind.includes('obstacle') ? SB.coral : SB.amber;
         ctx.fillText('⚡', px, py);
       }
     }

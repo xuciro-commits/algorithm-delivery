@@ -27,18 +27,21 @@ export type PixelSize = { w: number; h: number };
 /** 拾取结果：点击落在哪个格（越界时为 null）。 */
 export type CellPick = { cell: Cell; px: number; py: number };
 
-/** 主题色 token（浅色实验室主题，与 styles.css 变量对齐）。 */
+/** 主题色 token（V2 深色实验室主题：与 styles.css / sandbox/theme.ts 同一色板）。 */
 export const GRID_COLORS = {
-  background: '#f6f7f9',
-  gridLine: '#e2e6ea',
-  gridLineMajor: '#c9cfd6',
-  wall: '#3a3f46',
-  wallEdge: '#23272c',
-  hover: 'rgba(47, 125, 225, 0.18)',
-  hoverEdge: 'rgba(47, 125, 225, 0.65)',
-  invalid: 'rgba(226, 89, 59, 0.25)',
-  invalidEdge: 'rgba(226, 89, 59, 0.8)',
-  label: '#5b6470',
+  /** 深海军蓝底（避免纯黑丢失细节）。 */
+  background: '#0a1220',
+  /** 细密工程网格（双色刻线）。 */
+  gridLine: 'rgba(127, 215, 255, 0.07)',
+  gridLineMajor: 'rgba(127, 215, 255, 0.15)',
+  /** 石墨 / 冷灰蓝障碍。 */
+  wall: '#22334e',
+  wallEdge: '#33445f',
+  hover: 'rgba(127, 215, 255, 0.16)',
+  hoverEdge: 'rgba(127, 215, 255, 0.7)',
+  invalid: 'rgba(255, 111, 111, 0.2)',
+  invalidEdge: 'rgba(255, 111, 111, 0.85)',
+  label: '#8296b0',
 } as const;
 
 /** 设备像素比上限（防 4K 高 DPI 离屏超限，M0 §4.2）。 */

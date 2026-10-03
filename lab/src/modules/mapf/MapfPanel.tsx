@@ -20,6 +20,8 @@ import type { MapfManifest, MapfSolution } from '../../core/mapf/types';
 import type { MapfEngineHandle } from '../../core/mapf/engine';
 import { isMapfCancelError } from '../../core/mapf/engine';
 import { MapfTimeline } from './MapfTimeline';
+import { MapfSandbox3D } from './Sandbox3D';
+import { Segmented } from '../../components/hud';
 import { MapfRightRail, type LayerFlags, type ViolationItem } from './MapfRightRail';
 import { DynamicWizard, type WizardKind } from './DynamicWizard';
 import {
@@ -76,8 +78,14 @@ export function MapfPanel(props: MapfPanelProps) {
   const historyRef = useRef<SceneHistory>(new SceneHistory(blankScene(8, 8, 'mapf-scene-initial')));
   const [doc, setDoc] = useState<SceneDoc>(historyRef.current.doc);
   const [fitNonce, setFitNonce] = useState(0);
+  /** 撤销栈变化序号（刷新 ↶/↷ 禁用态；笔画结算时递增）。 */
+  const [histNonce, setHistNonce] = useState(0);
   const [mode, setMode] = useState<Mode>('edit');
   const [tool, setTool] = useState<Tool>('select');
+  /** 3D 沙盘 / 2D 轻量模式（默认 3D；低性能设备可切 2D）。 */
+  const [view3d, setView3d] = useState(true);
+  /** 3D 相机预设：等距 ↔ 正交俯视。 */
+  const [camView, setCamView] = useState<'iso' | 'top'>('iso');
 
   // —— 选择 / 图层 ——
   const [primary, setPrimary] = useState<string | null>(null);
@@ -386,6 +394,15 @@ export function MapfPanel(props: MapfPanelProps) {
         return;
       }
       const robotAt = (c: Cell): string | null => {
+        // 回放中：命中机器人当前所在格（3D 点选机器人）
+        if (solution?.robots?.length) {
+          for (const r of solution.robots) {
+            const path = r.path ?? [];
+            const pos = path[Math.min(t, Math.max(0, path.length - 1))];
+            if (pos && pos[0] === c.x && pos[1] === c.y) return r.id;
+          }
+        }
+        // 编辑中：命中起终点
         for (const r of doc.robots) {
           for (const p of [r.start, r.goal]) {
             if (p && p[0] === c.x && p[1] === c.y) return r.id;
@@ -476,6 +493,17 @@ export function MapfPanel(props: MapfPanelProps) {
     },
     [tool, wizard.active, doc],
   );
+
+  // —— 笔画级撤销：一笔障碍 = 一个历史步（V2 §4）——
+  const beginStroke = useCallback(() => {
+    historyRef.current.beginStroke();
+  }, []);
+
+  const endStroke = useCallback(() => {
+    historyRef.current.endStroke();
+    setDoc(historyRef.current.doc);
+    setHistNonce((n) => n + 1);
+  }, []);
 
   // —— 导入导出 ——
   const exportScene = () => {
@@ -662,14 +690,33 @@ export function MapfPanel(props: MapfPanelProps) {
                   {tl.label}
                 </button>
               ))}
-              <button type="button" className="btn tiny" disabled={!historyRef.current.canUndo} onClick={() => setDoc(historyRef.current.undo() ?? doc)}>
+              <button
+                type="button"
+                className="btn tiny"
+                disabled={!historyRef.current.canUndo}
+                onClick={() => {
+                  setDoc(historyRef.current.undo() ?? doc);
+                  setHistNonce((n) => n + 1);
+                }}
+              >
                 ↶ 撤销
               </button>
-              <button type="button" className="btn tiny" disabled={!historyRef.current.canRedo} onClick={() => setDoc(historyRef.current.redo() ?? doc)}>
+              <button
+                type="button"
+                className="btn tiny"
+                disabled={!historyRef.current.canRedo}
+                onClick={() => {
+                  setDoc(historyRef.current.redo() ?? doc);
+                  setHistNonce((n) => n + 1);
+                }}
+              >
                 ↷ 重做
               </button>
             </div>
-            <p className="muted small">{TOOLS.find((tl) => tl.id === tool)?.hint}</p>
+            <p className="muted small">
+              {TOOLS.find((tl) => tl.id === tool)?.hint}
+              {histNonce >= 0 && historyRef.current.steps > 0 && <span className="muted"> · 撤销栈 {historyRef.current.steps} 步</span>}
+            </p>
             <div className="scene-resize">
               <label className="field">
                 宽
@@ -813,20 +860,47 @@ export function MapfPanel(props: MapfPanelProps) {
         {/* ————— 中央地图 ————— */}
         <div className="mapf-center">
           <div className="mapf-stage-wrap">
-            <MapStage
-              dims={dims}
-              fitNonce={fitNonce}
-              onHover={(c) => setHover(c)}
-              onCellClick={onCellClick}
-              onCellDrag={onCellDrag}
-            >
-              {(renderer) => {
-                rendererRef.current = renderer;
-                renderer.setLayerPainter(1, paintPathsL1(renderStateRef.current));
-                renderer.setLayerPainter(2, paintEntitiesL2(renderStateRef.current));
-                renderer.setLayerPainter(3, paintOverlayL3(renderStateRef.current));
-              }}
-            </MapStage>
+            {view3d ? (
+              <MapfSandbox3D
+                doc={doc}
+                solution={solution}
+                ghost={ghost}
+                t={t}
+                primary={primary}
+                selected={selected}
+                layers={layers}
+                hover={hover}
+                invalidCells={invalidCells}
+                conflictCells={conflictCells}
+                eventMarks={eventMarks}
+                view={camView}
+                painting={tool === 'wall' || tool === 'erase'}
+                clock={clockRef.current}
+                playing={playing}
+                onCellClick={onCellClick}
+                onCellDrag={onCellDrag}
+                onCellDown={beginStroke}
+                onCellUp={endStroke}
+                onHover={(c) => setHover(c)}
+              />
+            ) : (
+              <MapStage
+                dims={dims}
+                fitNonce={fitNonce}
+                onHover={(c) => setHover(c)}
+                onCellClick={onCellClick}
+                onCellDrag={onCellDrag}
+                onCellDown={beginStroke}
+                onCellUp={endStroke}
+              >
+                {(renderer) => {
+                  rendererRef.current = renderer;
+                  renderer.setLayerPainter(1, paintPathsL1(renderStateRef.current));
+                  renderer.setLayerPainter(2, paintEntitiesL2(renderStateRef.current));
+                  renderer.setLayerPainter(3, paintOverlayL3(renderStateRef.current));
+                }}
+              </MapStage>
+            )}
             <div className="mapf-toolbar">
               <button type="button" className={`btn tiny ${tool === 'select' ? 'primary' : ''}`} onClick={() => setTool('select')}>
                 选择
@@ -834,9 +908,32 @@ export function MapfPanel(props: MapfPanelProps) {
               <button type="button" className={`btn tiny ${tool === 'wall' ? 'primary' : ''}`} onClick={() => setTool('wall')}>
                 障碍
               </button>
-              <button type="button" className="btn tiny" title="适配窗口（F）" onClick={() => setFitNonce((n) => n + 1)}>
-                适配
-              </button>
+              {!view3d && (
+                <button type="button" className="btn tiny" title="适配窗口（F）" onClick={() => setFitNonce((n) => n + 1)}>
+                  适配
+                </button>
+              )}
+              <span style={{ width: 6 }} />
+              <Segmented
+                ariaLabel="视图模式"
+                value={view3d ? '3d' : '2d'}
+                onChange={(v) => setView3d(v === '3d')}
+                options={[
+                  { id: '3d', label: '3D 沙盘', title: '等距三维沙盘（默认）' },
+                  { id: '2d', label: '2D 轻量', title: '轻量二维模式（低性能设备兜底）' },
+                ]}
+              />
+              {view3d && (
+                <Segmented
+                  ariaLabel="相机视角"
+                  value={camView}
+                  onChange={setCamView}
+                  options={[
+                    { id: 'iso', label: '等距', title: '等距视角（微缩沙盘）' },
+                    { id: 'top', label: '俯视', title: '正交俯视（精确对格）' },
+                  ]}
+                />
+              )}
               {mode === 'playback' && !wizard.active && (
                 <button
                   type="button"
@@ -862,7 +959,7 @@ export function MapfPanel(props: MapfPanelProps) {
             </div>
             <div className="mapf-legend muted small">
               <span>●移动 ◌等待 ✓到达 ◎驻留</span>
-              <span>虚线=未来 实线=已执行</span>
+              <span>{view3d ? '实线=已执行 · 虚线=未执行 · 轨迹悬浮于底板上方' : '虚线=未来 实线=已执行'}</span>
             </div>
             {!solution && mode === 'edit' && (
               <div className="mapf-guide muted">
