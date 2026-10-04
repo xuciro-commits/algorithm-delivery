@@ -62,10 +62,20 @@ export interface ArtManifest {
 
 const BASE = import.meta.env.BASE_URL || '/';
 
-/** public/ 下的路径 → 带 BASE_URL 的运行时 URL（Pages 子路径安全）。 */
+/**
+ * public/ 下的路径 → 带 BASE_URL 的运行时 URL（Pages 子路径安全）。
+ *
+ * **幂等**：URL 里已经带着 base 前缀时原样返回。这样“调用方先拼一次、组件再拼一次”
+ * 这种重复前缀不会再变成 `…/algorithm-delivery/algorithm-delivery/models/…` 的 404
+ * （真实事故：三维实验室英雄设备因此整块加载失败）。
+ */
 export function artAssetUrl(path: string): string {
   const base = BASE.endsWith('/') ? BASE : `${BASE}/`;
-  return `${base}${path.replace(/^\/+/, '')}`;
+  const clean = path.replace(/^\/+/, '');
+  const prefix = base.replace(/^\/+/, '');
+  // 已经带前缀（例如 'algorithm-delivery/models/x.glb'）→ 只补一个前导斜杠。
+  if (prefix && clean.startsWith(prefix)) return `/${clean}`;
+  return `${base}${clean}`;
 }
 
 export type ManifestStatus = 'loading' | 'ready' | 'missing' | 'error';

@@ -22,7 +22,12 @@ export function adaptApsToGantt(
   const dependencies: GanttDependency[] = [];
   const depKeys = new Set<string>();
 
-  const addDep = (from: string, to: string, type: GanttDependency['type'] = 'FS') => {
+  const addDep = (
+    from: string,
+    to: string,
+    type: GanttDependency['type'] = 'FS',
+    opts?: { resource?: boolean },
+  ) => {
     const key = `${from}->${to}:${type}`;
     if (!depKeys.has(key)) {
       depKeys.add(key);
@@ -31,8 +36,32 @@ export function adaptApsToGantt(
         from,
         to,
         type,
+        resource: opts?.resource,
       });
     }
+  };
+
+  /** 沿已有边从 start 出发能否到达 goal（用于拒绝会成环的资源边）。 */
+  const reaches = (start: string, goal: string) => {
+    const seen = new Set<string>([start]);
+    const stack = [start];
+    while (stack.length) {
+      const cur = stack.pop() as string;
+      for (const dep of dependencies) {
+        if (dep.from !== cur) continue;
+        if (dep.to === goal) return true;
+        if (!seen.has(dep.to)) {
+          seen.add(dep.to);
+          stack.push(dep.to);
+        }
+      }
+    }
+    return false;
+  };
+
+  const at = (iso: string | undefined | null) => {
+    const t = iso ? Date.parse(iso) : NaN;
+    return Number.isFinite(t) ? t : NaN;
   };
 
   const solvedOps = solution.operations;
@@ -105,6 +134,54 @@ export function adaptApsToGantt(
             addDep(predId, solved.operation_id, 'FS');
           }
         }
+      }
+    }
+  }
+
+  // 4) 跨订单的**资源顺序边**：同一台设备在解法里的占用先后。
+  //
+  // 为什么需要：订单内边只能沿“工序清单顺序”回溯，订单之间零依赖时，关键路径会在
+  // 第一个订单前断掉，图上只亮一个订单（真实反馈：「关键路径只标出第一个工单」）。
+  // 同一台机器被前后两道工序占用，是排程解法本身给出的真实先后关系，补上它，关键路径
+  // 才能像产能链一样穿过订单边界。
+  //
+  // 保守三条（宁可少报，不可滥报）：
+  //   a. 只有“问题里的工序与解法里的工序完全对齐”才连边——部分解/被截断的解不连；
+  //   b. 只连时间上确实首尾相接（prev.end <= cur.start）的相邻工序；
+  //   c. 连边前做可达性检查，拒绝会造环的边（解法已定序，理论上不该出现）。
+  const problemOpIds = new Set<string>();
+  for (const order of problem.orders ?? []) {
+    for (const op of order.operations ?? []) problemOpIds.add(op.id);
+  }
+  const complete =
+    problemOpIds.size > 0 &&
+    solvedOps.length >= problemOpIds.size &&
+    Array.from(problemOpIds).every((id) => opMap.has(id));
+
+  if (complete) {
+    const byMachine = new Map<string, typeof solvedOps>();
+    for (const op of solvedOps) {
+      if (!op.machine_id) continue;
+      const list = byMachine.get(op.machine_id);
+      if (list) list.push(op);
+      else byMachine.set(op.machine_id, [op]);
+    }
+    for (const list of byMachine.values()) {
+      const seq = [...list].sort((a, b) => {
+        const d = at(a.start_at) - at(b.start_at);
+        if (Number.isFinite(d) && d !== 0) return d;
+        const e = at(a.end_at) - at(b.end_at);
+        if (Number.isFinite(e) && e !== 0) return e;
+        return a.operation_id.localeCompare(b.operation_id);
+      });
+      for (let i = 1; i < seq.length; i++) {
+        const prev = seq[i - 1];
+        const cur = seq[i];
+        const prevEnd = at(prev.end_at);
+        const curStart = at(cur.start_at);
+        if (!Number.isFinite(prevEnd) || !Number.isFinite(curStart) || prevEnd > curStart) continue;
+        if (reaches(cur.operation_id, prev.operation_id)) continue;
+        addDep(prev.operation_id, cur.operation_id, 'FS', { resource: true });
       }
     }
   }

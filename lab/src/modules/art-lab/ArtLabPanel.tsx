@@ -20,7 +20,7 @@ import { HudPanel, HudSection, Segmented, StatChip, ToolButton } from '../../com
 import { ART_MODES } from '../../art/modes';
 import { ART_MODE_LABEL, ART_MODE_OPTIONS } from '../../art/tokens';
 import { useArtStore } from '../../art/settings';
-import { artAssetUrl, heroModels, useArtManifest, type ArtModelEntry } from '../../art/manifest';
+import { heroModels, useArtManifest, type ArtModelEntry } from '../../art/manifest';
 import { missingModelKeys, resolveModelUrls } from '../../art/modelPaths';
 import type { ApplyStats } from '../../art/materials';
 import type { EquipmentPartInfo } from '../../art/EquipmentModel';
@@ -593,7 +593,8 @@ export function ArtLabPanel({ aps, mapf, agv }: ArtLabEngineProps) {
           <div className="stage-viewport">
             {lab === 'hero' && (
               <HeroBench3D
-                url={heroEntry ? artAssetUrl(heroEntry.url) : null}
+                /* EquipmentModel 内部统一走 artAssetUrl，这里传清单里的原始 path */
+                url={heroEntry ? heroEntry.url : null}
                 view={heroView}
                 emphasizeParts={emphasizeParts}
                 onParts={setHeroParts}

@@ -187,6 +187,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run test:core` | 核心冒烟：加载真实 WASM 求解，并断言实验室纯逻辑（30+ 项） |
 | `npm run test:runner` | 运行器生命周期：取消（终止 Worker）→ 自动重建 → 再求解；`dispose()` |
 | `npm run test:render` | 渲染冒烟：外壳/参数区/MAPF Visual Lab 与 AGV/库位/立库面板骨架/空态（SSR，无需浏览器） |
+| `npm run test:grid` | 网格视口：2D 适配 / 缩放上下限 / 格↔像素互逆 / LOD 档位（含“极小地图不得被放大成巨框”的回归） |
 | `npm run test:mapf:scene` | MAPF 场景内核：命令撤销栈、预检逐错误码、序列化白名单、14 mock roundtrip、动态块构造与预检拦截 |
 | `npm run test:mapf:playback` | MAPF 回放时钟：seek/暂停/限速不变式（曾抓出 dt 毫秒未除 1000 的真 bug） |
 | `npm run test:mapf:runs` | MAPF 运行历史：RunRecord 投影、指纹分组、diffRuns 对比方向语义 |

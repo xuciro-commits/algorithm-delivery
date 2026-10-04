@@ -86,6 +86,8 @@ export function ApsPanel({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('gantt');
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
+  /** 3D 产线是否只画“排程里真的有工序”的设备（未排产设备不占位）。 */
+  const [onlyScheduledLines, setOnlyScheduledLines] = useState(true);
   const [ganttMode, setGanttMode] = useState<'line3d' | 'advanced' | 'classic'>('line3d');
   const [apsPlaying, setApsPlaying] = useState(false);
   const [apsSpeed, setApsSpeed] = useState<Speed>(2);
@@ -248,8 +250,14 @@ export function ApsPanel({
   // —— 产线 3D 投影：设备网格 + 工序区间（全部来自引擎解，见 ./projection.ts） ——
   const APS_STEPS = 240;
   const aps3d = useMemo(
-    () => projectApsLine(activeRun?.gantt ?? null, activeRun?.resources ?? []),
-    [activeRun?.gantt, activeRun?.resources],
+    () => {
+      // 只画真正排产的产线：资源清单里 operations === 0 的设备不占位，
+      // 这样 3D 里“有几条线在跑”与排程结果一致（未排产设备可在界面上放出来）。
+      const resources = activeRun?.resources ?? [];
+      const used = onlyScheduledLines ? resources.filter((r) => (r.operations ?? 0) > 0) : resources;
+      return projectApsLine(activeRun?.gantt ?? null, used);
+    },
+    [activeRun?.gantt, activeRun?.resources, onlyScheduledLines],
   );
   const previewMachines = useMemo(() => (problem?.machines ?? []).map((machine) => machine.id), [problem]);
 
@@ -641,6 +649,14 @@ export function ApsPanel({
                       <span className="stage-note">
                         在制 {apsBusyNow} 道工序 · {aps3d.machines.length} 台设备
                       </span>
+                      <button
+                        type="button"
+                        className={`btn tiny ${onlyScheduledLines ? 'primary' : ''}`}
+                        title="只画排程结果里真正有工序的产线；关掉则连未排产的设备一起显示"
+                        onClick={() => setOnlyScheduledLines((v) => !v)}
+                      >
+                        {onlyScheduledLines ? '仅排产产线' : '含未排产'}
+                      </button>
                     </div>
                     <div className="stage-float stage-float-bl">
                       <div className="mapf-play">

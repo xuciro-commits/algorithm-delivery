@@ -130,6 +130,55 @@ function analyseCanvasPng(buffer) {
   };
 }
 
+/**
+ * 画布尺寸必须是“稳定且够大”的，不能只等到 dataset 就绪。
+ *
+ * 真实 CI 上抓到过一次典型事故：页面刚 domcontentloaded 时父级还在做首次布局，
+ * 画布量到 785×150（父级纵向 flex + flex-basis 0 的塌缩），截图虽不黑但舞台已经残废。
+ * 这里连续两次量到同样的、达标的尺寸才算就绪；始终不达标时返回最后一次读数，
+ * 由 waitForCanvas 带着祖先链一起报错——下次失败能直接定位到是哪一层把高度压掉了。
+ */
+async function waitForStableCanvasSize(page, canvasSelector, { timeoutMs = 20_000, minWidth = 320, minHeight = 240 } = {}) {
+  const readSize = () =>
+    page.locator(canvasSelector).first().evaluate((canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return { width: Math.round(rect.width), height: Math.round(rect.height) };
+    });
+  const deadline = Date.now() + timeoutMs;
+  let previous = null;
+  while (Date.now() < deadline) {
+    const size = await readSize();
+    const bigEnough = size.width >= minWidth && size.height >= minHeight;
+    if (bigEnough && previous && size.width === previous.width && size.height === previous.height) return size;
+    previous = size;
+    await page.waitForTimeout(150);
+  }
+  return previous;
+}
+
+/** 画布→祖先链的布局快照：失败时报告，避免“只报尺寸不报原因”。 */
+async function describeCanvasLayout(page, canvasSelector) {
+  return page.locator(canvasSelector).first().evaluate((canvas) => {
+    const chain = [];
+    let node = canvas;
+    while (node && chain.length < 6) {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      chain.push({
+        node: node.tagName.toLowerCase() + (node.className?.toString().trim() ? `.${node.className.toString().trim().split(/\s+/).join('.')}` : ''),
+        rect: `${Math.round(rect.width)}×${Math.round(rect.height)}`,
+        display: style.display,
+        position: style.position,
+        flex: `${style.flexGrow}/${style.flexShrink}/${style.flexBasis}`,
+        height: style.height,
+        minHeight: style.minHeight,
+      });
+      node = node.parentElement;
+    }
+    return chain;
+  });
+}
+
 async function waitForCanvas(page, canvasSelector) {
   await page.locator(canvasSelector).first().waitFor({ state: 'visible', timeout: 60_000 });
   await page.waitForFunction(
@@ -148,6 +197,9 @@ async function waitForCanvas(page, canvasSelector) {
     canvasSelector,
     { timeout: 60_000 },
   );
+  // dataset 就绪 ≠ 舞台可用：真实事故里画布在首次布局时塌到 785×150（父级纵向 flex 塌缩），
+  // 截图不黑但舞台已经残废。这里再等一次“尺寸稳定且达标”，失败时由下面的 undersized 分支报祖先链。
+  await waitForStableCanvasSize(page, canvasSelector);
   const health = await page.locator(canvasSelector).first().evaluate((canvas) => {
     const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
     const rect = canvas.getBoundingClientRect();
@@ -173,7 +225,10 @@ async function waitForCanvas(page, canvasSelector) {
   if (!health.contextAvailable || health.contextLost) throw new Error('A real WebGL context is unavailable or lost');
   if (!health.hdriReady) throw new Error('The local HDR environment map has not initialized');
   if (health.cssWidth < 320 || health.cssHeight < 240 || health.bufferWidth < 320 || health.bufferHeight < 240) {
-    throw new Error(`WebGL canvas is undersized: ${JSON.stringify(health)}`);
+    const layout = await describeCanvasLayout(page, canvasSelector).catch(() => []);
+    throw new Error(
+      `WebGL canvas is undersized: ${JSON.stringify(health)}\ncanvas 祖先链（定位是哪一层把高度压掉了）：${JSON.stringify(layout)}`,
+    );
   }
   return health;
 }

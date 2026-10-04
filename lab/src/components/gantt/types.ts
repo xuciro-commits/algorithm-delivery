@@ -25,6 +25,13 @@ export interface GanttDependency {
   from: string;
   to: string;
   type: "FS" | "SS" | "FF" | "SF";
+  /**
+   * 资源顺序链（同一台设备/同一个人的前后两道工序）。
+   *
+   * 这类连线不是工艺约束，而是排程结果里“资源被谁占着”的先后关系；它们数量多，
+   * 只在与关键路径一起看时有价值，因此默认不画，仅当关键路径高亮开启时显示。
+   */
+  resource?: boolean;
 }
 
 export interface GanttCalendar {
