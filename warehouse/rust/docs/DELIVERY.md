@@ -8,7 +8,7 @@
 | 交付物 | 位置 | 状态 |
 | --- | --- | --- |
 | 需求规格 | `warehouse/WAREHOUSE-SRS.md` | ✅ |
-| Rust 核心（库位 / 立库 / 联合 / 验证 / 事件） | `warehouse/rust/src/**`（约 20k 行） | ✅ 曾构建通过（本轮追加改动后未重建，见 §6） |
+| Rust 核心（库位 / 立库 / 联合 / 验证 / 事件） | `warehouse/rust/src/**`（约 20k 行） | ✅ 本轮追加的改动已由 CI 重建通过（`2564dd3` 第 3 次运行第 9 步「构建（release）」success） |
 | native CLI `warehouse` | `warehouse/rust/src/main.rs` | ✅ |
 | wasm ABI + Worker 胶水 | `src/wasm_api.rs` + `web/warehouse-worker.js` | ✅ 沙箱内构建通过并冒烟（三域求解 + 独立核验 + 对抗样例 + 坏输入） |
 | 契约 schema + 生成脚本 | `warehouse/contracts/**` | ✅ 生成一致（`make_schemas.py --check`） |
@@ -16,8 +16,8 @@
 | 脚本（构建 / 冒烟 / 契约） | `warehouse/rust/scripts/**` | ✅ `check_contracts.py` 51 项全过；`build_wasm.sh` 冒烟通过 |
 | 实验室模块 | `lab/src/modules/{slotting,dense-asrs}/**` | ✅ 代码完成；本轮 `tsc --noEmit` 全仓通过、场景投影单测 `npm run test:warehouse:scenes` 20 项通过（都在本沙箱真跑过）；⏳ 未跑 `npm run build` / `test:render`（需要先 `npm run sync` 生成 vendor 产物） |
 | 代码格式与语法 | `cargo fmt`（rustfmt 1.8.0 / Rust 1.88） | ✅ 全量格式化并 `cargo fmt --check` 干净；格式化器逐文件解析通过 = 无语法错误 |
-| 静态检查（clippy） | `cargo clippy --all-targets -- -D warnings` | ⏳ 需要编译，本沙箱未跑（见 §3） |
-| CI 质量门 | `.github/workflows/warehouse-quality.yml` + `warehouse-rust.yml`（已接入 `lab.yml` / `release.yml`，且只对改动过的引擎触发） | ⏳ 未在本沙箱触发（需推到 GitHub 才跑） |
+| 静态检查（clippy） | `cargo clippy --all-targets -- -D warnings` | ✅ CI 实测通过（`2564dd3` 第 8 步 success）：本轮先因两处 `match { Some(v) => v, None => 默认值 }` 直通写法挂过一轮，改成 `.unwrap_or(...)` 后全绿 |
+| CI 质量门 | `.github/workflows/warehouse-quality.yml` + `warehouse-rust.yml`（已接入 `lab.yml` / `release.yml`，且只对改动过的引擎触发） | 🟡 部分：第 3 次运行里依赖审计 / rustfmt / clippy / release 构建 / 单元+集成+文档测试全部 success（含曾失败的那条联合核验用例）；第 11 步「86 场景按族验收」起该次运行被手动取消 → 契约符合性 / 基准冒烟 / WASM 冒烟 / 产物上传，以及 Lab 打包、视觉验收、Pages 部署仍未跑（见 §6c-3） |
 
 ## 2. 本沙箱内**已获得**的结论（可复现的原始命令）
 
@@ -201,3 +201,28 @@ CI 首跑 `cargo test --release --locked`：8/9 通过，`joint_verification_cov
 > 触发总原则：每个工作流的 `push` / `pull_request` 都带 `paths`；job 之间用 `changes` 的
 > 输出做**模块级分流**；部署只在与配置/产物相关的改动落到 `main`（或手动 `deploy=on`）时执行。
 > 工作流自身的约定仍由 `lab/scripts/check-workflows.mjs` 断言（本轮已在沙箱内实跑通过）。
+
+四个质量门（`aps-quality.yml` / `mapf-quality.yml` / `agv-quality.yml` / `warehouse-quality.yml`）
+的 clippy 步骤顺带改了失败时的可读性：以前只能把整份运行日志下载下来翻，现在失败会把
+`--message-format=short` 的诊断压成一条 `::error::` 注释（`%25/%0D/%0A` 转义、截断 20 KB），
+在 Actions 汇总页/PR 上直接可见；诊断本体仍然完整留在步骤输出里。
+
+### 3) 三次运行的实际结果（CI 实跑记录，非推测）
+
+| 运行 | 结果 | 说明 |
+| --- | --- | --- |
+| 第 1 次（`b420409`） | 「单元 / 集成 / 文档测试」失败 | `joint_verification_covers_both_halves` 报 `recomputed.asrs = null`；其余步骤（依赖审计 / rustfmt / clippy / release 构建）全过 |
+| 第 2 次（`ec1bf79`） | 「静态检查（clippy -D warnings）」失败 | rustfmt 通过，说明新代码语法与格式没问题；clippy 挂在本轮新写的两处 `match … { Some(v) => v, None => <默认值> }` 直通写法（clippy 归为 `manual_unwrap_or` 一类），而仓库其余部分一律走 `.unwrap_or(...)` |
+| 第 3 次（`2564dd3`） | 第 8 步「静态检查（clippy）」**成功** → 第 9 步「构建（release）」**成功** → 第 10 步「单元 / 集成 / 文档测试」**成功** | 上面两条修复都被 CI 实测确认：**连同那次曾经失败的联合核验用例在内，测试链路已经绿过一次**。第 11 步「86 个标准场景验收（按族运行）」在运行中被**手动取消**（GitHub 记录：`The run was canceled by @xuciro-commits.`），所以第 12–15 步（契约符合性 / 基准冒烟 / WASM 冒烟 / 产物上传）仍是「本次未跑」 |
+
+要单独补跑某一段（`engines` 支持 `auto|all|none|aps|mapf|agv|warehouse`）：
+
+```bash
+# 只补仓储这一段（含 86 场景按族验收）：其余三个引擎与 Lab/视觉/部署都不会跑
+gh workflow run lab.yml --ref <branch> -f engines=warehouse -f lab=off -f visual=off -f deploy=off
+# 四个引擎全跑一遍，但不动 Lab/部署
+gh workflow run lab.yml --ref <branch> -f engines=all -f lab=off -f visual=off -f deploy=off
+```
+
+第 11 步是这套门里最吃内存/时间的一段（`stress` 族按需求 §8 生成 150k SKU / 1.9M 库位，
+`dispatch` 族 20k 任务，建议 ≥8 GB 内存；CI runner 够用，本沙箱不够，所以拆族跑）。
