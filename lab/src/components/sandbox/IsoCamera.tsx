@@ -6,7 +6,7 @@
 
 import { OrbitControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 export interface IsoCameraProps {
@@ -15,6 +15,8 @@ export interface IsoCameraProps {
   /** Actual board bounds improve framing for long / wide scenes. */
   width?: number;
   height?: number;
+  /** 视线焦点与围绕旋转中心（默认 [width/2, 0, height/2]）。 */
+  center?: [number, number, number] | [number, number];
   view?: 'iso' | 'top';
   /** 编辑模式下锁定旋转，避免与笔刷冲突。 */
   rotatable?: boolean;
@@ -80,11 +82,24 @@ export function fitZoom(
   return Math.max(3, Math.min(800, fit));
 }
 
-export function IsoCamera({ span, width = span, height = span, view = 'iso', rotatable = true }: IsoCameraProps) {
+export function IsoCamera({
+  span,
+  width = span,
+  height = span,
+  center: propCenter,
+  view = 'iso',
+  rotatable = true,
+}: IsoCameraProps) {
   const { camera, invalidate, size, gl } = useThree();
   const [fit, setFit] = useState(48);
   const [distState, setDistState] = useState(60);
-  const center = useMemo(() => new THREE.Vector3(width / 2, 0, height / 2), [width, height]);
+  const cx = propCenter ? propCenter[0] : width / 2;
+  const cy = propCenter && propCenter.length === 3 ? propCenter[1] : 0;
+  const cz = propCenter ? (propCenter.length === 3 ? propCenter[2] : propCenter[1]) : height / 2;
+
+  const center = useMemo(() => new THREE.Vector3(cx, cy, cz), [cx, cy, cz]);
+  const targetCoord = useMemo(() => [cx, cy, cz] as [number, number, number], [cx, cy, cz]);
+
   const [spacePressed, setSpacePressed] = useState(false);
   const [shiftPressed, setShiftPressed] = useState(false);
 
@@ -122,8 +137,17 @@ export function IsoCamera({ span, width = span, height = span, view = 'iso', rot
   }, []);
 
   const isPerspective = Boolean((camera as THREE.PerspectiveCamera).isPerspectiveCamera);
+  const lastKeyRef = useRef<string>('');
+  const currentKey = `${isPerspective}_${view}_${span}_${width}_${height}_${cx}_${cy}_${cz}`;
 
   useEffect(() => {
+    // 只有在初始挂载、显式切换视角（iso/top）、场景规模或真实几何中心变化时才重定位相机。
+    // 动画时间轴推进（回放）、图层切换或外部状态重渲染，绝不能强行重置用户的视角。
+    if (lastKeyRef.current === currentKey) {
+      return;
+    }
+    lastKeyRef.current = currentKey;
+
     const direction = view === 'top' ? TOP_DIR : ISO_DIR;
 
     if (isPerspective) {
@@ -150,7 +174,7 @@ export function IsoCamera({ span, width = span, height = span, view = 'iso', rot
       camera.updateProjectionMatrix();
     }
     invalidate();
-  }, [isPerspective, view, span, width, height, size.width, size.height, camera, center, invalidate]);
+  }, [isPerspective, view, span, width, height, cx, cy, cz, size.width, size.height, camera, center, currentKey, invalidate]);
 
   const canRotate = rotatable && view !== 'top' && !spacePressed && !shiftPressed;
   const leftAction = canRotate
@@ -162,7 +186,7 @@ export function IsoCamera({ span, width = span, height = span, view = 'iso', rot
   return (
     <OrbitControls
       makeDefault
-      target={[center.x, 0, center.z]}
+      target={targetCoord}
       enableDamping
       dampingFactor={0.12}
       enableRotate={canRotate}

@@ -483,7 +483,6 @@ export function SlottingPanel() {
                 selected={selected}
                 onSelect={setSelected}
                 fitNonce={fitNonce}
-                height={430}
               />
             ) : (
               <div className="mapf-visual sandbox-stage stage-loading">

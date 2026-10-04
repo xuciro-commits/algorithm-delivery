@@ -151,7 +151,10 @@ GitHub 托管 runner 只比开发沙箱大一点点（约 4 vCPU / 8 GB），所
 （下面的命令可以直接交给本机 AI 执行）：
 
 ```bash
-# 仓储：86 个标准场景按族验收 + 契约符合性（≈1–3 分钟；stress 族建议 ≥8 GB 内存）
+# 仓储：86 个标准场景按族验收 + 契约符合性
+#   实测（2 vCPU 沙箱）：slotting 族 ≈8 s、event 族 ≈1 s、joint 族 ≈68 s；
+#   dispatch 族与 stress 族（X01/X02 = 150k SKU / 1.9M 库位）文档大、求解需要 ≥8 GB 内存，
+#   沙箱跑不完，请在本机跑（36 GB 足够）。生成侧已优化：X01 出题 13 s / 344.9 MB（原先十几分钟还不结束）。
 bash warehouse/rust/scripts/verify_heavy.sh
 # 再加全量基准（10 个 case，native 档；含 slotting-large / asrs-large / joint-medium，数分钟）
 bash warehouse/rust/scripts/verify_heavy.sh --with-bench
@@ -240,7 +243,8 @@ npm run test:all
 6. **失败可读**：四个质量门的 clippy 步骤失败时会附加一条 `::error::` 注释（短格式诊断、截断 20 KB），
    Actions 汇总页与 PR 上直接可见，不必再下载整份日志。
 
-所有 job 都设了 `timeout-minutes`，真实浏览器视觉验收只在 main 与手动触发时运行（最贵的一步），
+所有 job 都设了 `timeout-minutes`；真实浏览器视觉验收是**最贵的一步，CI 里默认不跑**（main 也是只构建 + 按需部署），
+要跑就手动 `-f visual=on`（失败时原因会打成 `::error::` 注解，见下），本地跑同一份命令更快：
 action 全部使用支持 Node 24 的版本。
 
 - [aps-rust.yml](.github/workflows/aps-rust.yml)、[mapf-rust.yml](.github/workflows/mapf-rust.yml)、[agv-rust.yml](.github/workflows/agv-rust.yml)：**非 main / 非 arena 分支**上的兜底质量门（main 与 PR 已由 lab.yml 覆盖）。
@@ -251,8 +255,8 @@ action 全部使用支持 Node 24 的版本。
 - [agv-quality.yml](.github/workflows/agv-quality.yml)：格式、Clippy、Rust 测试、A01–A16 验收、45 项契约符合性、B01–B03 基准、WASM 与 Worker 取消回归。
 - [warehouse-rust.yml](.github/workflows/warehouse-rust.yml)：仓储引擎代码变更时运行可复用 Rust 质量门。
 - [warehouse-quality.yml](.github/workflows/warehouse-quality.yml)：格式、Clippy、release 构建、Rust 测试（含端到端集成测试）、契约符合性、三维基准冒烟（3 例）、WASM 构建与 ABI 冒烟——**只验通过性**；86 个标准场景按族验收已移出 CI，改由本地 `bash warehouse/rust/scripts/verify_heavy.sh` 执行（负荷验证：`dispatch` 族峰值约 3.2 GB）。
-- [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 改动检测（只对改动过的引擎跑质量门）→ 构建/测试 Lab（Node 24）→ 按需部署 Pages。PR 与迭代分支只做构建与检查（不上传预览产物、不跑浏览器验收）；main 与手动触发才跑视觉验收；手动触发可单独跑某一段（`engines` / `lab` / `visual` / `deploy`）。
-- [lab-visual-acceptance.yml](.github/workflows/lab-visual-acceptance.yml)：独立 Ubuntu/Playwright Chromium 视觉验收（仅 main 与手动触发），消费同一次 production build，采集 APS/MAPF/AGV WebGL 截图、console 日志和实际引擎状态（30 天 Artifact，浏览器缓存复用）。
+- [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 改动检测（只对改动过的引擎跑质量门）→ 构建/测试 Lab（Node 24）→ 按需部署 Pages。PR、迭代分支与 main 都只做构建与检查（不上传预览产物、不自动跑浏览器验收）；浏览器视觉验收只在手动 `-f visual=on` 时跑，手动触发还可单独跑某一段（`engines` / `lab` / `visual` / `deploy`）。
+- [lab-visual-acceptance.yml](.github/workflows/lab-visual-acceptance.yml)：独立 Ubuntu/Playwright Chromium 视觉验收（**仅手动 `visual=on`**），消费同一次 production build，采集 APS/MAPF/AGV WebGL 截图、console 日志和实际引擎状态（30 天 Artifact，浏览器缓存复用）；失败时把日志首尾各 20 KB 打成 `::error::` 注解，原因在 Actions 页面/PR/API 上直接可读。
 - [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV/Warehouse 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。也可手动触发：填 `tag=v1.0.0` 按该标签源码构建、`engines=warehouse` 只构建单个引擎（此时不上传 Release，避免发出不完整产物）、`dry_run=yes` 只验证构建链路。
 
 ### 创建正式 Release

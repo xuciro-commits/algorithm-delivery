@@ -215,6 +215,11 @@ fn destroy(
             list
         }
         Destroy::Worst => {
+            let less = |a: &(f64, usize), b: &(f64, usize)| {
+                b.0.partial_cmp(&a.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.1.cmp(&b.1))
+            };
             let mut scored: Vec<(f64, usize)> = assigned
                 .iter()
                 .map(|lu| {
@@ -223,12 +228,14 @@ fn destroy(
                     (model.unit_flow[*lu] * weighted_seconds(model, loc), *lu)
                 })
                 .collect();
-            scored.sort_by(|a, b| {
-                b.0.partial_cmp(&a.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.1.cmp(&b.1))
-            });
-            scored.truncate(degree);
+            // 只需要前 `degree` 个，但仍然要保持"完全排序后截断"的顺序：
+            // 先按同一比较器做一次部分选择（O(n)），再只对选中的这段排序（O(k log k)）。
+            // 比较器是全序（分数 + 下标），所以结果与"全排序后截断"逐位相同。
+            if degree < scored.len() {
+                scored.select_nth_unstable_by(degree, less);
+                scored.truncate(degree);
+            }
+            scored.sort_by(less);
             scored.into_iter().map(|(_, lu)| lu).collect()
         }
         Destroy::Related => {
@@ -420,6 +427,25 @@ fn repair(
         Repair::Sampled => (6, 2),
     };
     let candidates = candidate_locations(model, state, rng, head, sample);
+    // `Repair::Affinity` 要反复回答"这个 SKU 当前最靠前的在库单元在哪"。
+    // 原实现对**每个候选单元**都全表扫一遍 `loc_of_lu`（43 万单元 × 最多 230 个候选 × 每个搭档），
+    // 压力档单次迭代就是上亿次比较——这就是 X01 上 1.7 s/迭代的主要来源。
+    // 这里在进入修复循环前建一次「SKU → 最小在库单元下标」索引，循环内每次落位后用 min 更新：
+    // 修复阶段只会 **增加** 在库单元、不会移除，所以该索引与"按下标升序扫到的第一个在库单元"
+    // 完全等价，取值逐位不变。
+    let mut min_placed_of_sku: Vec<i64> = Vec::new();
+    if matches!(op, Repair::Affinity) {
+        min_placed_of_sku = vec![-1; model.skus.len()];
+        for (lu, loc) in state.loc_of_lu.iter().enumerate() {
+            if *loc < 0 {
+                continue;
+            }
+            let slot = &mut min_placed_of_sku[model.lu_sku[lu]];
+            if *slot < 0 {
+                *slot = lu as i64;
+            }
+        }
+    }
     let mut placed = 0usize;
     let mut guard = 0usize;
     while !remaining.is_empty() && guard < pool.len() * 8 {
@@ -475,15 +501,16 @@ fn repair(
                     let mut score = 0.0;
                     for (mate, weight, _) in &model.affinity.pairs[sku] {
                         // 搭档是否已经放在库里？它离最近候选有多远？
-                        let mut best_mate_bay = None;
-                        for (other_lu, loc) in state.loc_of_lu.iter().enumerate() {
-                            if *loc < 0 || model.lu_sku[other_lu] != *mate {
-                                continue;
-                            }
-                            best_mate_bay =
-                                Some((*loc as usize, model.locations[*loc as usize].bay));
-                            break;
-                        }
+                        // （"最靠前的在库单元"由上面的索引给出，与旧的全表扫描同义）
+                        let best_mate_bay = min_placed_of_sku
+                            .get(*mate)
+                            .copied()
+                            .filter(|lu| *lu >= 0)
+                            .and_then(|lu| {
+                                let loc = state.loc_of_lu[lu as usize];
+                                (loc >= 0)
+                                    .then(|| (loc as usize, model.locations[loc as usize].bay))
+                            });
                         if let Some((mate_loc, mate_bay)) = best_mate_bay {
                             let same_aisle = model.costs[mate_loc].aisle_index;
                             let near = candidates
@@ -533,6 +560,12 @@ fn repair(
         }
         if let Some((_, loc)) = chosen {
             state.place(model, lu, loc);
+            if !min_placed_of_sku.is_empty() {
+                let slot = &mut min_placed_of_sku[model.lu_sku[lu]];
+                if *slot < 0 || (lu as i64) < *slot {
+                    *slot = lu as i64;
+                }
+            }
             placed += 1;
         } else {
             // 真的放不回去（容量/约束收紧）：保持未分配，由状态如实报告
@@ -823,9 +856,15 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
         .max(1.0);
 
     // 小规模实例：先算线性分派松弛的精确解（可证明的最优性 + 最强基线）
+    // 先看规模再决定要不要建"精确解探针"的模型：
+    // `exact_assignment` 的第一件事就是 `rows > max_rows` 直接返回 None，而 `rows` 恰好等于
+    // `problem.inventory.len()`（`lu_sku` 与库存单元一一对应）。旧写法在 15 万单元的压力档上
+    // 会**先白建一整个模型**（含 95 万库位的逐位成本）再去发现"规模太大，不做精确解"，
+    // 等于把建模型的开销乘以 2。这里把规模判断提前，行为与取值完全不变。
     let exact_probe: Option<(Vec<i64>, f64)> = if problem.algorithm.exact_when_small
         && algorithm != "nsga2"
         && !strategies::is_basic(&algorithm)
+        && problem.inventory.len() <= problem.algorithm.exact_max_units
     {
         let probe = build_model(problem, cost_config.clone());
         exact_assignment(&probe, problem.algorithm.exact_max_units)
@@ -2093,16 +2132,40 @@ fn comparison_snapshot(state: &SlottingState) -> Json {
 /// 本次方案作为结果。全部用同一套目标函数与同一套库位成本重算，不用任何"历史报告值"。
 fn comparison_json(model: &mut SlottingModel, state: &SlottingState, weights: &Weights) -> Json {
     let mut rows: Vec<(String, Json)> = Vec::new();
+    // 基线对照是"逐单元算迁移代价"的一段重活：压力档 100 万单元量级，
+    // 因此每一段都打一条 WH_TIME 阶段耗时（stderr），便于区分"在算"与"卡住"。
     // 1) 当前布局
+    let clock = crate::engine::prof_now();
     let current_assignment = model.current_loc.clone();
     let mut current_state = SlottingState::rebuild(model, &current_assignment);
+    crate::engine::prof_phase(
+        "comparison:currentLayout:rebuild",
+        clock,
+        current_assignment.len(),
+    );
+    let clock = crate::engine::prof_now();
     current_state.recompute_relocation(model);
+    crate::engine::prof_phase("comparison:currentLayout:relocation", clock, 0);
     let (_, current_point) = comparison_point(model, &current_state, weights);
     rows.push(("currentLayout".to_string(), current_point));
     // 2) 随机布局（同种子固定，保证可比）
+    let clock = crate::engine::prof_now();
     let random_assignment = seed_random_assignment(model, 20_250_901);
+    crate::engine::prof_phase(
+        "comparison:randomLayout:seed",
+        clock,
+        random_assignment.len(),
+    );
+    let clock = crate::engine::prof_now();
     let mut random_state = SlottingState::rebuild(model, &random_assignment);
+    crate::engine::prof_phase(
+        "comparison:randomLayout:rebuild",
+        clock,
+        random_assignment.len(),
+    );
+    let clock = crate::engine::prof_now();
     random_state.recompute_relocation(model);
+    crate::engine::prof_phase("comparison:randomLayout:relocation", clock, 0);
     let (_, random_point) = comparison_point(model, &random_state, weights);
     rows.push(("randomLayout".to_string(), random_point));
     // 3) 本次方案

@@ -1309,8 +1309,12 @@ pub fn parse_slotting_problem(root: &Json, issues: &mut Issues) -> SlottingProbl
         );
     }
     let inventory = parse_inventory(root, path, issues);
+    // 引用完整性检查：先建 SKU id 索引再逐单元查。
+    // 旧写法 `skus.iter().any(...)` 是每个单元扫一遍全部 SKU（压力档 103 万单元 × 15 万 SKU
+    // = 1.5×10^11 次比较，单线程十几分钟），报错内容与顺序完全不变。
+    let known_skus: BTreeSet<&str> = skus.iter().map(|sku| sku.id.as_str()).collect();
     for unit in &inventory {
-        if !skus.iter().any(|s| s.id == unit.sku_id) {
+        if !known_skus.contains(unit.sku_id.as_str()) {
             issues.error(
                 codes::UNKNOWN_REFERENCE,
                 format!("problem.inventory.{}", unit.id),
@@ -1556,6 +1560,8 @@ pub fn parse_asrs_problem(root: &Json, issues: &mut Issues) -> AsrsProblem {
         tasks.push(parse_task(task, &format!("{path}.tasks[{i}]"), issues));
     }
     let mut seen: BTreeSet<String> = BTreeSet::new();
+    // 同上：任务 id 索引一次，依赖检查不再逐个线性扫任务表（20k 任务 × 依赖数）。
+    let known_tasks: BTreeSet<&str> = tasks.iter().map(|task| task.id.as_str()).collect();
     for task in &tasks {
         if !seen.insert(task.id.clone()) {
             issues.error(
@@ -1565,7 +1571,7 @@ pub fn parse_asrs_problem(root: &Json, issues: &mut Issues) -> AsrsProblem {
             );
         }
         for dep in &task.depends_on {
-            if !tasks.iter().any(|t| &t.id == dep) {
+            if !known_tasks.contains(dep.as_str()) {
                 issues.error(
                     codes::UNKNOWN_REFERENCE,
                     format!("{path}.tasks.{}.dependsOn", task.id),

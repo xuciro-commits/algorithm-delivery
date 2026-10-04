@@ -44,7 +44,27 @@ pub fn verify_slotting(
     let mut violations: Vec<Violation> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
     let cost_config = cost_config_of(problem);
+    let t_build = crate::engine::prof_now();
     let mut model = build_model(problem, cost_config);
+    if crate::engine::profile_enabled() {
+        eprintln!(
+            "[t] verify:build_model {}ms locations={}",
+            crate::engine::prof_elapsed_ms(t_build),
+            model.locations.len()
+        );
+    }
+    let t_parse = crate::engine::prof_now();
+
+    // 货物单元 id → 下标：**建一次**。
+    // 原来三处用的是 `problem.inventory.iter().position(...)`，在 150k 单元档
+    // 就是每个单元扫一遍全表（≈ n²/2 次字符串比较，实测 8.4 万单元要 75 s，
+    // 百万单元档直接变成小时级）——独立复核的语义不变，只是不再重复扫描。
+    let unit_index_of: BTreeMap<&str, usize> = problem
+        .inventory
+        .iter()
+        .enumerate()
+        .map(|(index, unit)| (unit.id.as_str(), index))
+        .collect();
 
     // ---- 1) 方案解析（未知引用必须报出来，绝不静默丢弃）----
     let assignment_entries = crate::contract::arr(solution, "assignment");
@@ -80,7 +100,7 @@ pub fn verify_slotting(
                 .subjects(vec![unit_id.clone()]),
             );
         }
-        let Some(unit_index) = problem.inventory.iter().position(|unit| unit.id == unit_id) else {
+        let Some(&unit_index) = unit_index_of.get(unit_id.as_str()) else {
             violations.push(
                 Violation::new(
                     codes::UNKNOWN_REFERENCE,
@@ -249,11 +269,7 @@ pub fn verify_slotting(
     // ---- 3) 同 SKU 分散度约束（min/max 库位数）----
     let mut locations_per_sku: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
     for (location_id, unit_id) in &location_of {
-        if let Some(unit_index) = problem
-            .inventory
-            .iter()
-            .position(|unit| &unit.id == unit_id)
-        {
+        if let Some(&unit_index) = unit_index_of.get(unit_id.as_str()) {
             locations_per_sku
                 .entry(model.lu_sku[unit_index])
                 .or_default()
@@ -285,11 +301,7 @@ pub fn verify_slotting(
     let mut state = SlottingState::new(&model);
     let mut assignment_rebuilt = vec![-1i64; model.lu_sku.len()];
     for (location_id, unit_id) in &location_of {
-        let Some(unit_index) = problem
-            .inventory
-            .iter()
-            .position(|unit| &unit.id == unit_id)
-        else {
+        let Some(&unit_index) = unit_index_of.get(unit_id.as_str()) else {
             continue;
         };
         let Some(location_index) = model.loc_index.get(location_id).copied() else {
@@ -297,6 +309,14 @@ pub fn verify_slotting(
         };
         assignment_rebuilt[unit_index] = location_index as i64;
     }
+    if crate::engine::profile_enabled() {
+        eprintln!(
+            "[t] verify:parse_solution {}ms units={}",
+            crate::engine::prof_elapsed_ms(t_parse),
+            assignment_rebuilt.len()
+        );
+    }
+    let t_recompute = crate::engine::prof_now();
     let mut recomputed_travel = 0.0;
     let mut recomputed_meters = 0.0;
     let mut aisle_flow = vec![0.0f64; model.aisle_ids.len()];
@@ -314,6 +334,13 @@ pub fn verify_slotting(
             lift_flow[model.costs[loc].lift_group] += flow;
         }
     }
+    if crate::engine::profile_enabled() {
+        eprintln!(
+            "[t] verify:recompute_flow {}ms",
+            crate::engine::prof_elapsed_ms(t_recompute)
+        );
+    }
+    let t_relocation = crate::engine::prof_now();
     // 搬迁代价：逐单元严格重算（复用同一物理模型，但逐条独立求和）
     let mut relocation_count = 0usize;
     let mut relocation_seconds = 0.0;
@@ -327,6 +354,13 @@ pub fn verify_slotting(
         }
         relocation_count += 1;
         relocation_seconds += relocation_seconds_of(&mut model, current, *target as usize);
+    }
+    if crate::engine::profile_enabled() {
+        eprintln!(
+            "[t] verify:relocations {}ms count={}",
+            crate::engine::prof_elapsed_ms(t_relocation),
+            relocation_count
+        );
     }
     state.base_seconds = recomputed_travel / model.cost_config.outbound_share.max(1e-6);
     state.aisle_flow = aisle_flow.clone();

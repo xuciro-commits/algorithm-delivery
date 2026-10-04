@@ -594,12 +594,27 @@ impl SlottingState {
     pub fn recompute_relocation(&mut self, model: &mut SlottingModel) -> (usize, f64) {
         let mut count = 0usize;
         let mut seconds = 0.0;
-        for lu in 0..self.loc_of_lu.len() {
+        let clock = crate::engine::prof_now();
+        let total = self.loc_of_lu.len();
+        for lu in 0..total {
             let (moved, secs) = relocation_contribution(model, lu, self.loc_of_lu[lu]);
             self.relocation_ledger[lu] = (moved, secs);
             if moved {
                 count += 1;
                 seconds += secs;
+            }
+            // 大场景下这一段是分钟级：打开 WH_TIME=1 时每 10 万单元报一次进度，
+            // 免得"卡住"和"在算"分不清（只写 stderr，不污染 stdout 的 JSON）。
+            if let Some(clock) = clock {
+                if lu % 100_000 == 99_999 || lu + 1 == total {
+                    eprintln!(
+                        "[t]   迁移代价重算 {}/{} ({:.1}%) 累计 {:.1}s",
+                        lu + 1,
+                        total,
+                        (lu + 1) as f64 / total.max(1) as f64 * 100.0,
+                        clock.elapsed().as_secs_f64()
+                    );
+                }
             }
         }
         (count, seconds)
@@ -625,16 +640,23 @@ pub fn relocation_seconds(model: &mut SlottingModel, from: i64, to: usize) -> f6
     if from < 0 {
         return model.costs[to].put_seconds + model.cost_config.relocation_overhead_s;
     }
-    let from = from as usize;
+    relocation_seconds_by_index(model, from as usize, to)
+}
+
+/// **热路径**：库位下标 → 库位下标（与字符串入口逐位同值）。
+///
+/// 基线对照（随机布局 / 当前布局）要对**每一个**库存单元算一次迁移代价，
+/// 压力档是上百万次。字符串入口每次都要在 `loc_index`（190 万条、长 id）里
+/// 做两次 BTreeMap 查找，所以这里直接走下标入口——算式、求和顺序、端头枚举
+/// 顺序与 `seconds_between_locations` 完全一致，取值逐位不变。
+pub fn relocation_seconds_by_index(model: &mut SlottingModel, from: usize, to: usize) -> f64 {
     if let Some(value) = model.relocation_cache.get(&(from, to)) {
         return *value;
     }
     let (shuttle, _) = routing::representative_motion(model.topology);
-    let seconds = model.route_model.seconds_between_locations(
-        &model.locations[from].id,
-        &model.locations[to].id,
-        &shuttle,
-    );
+    let seconds = model
+        .route_model
+        .seconds_between_location_indices(from, to, &shuttle);
     let value = if seconds.is_finite() {
         seconds + model.cost_config.relocation_overhead_s
     } else {

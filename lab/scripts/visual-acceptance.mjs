@@ -59,6 +59,10 @@ async function startDistServer() {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const pathname = decodeURIComponent(url.pathname);
+      if (pathname === '/favicon.ico') {
+        response.writeHead(204).end();
+        return;
+      }
       const localPath = pathname.startsWith(pathPrefix) ? pathname.slice(pathPrefix.length) : pathname.replace(/^\/+/, '');
       let filePath = resolve(distDir, localPath || 'index.html');
       if (filePath !== distDir && !filePath.startsWith(`${distDir}${sep}`)) {
@@ -337,10 +341,11 @@ async function captureModule(module, baseUrl) {
 
     const finalHealth = await waitForCanvas(page, canvasSelector);
     if (log.pageErrors.length > 0) throw new Error(`Browser page errors: ${log.pageErrors.map((e) => e.message).join(' | ')}`);
-    const consoleErrors = log.console.filter((message) => message.type === 'error');
+    const consoleErrors = log.console.filter((message) => message.type === 'error' && !message.text.includes('favicon.ico'));
     if (consoleErrors.length > 0) throw new Error(`Browser console errors: ${consoleErrors.map((e) => e.text).join(' | ')}`);
     if (log.failedRequests.length > 0) throw new Error(`Failed browser requests: ${log.failedRequests.map((e) => e.url).join(' | ')}`);
-    if (log.httpErrors.length > 0) throw new Error(`HTTP errors: ${log.httpErrors.map((e) => `${e.status} ${e.url}`).join(' | ')}`);
+    const realHttpErrors = log.httpErrors.filter((e) => !e.url.endsWith('/favicon.ico'));
+    if (realHttpErrors.length > 0) throw new Error(`HTTP errors: ${realHttpErrors.map((e) => `${e.status} ${e.url}`).join(' | ')}`);
     if (finalHealth.contextLost) throw new Error('WebGL context was lost during interaction');
     record.finalHealth = finalHealth;
     record.passed = true;

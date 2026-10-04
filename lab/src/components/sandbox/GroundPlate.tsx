@@ -11,13 +11,22 @@ import { useArtStore } from '../../art/settings';
 export interface GroundPlateProps {
   width: number;
   height: number;
+  centerX?: number;
+  centerZ?: number;
   /** 网格细分（每格 1 单位）。 */
   cellSize?: number;
   /** 大刻线间隔（格）。 */
   sectionSize?: number;
 }
 
-export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: GroundPlateProps) {
+export function GroundPlate({
+  width,
+  height,
+  centerX: propCenterX,
+  centerZ: propCenterZ,
+  cellSize = 1,
+  sectionSize = 5,
+}: GroundPlateProps) {
   // 模式 A = 既有实验台观感；模式 B/C 使用艺术化地坪（冷色反射 + 细网格 + 分区刻线）。
   const artMode = useArtStore((state) => state.mode);
   const mode = ART_MODES[artMode];
@@ -26,8 +35,8 @@ export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: Gr
   const gridCell = art ? mode.ground.gridColor : '#596b77';
   const gridSection = art ? mode.ground.sectionColor : '#82919b';
   const edge = 0.4;
-  const centerX = width / 2;
-  const centerZ = height / 2;
+  const centerX = propCenterX ?? width / 2;
+  const centerZ = propCenterZ ?? height / 2;
   return (
     <group name="machined-base-plate">
       {/* 主基座：有厚度的石墨合金底板，顶面留给地坪层。 */}
@@ -54,19 +63,19 @@ export function GroundPlate({ width, height, cellSize = 1, sectionSize = 5 }: Gr
       </mesh>
 
       {/* Four edge rails (not a solid overlay, so the floor and grid remain visible). */}
-      <mesh position={[centerX, 0.008, -edge / 2]} castShadow receiveShadow>
+      <mesh position={[centerX, 0.008, centerZ - height / 2 - edge / 2]} castShadow receiveShadow>
         <boxGeometry args={[width + edge * 2, 0.07, 0.12]} />
         <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
       </mesh>
-      <mesh position={[centerX, 0.008, height + edge / 2]} castShadow receiveShadow>
+      <mesh position={[centerX, 0.008, centerZ + height / 2 + edge / 2]} castShadow receiveShadow>
         <boxGeometry args={[width + edge * 2, 0.07, 0.12]} />
         <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
       </mesh>
-      <mesh position={[-edge / 2, 0.008, centerZ]} castShadow receiveShadow>
+      <mesh position={[centerX - width / 2 - edge / 2, 0.008, centerZ]} castShadow receiveShadow>
         <boxGeometry args={[0.12, 0.07, height + edge * 2]} />
         <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
       </mesh>
-      <mesh position={[width + edge / 2, 0.008, centerZ]} castShadow receiveShadow>
+      <mesh position={[centerX + width / 2 + edge / 2, 0.008, centerZ]} castShadow receiveShadow>
         <boxGeometry args={[0.12, 0.07, height + edge * 2]} />
         <meshStandardMaterial color={SB.plateEdge} roughness={0.42} metalness={0.78} envMapIntensity={0.9} />
       </mesh>

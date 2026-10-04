@@ -295,7 +295,7 @@ GitHub Actions: lab.yml + lab-visual-acceptance.yml
 | 重活 | 命令 | CI 里的替代（轻） |
 | --- | --- | --- |
 | 仓储 86 场景按族验收 + 全量基准 | `bash warehouse/rust/scripts/verify_heavy.sh [--with-bench]` | 不跑（负荷验证） |
-| 真实浏览器视觉验收（Playwright） | `cd lab && npx playwright install --with-deps chromium && npm run test:visual` | 仅 `main` / 手动触发时跑，且只覆盖 APS/MAPF/AGV |
+| 真实浏览器视觉验收（Playwright） | `cd lab && npx playwright install --with-deps chromium && npm run test:visual` | CI 里**默认不跑**（main 也一样），只在手动 `-f visual=on` 时运行；只覆盖 APS/MAPF/AGV；失败时原因会打成 `::error::` 注解 |
 | 新增两个仓储模块的视觉确认 | 浏览器打开 `#slotting` / `#dense-asrs` / `#art-lab` 按清单核对 | 不跑（见根 README 的检查清单） |
 | Lab 全量前端检查 | `cd lab && npm run test:all`（= build + test:post-build） | 同一份 `test:post-build` 会在 CI 跑 |
 

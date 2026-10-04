@@ -1338,6 +1338,7 @@ pub fn build(
         );
         return Json::Null;
     };
+    let t_gen = crate::engine::prof_now();
     let scale = scale_of(scale_override.unwrap_or(scenario.scale));
     let seed = seed_override.unwrap_or(7);
     let mut topology_params = TopologyParams {
@@ -1376,6 +1377,7 @@ pub fn build(
     }
     let bundle = build_topology(&topology_params.normalized());
     let location_count = bundle.stats.locations;
+    crate::engine::prof_phase("generate:topology", t_gen, location_count);
 
     // 目录与库存
     let mut catalog_params: CatalogParams = preset(scenario.catalog);
@@ -1393,7 +1395,9 @@ pub fn build(
         "X01" | "X02" => 0.55,
         _ => 0.82,
     };
+    let t_catalog = crate::engine::prof_now();
     let mut catalog = generate_catalog(&catalog_params);
+    crate::engine::prof_phase("generate:catalog", t_catalog, catalog.inventory.len());
     // 库存单元必须真的在库位上：否则"当前布局"就是空的，遮挡/倒垛/搬迁全都无从谈起。
     assign_initial_locations(
         &mut catalog.inventory,
@@ -1402,6 +1406,8 @@ pub fn build(
         catalog_params.target_occupancy,
     );
 
+    crate::engine::prof_phase("generate:assign", t_catalog, catalog.inventory.len());
+    let t_orders = crate::engine::prof_now();
     // 订单
     let order_params = OrderParams {
         orders: scale.orders,
@@ -1410,6 +1416,8 @@ pub fn build(
     };
     let orders = generate_orders(&order_params, &catalog.skus, &catalog.demand);
 
+    crate::engine::prof_phase("generate:orders", t_orders, orders.orders.len());
+    let t_tasks = crate::engine::prof_now();
     let objectives = default_objectives(scenario.family);
     let tasks = build_tasks(
         &bundle.topology,
@@ -1420,97 +1428,149 @@ pub fn build(
         id,
     );
     let events = build_events(id, &tasks, seed);
-    let slotting_problem = SlottingProblem {
-        id: format!("{id}-SLOTTING"),
-        scenario_id: Some(id.to_string()),
-        dataset_version: format!(
-            "{id}/scale={}/{}/seed={seed}",
-            scale.key, catalog_params.skus
-        ),
-        topology: bundle.topology.clone(),
-        skus: catalog.skus.clone(),
-        inventory: catalog.inventory.clone(),
-        history: orders.orders.clone(),
-        demand: catalog.demand.clone(),
-        current_assignment: initial_assignment(&catalog.inventory),
-        objectives,
-        constraints: crate::contract::SlottingConstraints::default(),
-        algorithm: crate::contract::SlottingAlgorithmConfig {
-            algorithm: if scenario.family == Family::Joint {
-                "alns".to_string()
-            } else {
-                scenario.algorithm.to_string()
+    let task_count = tasks.len();
+    // 只构造这次输出真正需要的子问题。
+    // 旧实现在**所有**场景族里都同时构造 slotting 与 asrs 两个问题（各自克隆整张拓扑、
+    // 全部 SKU 与全部库存单元），再各自序列化成完整文档——压力档里一半以上的峰值内存
+    // 花在"构造完就丢掉的那半"上。这里按族裁剪，输出逐字节不变。
+    let family = scenario.family;
+    let needs_slotting = matches!(family, Family::Slotting | Family::Joint | Family::Stress);
+    let needs_asrs = matches!(family, Family::Dispatch | Family::Event | Family::Joint);
+    let slotting_problem = if needs_slotting {
+        Some(SlottingProblem {
+            id: format!("{id}-SLOTTING"),
+            scenario_id: Some(id.to_string()),
+            dataset_version: format!(
+                "{id}/scale={}/{}/seed={seed}",
+                scale.key, catalog_params.skus
+            ),
+            topology: bundle.topology.clone(),
+            skus: catalog.skus.clone(),
+            inventory: catalog.inventory.clone(),
+            history: orders.orders.clone(),
+            demand: catalog.demand.clone(),
+            current_assignment: initial_assignment(&catalog.inventory),
+            objectives,
+            constraints: crate::contract::SlottingConstraints::default(),
+            algorithm: crate::contract::SlottingAlgorithmConfig {
+                algorithm: if scenario.family == Family::Joint {
+                    "alns".to_string()
+                } else {
+                    scenario.algorithm.to_string()
+                },
+                seed,
+                budget_ms: match scale.key {
+                    "tiny" => 800.0,
+                    "small" => 2_500.0,
+                    "medium" => 8_000.0,
+                    "large" => 25_000.0,
+                    // 压力档不跟随兜底的 60 s：30 s 预算下如实给出"已解规模 + 界"，
+                    // 而不是把 CI 的 86 场景验收拖成小时级。
+                    "stress" => 30_000.0,
+                    _ => 60_000.0,
+                },
+                ..crate::contract::SlottingAlgorithmConfig::default()
             },
-            seed,
-            budget_ms: match scale.key {
-                "tiny" => 800.0,
-                "small" => 2_500.0,
-                "medium" => 8_000.0,
-                "large" => 25_000.0,
-                // 压力档不跟随兜底的 60 s：30 s 预算下如实给出"已解规模 + 界"，
-                // 而不是把 CI 的 86 场景验收拖成小时级。
-                "stress" => 30_000.0,
-                _ => 60_000.0,
-            },
-            ..crate::contract::SlottingAlgorithmConfig::default()
-        },
-        cost_model: Default::default(),
-        events: events.clone(),
-        hard_constraints: vec![
-            "LOCATION_CAPACITY".to_string(),
-            "LOCATION_WEIGHT_LIMIT".to_string(),
-            "LOCATION_VOLUME_LIMIT".to_string(),
-            "ZONE_COMPATIBILITY".to_string(),
-            "LOCATION_FROZEN".to_string(),
-            "INVENTORY_CONSERVATION".to_string(),
-        ],
+            cost_model: Default::default(),
+            events: events.clone(),
+            hard_constraints: vec![
+                "LOCATION_CAPACITY".to_string(),
+                "LOCATION_WEIGHT_LIMIT".to_string(),
+                "LOCATION_VOLUME_LIMIT".to_string(),
+                "ZONE_COMPATIBILITY".to_string(),
+                "LOCATION_FROZEN".to_string(),
+                "INVENTORY_CONSERVATION".to_string(),
+            ],
+        })
+    } else {
+        None
     };
 
-    let asrs_problem = AsrsProblem {
-        id: format!("{id}-ASRS"),
-        scenario_id: Some(id.to_string()),
-        dataset_version: format!("{id}/scale={}/tasks={}/seed={seed}", scale.key, tasks.len()),
-        topology: bundle.topology.clone(),
-        tasks,
-        load_units: catalog.inventory.clone(),
-        skus: catalog.skus.clone(),
-        dispatch: DispatchConfig {
-            algorithm: if scenario.family == Family::Joint {
-                "joint-alns".to_string()
-            } else {
-                scenario.algorithm.to_string()
+    let asrs_problem = if needs_asrs {
+        Some(AsrsProblem {
+            id: format!("{id}-ASRS"),
+            scenario_id: Some(id.to_string()),
+            dataset_version: format!("{id}/scale={}/tasks={}/seed={seed}", scale.key, tasks.len()),
+            topology: bundle.topology.clone(),
+            tasks,
+            load_units: catalog.inventory.clone(),
+            skus: catalog.skus.clone(),
+            dispatch: DispatchConfig {
+                algorithm: if scenario.family == Family::Joint {
+                    "joint-alns".to_string()
+                } else {
+                    scenario.algorithm.to_string()
+                },
+                seed,
+                budget_ms: match scale.key {
+                    "tiny" => 800.0,
+                    "small" => 3_000.0,
+                    "medium" => 10_000.0,
+                    "large" => 30_000.0,
+                    "stress" => 30_000.0,
+                    _ => 60_000.0,
+                },
+                dual_command: !matches!(id, "D08" | "D01"),
+                simulation_horizon_s: 0.0,
+                ..DispatchConfig::default()
             },
-            seed,
-            budget_ms: match scale.key {
-                "tiny" => 800.0,
-                "small" => 3_000.0,
-                "medium" => 10_000.0,
-                "large" => 30_000.0,
-                "stress" => 30_000.0,
-                _ => 60_000.0,
-            },
-            dual_command: !matches!(id, "D08" | "D01"),
-            simulation_horizon_s: 0.0,
-            ..DispatchConfig::default()
-        },
-        events: events.clone(),
-        hard_constraints: vec![
-            "DEVICE_MUTUAL_EXCLUSION".to_string(),
-            "LANE_MUTUAL_EXCLUSION".to_string(),
-            "LIFT_SHAFT_CAPACITY".to_string(),
-            "BUFFER_CAPACITY".to_string(),
-            "STATION_CAPACITY".to_string(),
-            "TASK_PRECEDENCE".to_string(),
-            "DEVICE_CAPABILITY".to_string(),
-        ],
-        slotting_plan: None,
+            events: events.clone(),
+            hard_constraints: vec![
+                "DEVICE_MUTUAL_EXCLUSION".to_string(),
+                "LANE_MUTUAL_EXCLUSION".to_string(),
+                "LIFT_SHAFT_CAPACITY".to_string(),
+                "BUFFER_CAPACITY".to_string(),
+                "STATION_CAPACITY".to_string(),
+                "TASK_PRECEDENCE".to_string(),
+                "DEVICE_CAPABILITY".to_string(),
+            ],
+            slotting_plan: None,
+        })
+    } else {
+        None
     };
 
+    crate::engine::prof_phase("generate:tasks", t_tasks, task_count);
+    let t_json = crate::engine::prof_now();
+    // 拓扑 JSON 每个文档一份（`*_to_json` 内部会克隆），因此这里按族生成，
+    // 不再为"用不到的那半"多留一份 190 万库位的树。
+    // 顶层 `topology` 字段与 `problem.topology` 各一份（契约要求问题文档自包含），
+    // 所以这里先建一次给子问题用，最后再移动进 root，避免第三份副本。
     let topology_json = topology_to_json(&bundle);
-    let slotting_json = slotting_problem_to_json(&slotting_problem, &topology_json, &events);
-    let asrs_json = asrs_problem_to_json(&asrs_problem, &topology_json, &events);
+    let (slotting_json, asrs_json) = match family {
+        Family::Joint => (
+            Some(slotting_problem_to_json(
+                slotting_problem.as_ref().expect("联合场景需要库位子问题"),
+                &topology_json,
+                &events,
+            )),
+            Some(asrs_problem_to_json(
+                asrs_problem.as_ref().expect("联合场景需要调度子问题"),
+                &topology_json,
+                &events,
+            )),
+        ),
+        Family::Slotting | Family::Stress => (
+            Some(slotting_problem_to_json(
+                slotting_problem
+                    .as_ref()
+                    .expect("库位场景需要 slotting 子问题"),
+                &topology_json,
+                &events,
+            )),
+            None,
+        ),
+        Family::Dispatch | Family::Event => (
+            None,
+            Some(asrs_problem_to_json(
+                asrs_problem.as_ref().expect("调度场景需要 asrs 子问题"),
+                &topology_json,
+                &events,
+            )),
+        ),
+    };
 
-    let kind = match scenario.family {
+    let kind = match family {
         Family::Slotting => "slotting",
         Family::Dispatch | Family::Event => "asrs",
         Family::Joint => "joint",
@@ -1539,7 +1599,7 @@ pub fn build(
                 ("skus", Json::int(catalog.stats.skus as i64)),
                 ("loadUnits", Json::int(catalog.stats.load_units as i64)),
                 ("orders", Json::int(orders.stats.orders as i64)),
-                ("tasks", Json::int(asrs_problem.tasks.len() as i64)),
+                ("tasks", Json::int(task_count as i64)),
                 (
                     "footprintM2",
                     Json::Float(round(bundle.stats.footprint_m2, 2)),
@@ -1547,19 +1607,86 @@ pub fn build(
             ]),
         ),
     ]);
-    match scenario.family {
+    crate::engine::prof_phase("generate:json", t_json, 0);
+    crate::engine::prof_phase("generate:total", t_gen, 0);
+    match family {
         Family::Slotting | Family::Stress => {
-            root.set("problem", slotting_json);
+            root.set(
+                "problem",
+                slotting_json.expect("库位族必须带 slotting 文档"),
+            );
         }
         Family::Dispatch | Family::Event => {
-            root.set("problem", asrs_json);
+            root.set("problem", asrs_json.expect("调度族必须带 asrs 文档"));
         }
         Family::Joint => {
-            root.set("slotting", slotting_json);
-            root.set("asrs", asrs_json);
+            root.set(
+                "slotting",
+                slotting_json.expect("联合族必须带 slotting 文档"),
+            );
+            root.set("asrs", asrs_json.expect("联合族必须带 asrs 文档"));
         }
     }
     root
+}
+
+/// 极小的 Fenwick（二叉索引）树：只做「前缀计数」「点更新」「按序号选第 k 个存活元素」（0 基）。
+/// 用途见 `build_tasks`：把 `Vec::retain` 的 O(n) 删除换成 O(log n)。
+struct Fenwick {
+    tree: Vec<i64>,
+    len: usize,
+}
+
+impl Fenwick {
+    fn new(len: usize) -> Self {
+        Fenwick {
+            tree: vec![0; len + 1],
+            len,
+        }
+    }
+
+    fn add(&mut self, index: usize, delta: i64) {
+        let mut i = index + 1;
+        while i <= self.len {
+            self.tree[i] += delta;
+            i += i & i.wrapping_neg();
+        }
+    }
+
+    /// 存活元素总数。
+    fn total(&self) -> usize {
+        self.prefix(self.len) as usize
+    }
+
+    /// 前 `count` 个位置的存活数（0..count）。
+    fn prefix(&self, count: usize) -> i64 {
+        let mut i = count;
+        let mut sum = 0i64;
+        while i > 0 {
+            sum += self.tree[i];
+            i -= i & i.wrapping_neg();
+        }
+        sum
+    }
+
+    /// 第 `rank` 个存活元素的原始下标（0 基；调用方保证 `rank` 越界时不调用）。
+    fn select(&self, rank: usize) -> usize {
+        let mut index = 0usize;
+        let mut remaining = rank as i64 + 1;
+        let mut step = 1usize;
+        while step * 2 <= self.len {
+            step *= 2;
+        }
+        while step > 0 {
+            let next = index + step;
+            if next <= self.len && self.tree[next] < remaining {
+                remaining -= self.tree[next];
+                index = next;
+            }
+            step /= 2;
+        }
+        index
+    }
 }
 
 fn default_objectives(family: Family) -> Vec<crate::contract::ObjectiveSpec> {
@@ -1714,12 +1841,29 @@ fn build_tasks(
         .copied()
         .filter(|index| locations[*index].depth >= 2)
         .collect();
-    let mut free_pool: Vec<usize> = locations
+    let free_pool: Vec<usize> = locations
         .iter()
         .enumerate()
         .filter(|(_, location)| !unit_of_location.contains_key(location.id.as_str()))
         .map(|(index, _)| index)
         .collect();
+    // 空库位池用「Fenwick 前缀计数 + 墓碑」代替 `Vec::retain`：
+    // 原实现每生成一个入库任务都要（1）从头筛一遍 `deep_free`、（2）`retain` 一次整池，
+    // 压力档（空位 ≈ 87 万、入库任务 ≈ 7600）合计 ≈1.3×10^10 次比较——单线程几十分钟。
+    // 这里把「第 k 个存活空位 / 第 k 个存活深位」变成 O(log n) 查询，**取到的元素序列完全相同**
+    // （`retain` 的顺序语义 == 保序压缩后按序号取元素）。
+    let deep_alive: Vec<bool> = free_pool
+        .iter()
+        .map(|location_index| locations[*location_index].depth >= 2)
+        .collect();
+    let mut pool_tree = Fenwick::new(free_pool.len());
+    let mut deep_tree = Fenwick::new(free_pool.len());
+    for (slot, is_deep) in deep_alive.iter().enumerate() {
+        pool_tree.add(slot, 1);
+        if *is_deep {
+            deep_tree.add(slot, 1);
+        }
+    }
     let mut free_cursor = 0usize;
     for index in 0..count {
         let is_outbound = rng.next_f64() < 0.62;
@@ -1733,21 +1877,22 @@ fn build_tasks(
             }
         } else {
             // 入库：从"空库位池"里按确定顺序取（不重复占用同一个库位），并保证一定比例的深位入库
-            let deep_free: Vec<usize> = free_pool
-                .iter()
-                .copied()
-                .filter(|index| locations[*index].depth >= 2)
-                .collect();
-            if !deep_free.is_empty() && rng.next_f64() < 0.4 {
-                let candidate = deep_free[rng.below(deep_free.len())];
-                free_pool.retain(|index| *index != candidate);
+            let deep_free_len = deep_tree.total();
+            let pool_len = pool_tree.total();
+            if deep_free_len > 0 && rng.next_f64() < 0.4 {
+                let slot = deep_tree.select(rng.below(deep_free_len));
+                let candidate = free_pool[slot];
+                pool_tree.add(slot, -1);
+                deep_tree.add(slot, -1);
                 candidate
-            } else if free_cursor < free_pool.len() {
-                let candidate = free_pool[free_cursor];
+            } else if free_cursor < pool_len {
+                let slot = pool_tree.select(free_cursor);
+                let candidate = free_pool[slot];
                 free_cursor += 1;
                 candidate
-            } else if !free_pool.is_empty() {
-                free_pool[rng.below(free_pool.len())]
+            } else if pool_len > 0 {
+                let slot = pool_tree.select(rng.below(pool_len));
+                free_pool[slot]
             } else {
                 rng.below(locations.len())
             }

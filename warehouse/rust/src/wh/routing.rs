@@ -51,7 +51,31 @@ pub struct AisleAxis {
     pub y_m: f64,
 }
 
-/// 路由模型：结构图 + 库位索引 + 巷道几何 + 站台缓存。
+/// 每个「(巷道, 层)」一行：两端头在图中的下标、巷道跨距、巷道下标。
+///
+/// 库位只存一个 `u32`（`RouteModel::loc_key`）指向这里，于是
+/// 「库位 ↔ 库位」「站台 ↔ 库位」的热路径完全不碰字符串，
+/// 也不再为每次查询构造 `N-{aisle}-L{level}-{W|E}` 这样的临时 id。
+#[derive(Debug, Clone, Copy)]
+pub struct LocaleRow {
+    /// [西端头, 东端头] 在图中的下标；该端不存在时为 `None`。
+    pub ends: [Option<usize>; 2],
+    /// 巷道跨距（米，至少 1.0）——解析式列内行程用，语义与 `AisleAxis` 一致。
+    pub span: f64,
+    /// 巷道下标（负载聚合与设备分组用）。
+    pub aisle: u32,
+}
+
+/// 骨架端头行：覆盖全部端头的（秒, 米）两个定长切片。
+pub type EndRow = (Box<[f64]>, Box<[f64]>);
+
+/// 骨架端头矩阵的行预算（秒/米各 `f64`）。
+///
+/// 一行 = 端头数 × 16 字节；行只在**该端头真的被当作源**时才建，建行 = 一次整图 Dijkstra。
+/// 预算不是正确性开关：超预算就退回单点查询，取值相同，只是慢一点。
+const END_ROW_BUDGET_BYTES: usize = 128 * 1024 * 1024;
+
+/// 路由模型：结构图 + 库位索引 + 巷道几何 + 端头行缓存。
 #[derive(Debug, Clone)]
 pub struct RouteModel {
     pub graph: NodeGraph,
@@ -62,12 +86,27 @@ pub struct RouteModel {
     /// 站点节点 → (每个骨架节点的时间, 距离)；按需计算并缓存。
     pub sources: BTreeMap<String, (Vec<f64>, Vec<f64>)>,
     /// 点对缓存：(from, to) → (秒, 米)。任务循环里反复查的是同一批端点，
-    /// 逐对缓存比"每次重新 Dijkstra"便宜得多。
+    /// 逐对缓存比"每次重新 Dijkstra"便宜得多。**只服务通用节点对**
+    /// （例如 AS/RS 的 `LOC:` 位置点）；巷道端头之间走 `end_rows` 的稠密行。
     pub pair_cache: BTreeMap<(String, String), (f64, f64)>,
-    /// 库位 → 出库 / 入库站台的物理秒数缓存（不含交接）。
-    pub station_seconds_cache: BTreeMap<String, BTreeMap<String, f64>>,
     /// 巷道 id → 下标（负载聚合）
     pub aisle_ids: Vec<String>,
+    /// 库位下标 → `end_table` 的行号（每个库位 4 字节）。
+    pub loc_key: Vec<u32>,
+    /// 「(巷道, 层)」→ 端头/跨距/巷道下标（去重后约 巷道数 × 层数 行）。
+    pub end_table: Vec<LocaleRow>,
+    /// 端头在图中的下标清单（去重升序），即端头行的列序。
+    pub end_order: Vec<usize>,
+    /// 端头在图中的下标 → 行内列号。
+    pub end_pos: BTreeMap<usize, usize>,
+    /// 端头/站台源 → 覆盖全部端头的一行（秒 / 米），按需建立。
+    ///
+    /// 这是压力档的关键：150k SKU / 95 万库位下，初始落位要对**上百万个库位对**
+    /// 求跨巷道距离，逐对跑 Dijkstra（外加每次两个 `O(|V|)` 的向量分配）会把
+    /// 30 s 预算的求解拖成小时级；有了行缓存，每次查询退化成几个浮点读取。
+    pub end_rows: BTreeMap<usize, EndRow>,
+    /// `end_rows` 已占字节数（按行预算约束）。
+    pub end_row_bytes: usize,
 }
 
 impl RouteModel {
@@ -96,6 +135,59 @@ impl RouteModel {
             .enumerate()
             .map(|(i, l)| (l.id.clone(), i))
             .collect();
+        // ---- 「(巷道, 层)」行表：热路径去字符串化 + 端头行缓存的前提 ----
+        // 端头 id 的构造方式与 `seconds_to_location` 原实现完全一致（`N-{aisle}-L{level}-{W|E}`），
+        // 因此取值逐位不变；只是把「每次查询现造 id + 查图」提前成一次性建表。
+        let aisle_pos: BTreeMap<String, u32> =
+            topology
+                .aisles
+                .iter()
+                .enumerate()
+                .fold(BTreeMap::new(), |mut acc, (i, aisle)| {
+                    acc.entry(aisle.id.clone()).or_insert(i as u32);
+                    acc
+                });
+        let mut row_of: BTreeMap<(String, i32), u32> = BTreeMap::new();
+        let mut end_table: Vec<LocaleRow> = Vec::new();
+        let mut loc_key: Vec<u32> = Vec::with_capacity(locations.len());
+        for location in &locations {
+            let key = (location.aisle_id.clone(), location.level);
+            let row = match row_of.get(&key) {
+                Some(&value) => value,
+                None => {
+                    let west = format!("N-{}-L{}-W", location.aisle_id, location.level);
+                    let east = format!("N-{}-L{}-E", location.aisle_id, location.level);
+                    let span = aisle_axis
+                        .get(&key)
+                        .map(|axis| (axis.x1 - axis.x0).max(1.0))
+                        .unwrap_or(1.0);
+                    let aisle = aisle_pos.get(&location.aisle_id).copied().unwrap_or(0);
+                    end_table.push(LocaleRow {
+                        ends: [
+                            graph.index.get(&west).copied(),
+                            graph.index.get(&east).copied(),
+                        ],
+                        span,
+                        aisle,
+                    });
+                    let value = (end_table.len() - 1) as u32;
+                    row_of.insert(key, value);
+                    value
+                }
+            };
+            loc_key.push(row);
+        }
+        let mut end_order: Vec<usize> = end_table
+            .iter()
+            .flat_map(|row| row.ends.iter().flatten().copied())
+            .collect();
+        end_order.sort_unstable();
+        end_order.dedup();
+        let end_pos: BTreeMap<usize, usize> = end_order
+            .iter()
+            .enumerate()
+            .map(|(p, &node)| (node, p))
+            .collect();
         RouteModel {
             graph,
             locations,
@@ -103,8 +195,61 @@ impl RouteModel {
             aisle_axis,
             sources: BTreeMap::new(),
             pair_cache: BTreeMap::new(),
-            station_seconds_cache: BTreeMap::new(),
             aisle_ids: topology.aisles.iter().map(|a| a.id.clone()).collect(),
+            loc_key,
+            end_table,
+            end_order,
+            end_pos,
+            end_rows: BTreeMap::new(),
+            end_row_bytes: 0,
+        }
+    }
+
+    /// 端头行（覆盖全部端头的最短路），按需建立。
+    ///
+    /// 返回 `false` 表示该源的行不可用（超出行预算）——调用方退回单点查询，
+    /// 取值不变，只是慢一点。
+    fn ensure_end_row(&mut self, source: usize) -> bool {
+        if self.end_rows.contains_key(&source) {
+            return true;
+        }
+        let row_bytes = self.end_order.len().saturating_mul(16);
+        if self.end_row_bytes + row_bytes > END_ROW_BUDGET_BYTES {
+            return false;
+        }
+        let (seconds, meters) = crate::wh::topology::dijkstra_from_index(&self.graph, source);
+        let mut row_seconds = Vec::with_capacity(self.end_order.len());
+        let mut row_meters = Vec::with_capacity(self.end_order.len());
+        for &node in &self.end_order {
+            row_seconds.push(seconds[node]);
+            row_meters.push(meters[node]);
+        }
+        self.end_rows.insert(
+            source,
+            (
+                row_seconds.into_boxed_slice(),
+                row_meters.into_boxed_slice(),
+            ),
+        );
+        self.end_row_bytes += row_bytes;
+        true
+    }
+
+    /// 端头 → 端头（按**图下标**）。与 `node_pair` 取值逐位一致：
+    /// 整图 Dijkstra 的每一个标号都是最终值，提前退出只是少算不相干的点。
+    fn end_pair_by_index(&mut self, from: usize, to: usize) -> (f64, f64) {
+        if from == to {
+            return (0.0, 0.0);
+        }
+        let Some(&column) = self.end_pos.get(&to) else {
+            return crate::wh::topology::dijkstra_until_index(&self.graph, from, to);
+        };
+        if !self.ensure_end_row(from) {
+            return crate::wh::topology::dijkstra_until_index(&self.graph, from, to);
+        }
+        match self.end_rows.get(&from) {
+            Some((seconds, meters)) => (seconds[column], meters[column]),
+            None => crate::wh::topology::dijkstra_until_index(&self.graph, from, to),
         }
     }
 
@@ -167,6 +312,18 @@ impl RouteModel {
             .get(&(aisle_id.to_string(), level))
             .map(|axis| (axis.x1 - axis.x0).max(1.0))
             .unwrap_or(1.0);
+        self.in_aisle_seconds_span(span, from_x, to_x, motion, loaded)
+    }
+
+    /// 巷道内水平运行时间（跨距已由行表给出，热路径用；算式与上式逐位相同）。
+    pub fn in_aisle_seconds_span(
+        &self,
+        span: f64,
+        from_x: f64,
+        to_x: f64,
+        motion: &MotionProfile,
+        loaded: bool,
+    ) -> f64 {
         let distance = (to_x - from_x).abs().min(span * 1.5);
         let factor = if loaded {
             motion.loaded_speed_factor.clamp(0.1, 1.5)
@@ -178,15 +335,16 @@ impl RouteModel {
 
     /// 库位的深度取放代价（秒）：列内进深移动 + 每深位一次取放。
     pub fn depth_penalty(&self, location: &LocationRecord, motion: &MotionProfile) -> f64 {
-        if location.depth <= 1 {
+        self.depth_penalty_of(location.depth, location.size[2], motion)
+    }
+
+    /// 深度取放代价（按字段给出；算式与上式逐位相同）。
+    pub fn depth_penalty_of(&self, depth: i32, size_z: f64, motion: &MotionProfile) -> f64 {
+        if depth <= 1 {
             return 0.0;
         }
-        let moves = (location.depth - 1) as f64;
-        travel_time(
-            moves * location.size[2],
-            motion.speed_mps,
-            motion.accel_mps2,
-        ) + moves * motion.transfer_s
+        let moves = (depth - 1) as f64;
+        travel_time(moves * size_z, motion.speed_mps, motion.accel_mps2) + moves * motion.transfer_s
     }
 
     /// 从某节点到某个库位的**物理运行时间**（秒；不含交接时间与取放，它们由调用方按语义加）。
@@ -200,34 +358,46 @@ impl RouteModel {
         motion: &MotionProfile,
         loaded: bool,
     ) -> f64 {
-        let Some(location) = self.location(location_id).cloned() else {
+        let (Some(&source), Some(&index)) = (
+            self.graph.index.get(from_node),
+            self.loc_index.get(location_id),
+        ) else {
             return f64::INFINITY;
         };
+        self.seconds_from_source_to_location(source, index, motion, loaded)
+    }
+
+    /// **热路径**：图下标源点 → 库位下标的物理运行时间。
+    ///
+    /// 与 `seconds_to_location` 的算式/求和顺序逐位一致（端头枚举顺序也是 西→东），
+    /// 区别只是端头、跨距、深度惩罚全部走行表，不构造任何字符串、不跑 Dijkstra。
+    pub fn seconds_from_source_to_location(
+        &mut self,
+        source_node: usize,
+        location_index: usize,
+        motion: &MotionProfile,
+        loaded: bool,
+    ) -> f64 {
+        let row = match self.loc_key.get(location_index) {
+            Some(&key) => match self.end_table.get(key as usize) {
+                Some(row) => *row,
+                None => return f64::INFINITY,
+            },
+            None => return f64::INFINITY,
+        };
+        let (depth, size_z, position_x) = {
+            let location = &self.locations[location_index];
+            (location.depth, location.size[2], location.position[0])
+        };
         let mut best = f64::INFINITY;
-        for end in ["W", "E"] {
-            let end_node = format!("N-{}-L{}-{}", location.aisle_id, location.level, end);
-            if !self.graph.index.contains_key(&end_node) {
-                continue;
-            }
-            let skeleton = self.node_seconds(from_node, &end_node);
+        for end in row.ends.into_iter().flatten() {
+            let (skeleton, _) = self.end_pair_by_index(source_node, end);
             if !skeleton.is_finite() {
                 continue;
             }
-            let end_x = self
-                .graph
-                .index
-                .get(&end_node)
-                .map(|i| self.graph.positions[*i][0])
-                .unwrap_or(location.position[0]);
-            let in_aisle = self.in_aisle_seconds(
-                &location.aisle_id,
-                location.level,
-                end_x,
-                location.position[0],
-                motion,
-                loaded,
-            );
-            let total = skeleton + in_aisle + self.depth_penalty(&location, motion);
+            let end_x = self.graph.positions[end][0];
+            let in_aisle = self.in_aisle_seconds_span(row.span, end_x, position_x, motion, loaded);
+            let total = skeleton + in_aisle + self.depth_penalty_of(depth, size_z, motion);
             if total < best {
                 best = total;
             }
@@ -235,7 +405,11 @@ impl RouteModel {
         best
     }
 
-    /// 库位到站台的时间（带缓存；库位优化的热路径）。
+    /// 库位到站台的时间（走行表；库位优化的热路径）。
+    ///
+    /// 旧实现为每个 (站台, 库位) 记一份字符串键缓存（压力档 = 数百万条），
+    /// 既是内存大头、又要为每次查询构造键；现在行表本身就是 O(1) 命中，
+    /// 缓存没有必要，已删除。
     pub fn seconds_to_station(
         &mut self,
         location_id: &str,
@@ -243,18 +417,7 @@ impl RouteModel {
         motion: &MotionProfile,
         loaded: bool,
     ) -> f64 {
-        let key = format!("{station_node}|{}", if loaded { "L" } else { "E" });
-        if let Some(table) = self.station_seconds_cache.get(&key) {
-            if let Some(value) = table.get(location_id) {
-                return *value;
-            }
-        }
-        let value = self.seconds_to_location(station_node, location_id, motion, loaded);
-        self.station_seconds_cache
-            .entry(key)
-            .or_default()
-            .insert(location_id.to_string(), value);
-        value
+        self.seconds_to_location(station_node, location_id, motion, loaded)
     }
 
     /// 库位之间的运行时间（移库 / 倒垛）。
@@ -267,62 +430,72 @@ impl RouteModel {
         to_id: &str,
         motion: &MotionProfile,
     ) -> f64 {
-        let (Some(from), Some(to)) = (
-            self.location(from_id).cloned(),
-            self.location(to_id).cloned(),
-        ) else {
+        let (Some(&from), Some(&to)) = (self.loc_index.get(from_id), self.loc_index.get(to_id))
+        else {
             return f64::INFINITY;
         };
-        if from.rack_id == to.rack_id && from.level == to.level {
-            let distance = (from.depth - to.depth).unsigned_abs() as f64 * from.size[2];
+        self.seconds_between_location_indices(from, to, motion)
+    }
+
+    /// **热路径**：库位下标 → 库位下标（移库 / 倒垛）。
+    ///
+    /// 与字符串入口的算式、求和顺序、端头枚举顺序（西→东）逐位一致；
+    /// 差别是端头、跨距、深度惩罚全部走行表，且端头之间是一行稠密缓存里的浮点读取，
+    /// 不再为每次查询构造临时节点 id、也不再逐对跑 Dijkstra。
+    /// 压力档（150k SKU / 95 万库位）的初始落位要对上百万个库位对求值，
+    /// 这里省下的就是小时级与秒级的差距。
+    pub fn seconds_between_location_indices(
+        &mut self,
+        from: usize,
+        to: usize,
+        motion: &MotionProfile,
+    ) -> f64 {
+        let same_rack = {
+            let (a, b) = (&self.locations[from], &self.locations[to]);
+            a.rack_id == b.rack_id && a.level == b.level
+        };
+        if same_rack {
+            let distance = {
+                let (a, b) = (&self.locations[from], &self.locations[to]);
+                (a.depth - b.depth).unsigned_abs() as f64 * a.size[2]
+            };
             return travel_time(distance, motion.speed_mps, motion.accel_mps2)
                 + motion.transfer_s * 2.0;
         }
+        let row_a = match self
+            .loc_key
+            .get(from)
+            .and_then(|&key| self.end_table.get(key as usize))
+        {
+            Some(row) => *row,
+            None => return f64::INFINITY,
+        };
+        let row_b = match self
+            .loc_key
+            .get(to)
+            .and_then(|&key| self.end_table.get(key as usize))
+        {
+            Some(row) => *row,
+            None => return f64::INFINITY,
+        };
+        let (from_x, to_x, to_depth, to_size_z) = {
+            let a = &self.locations[from];
+            let b = &self.locations[to];
+            (a.position[0], b.position[0], b.depth, b.size[2])
+        };
         let mut best = f64::INFINITY;
-        for end_a in ["W", "E"] {
-            let node_a = format!("N-{}-L{}-{}", from.aisle_id, from.level, end_a);
-            if !self.graph.index.contains_key(&node_a) {
-                continue;
-            }
-            for end_b in ["W", "E"] {
-                let node_b = format!("N-{}-L{}-{}", to.aisle_id, to.level, end_b);
-                if !self.graph.index.contains_key(&node_b) {
-                    continue;
-                }
-                let skeleton = self.node_seconds(&node_a, &node_b);
+        for end_a in row_a.ends.into_iter().flatten() {
+            for end_b in row_b.ends.into_iter().flatten() {
+                let (skeleton, _) = self.end_pair_by_index(end_a, end_b);
                 if !skeleton.is_finite() {
                     continue;
                 }
-                let end_a_x = self
-                    .graph
-                    .index
-                    .get(&node_a)
-                    .map(|i| self.graph.positions[*i][0])
-                    .unwrap_or(from.position[0]);
-                let end_b_x = self
-                    .graph
-                    .index
-                    .get(&node_b)
-                    .map(|i| self.graph.positions[*i][0])
-                    .unwrap_or(to.position[0]);
+                let end_a_x = self.graph.positions[end_a][0];
+                let end_b_x = self.graph.positions[end_b][0];
                 let total = skeleton
-                    + self.in_aisle_seconds(
-                        &from.aisle_id,
-                        from.level,
-                        end_a_x,
-                        from.position[0],
-                        motion,
-                        true,
-                    )
-                    + self.in_aisle_seconds(
-                        &to.aisle_id,
-                        to.level,
-                        end_b_x,
-                        to.position[0],
-                        motion,
-                        true,
-                    )
-                    + self.depth_penalty(&to, motion);
+                    + self.in_aisle_seconds_span(row_a.span, end_a_x, from_x, motion, true)
+                    + self.in_aisle_seconds_span(row_b.span, end_b_x, to_x, motion, true)
+                    + self.depth_penalty_of(to_depth, to_size_z, motion);
                 if total < best {
                     best = total;
                 }
@@ -504,19 +677,40 @@ pub fn location_costs(
         .unwrap_or_else(|| out_node.clone());
     let (lift_ids, lift_by_aisle) = lift_groups(topology);
     let aisle_ids: Vec<String> = topology.aisles.iter().map(|a| a.id.clone()).collect();
+    // 设备分组按巷道下标预表（原来每个库位都要拿 aisle_id 去 BTreeMap 里查一次字符串）。
+    let lift_group_of_aisle: Vec<usize> = aisle_ids
+        .iter()
+        .map(|id| *lift_by_aisle.get(id).unwrap_or(&0))
+        .collect();
+    // 两个站台的图下标：整个建表过程只解析一次节点 id，库位循环里不再出现字符串。
+    let out_source = model.graph.index.get(&out_node).copied();
+    let in_source = model.graph.index.get(&in_node).copied();
     let mut out = Vec::with_capacity(model.locations.len());
-    for location in model.locations.clone() {
-        let aisle_index = aisle_ids
-            .iter()
-            .position(|id| id == &location.aisle_id)
-            .unwrap_or(0);
-        let uses_lift = location.level > 1;
+    // 注意：这里**不再**克隆整个 `locations`（压力档下那是几百万个含字符串的记录，
+    // 单次克隆就要几百 MB、几秒），也不再把 (站台, 库位) 结果写进字符串键缓存。
+    for index in 0..model.locations.len() {
+        let (row, uses_lift, placeable, depth_i, size_z, height_m_raw) = {
+            let location = &model.locations[index];
+            let row = model
+                .loc_key
+                .get(index)
+                .and_then(|&key| model.end_table.get(key as usize))
+                .copied();
+            (
+                row,
+                location.level > 1,
+                location.availability.placeable(),
+                location.depth,
+                location.size[2],
+                location.position[1],
+            )
+        };
+        let aisle_index = row.map(|r| r.aisle as usize).unwrap_or(0);
         let lift_group = if uses_lift {
-            *lift_by_aisle.get(&location.aisle_id).unwrap_or(&0)
+            *lift_group_of_aisle.get(aisle_index).unwrap_or(&0)
         } else {
             0
         };
-        let placeable = location.availability.placeable();
         if !placeable {
             out.push(LocationCost {
                 pick_seconds: f64::INFINITY,
@@ -530,13 +724,19 @@ pub fn location_costs(
             });
             continue;
         }
-        let pick_raw = model.seconds_to_station(&location.id, &out_node, &shuttle, true);
-        let put_raw = model.seconds_to_station(&location.id, &in_node, &shuttle, true);
+        let pick_raw = match out_source {
+            Some(source) => model.seconds_from_source_to_location(source, index, &shuttle, true),
+            None => f64::INFINITY,
+        };
+        let put_raw = match in_source {
+            Some(source) => model.seconds_from_source_to_location(source, index, &shuttle, true),
+            None => f64::INFINITY,
+        };
         let unreachable = !pick_raw.is_finite() || !put_raw.is_finite();
-        let depth = model.depth_penalty(&location, &shuttle);
+        let depth = model.depth_penalty_of(depth_i, size_z, &shuttle);
         // 竖直行程：货位在 2 层以上时，每一次出入库都要付一次提升机换层时间 + 竖井升降时间。
         // 这是真实设备时间的一部分（不是距离折算），必须计入，否则高层货位的代价被系统性低估。
-        let height_m = location.position[1].max(0.0);
+        let height_m = height_m_raw.max(0.0);
         let vertical = if uses_lift {
             lift.change_level_s + travel_time(height_m, lift.speed_mps, lift.accel_mps2)
         } else {

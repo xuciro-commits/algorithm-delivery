@@ -131,13 +131,15 @@ export function ArtSceneEnvironment({ mode, bbox }: { mode: ArtModeConfig; bbox?
 
     const span = bbox?.span ?? 24;
     if (mode.fog) {
-      const far = Math.max(mode.fog.far, span * 2.6);
+      // 雾的近截面必须退到相机视距之外，避免高视角或拉远镜头时整场变黑
+      const near = Math.max(mode.fog.near, span * 3.5, 120);
+      const far = Math.max(mode.fog.far, span * 10, 600);
       if (scene.fog instanceof Fog) {
         scene.fog.color.set(mode.fog.color);
-        scene.fog.near = mode.fog.near;
+        scene.fog.near = near;
         scene.fog.far = far;
       } else {
-        scene.fog = new Fog(new Color(mode.fog.color), mode.fog.near, far);
+        scene.fog = new Fog(new Color(mode.fog.color), near, far);
       }
     } else {
       scene.fog = null;

@@ -62,6 +62,13 @@ pub fn prof_now() -> Option<std::time::Instant> {
     None
 }
 
+/// 打一行分阶段耗时（`WH_TIME=1` 时输出到 stderr），`count` 只作辅助说明。
+pub fn prof_phase(label: &str, start: Option<std::time::Instant>, count: usize) {
+    if profile_enabled() {
+        eprintln!("[t] {} {}ms n={}", label, prof_elapsed_ms(start), count);
+    }
+}
+
 /// 计时读数（毫秒）：未开启调试返回 0。
 pub fn prof_elapsed_ms(start: Option<std::time::Instant>) -> u64 {
     match start {
@@ -487,6 +494,7 @@ pub fn scale_json(scale: &crate::slotting::ScaleReport) -> Json {
 
 /// 求解库位优化：输入是契约 JSON 字符串，输出是信封 JSON。
 pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Status) {
+    let t_entry = prof_now();
     let mut issues = Issues::new();
     let root = match aps_engine::json::parse(input) {
         Ok(value) => value,
@@ -523,11 +531,12 @@ pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Statu
                 .collect(),
         })
         .unwrap_or_default();
-    let t1 = prof_now();
     if profile_enabled() {
+        // 注意：这一行必须从**入口**起算才是解析耗时；旧写法在解析之后才取起点，
+        // 打出来的永远是 0（看不出压力档到底卡在解析还是搜索）。
         eprintln!(
-            "[t] parse_total {:?} inventory={}",
-            t1.map(|clock| clock.elapsed()),
+            "[t] parse {}ms inventory={}",
+            prof_elapsed_ms(t_entry),
             problem.inventory.len()
         );
     }
@@ -535,7 +544,7 @@ pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Statu
     reset_cancel();
     let outcome = search::run(&problem, &options);
     if profile_enabled() {
-        eprintln!("[t] solve {:?}", t1.map(|clock| clock.elapsed()));
+        eprintln!("[t] search {}ms", prof_elapsed_ms(t_entry));
     }
     let fingerprint = fingerprint(&[
         ENGINE_NAME,
@@ -609,6 +618,7 @@ fn slotting_verification_json(report: &crate::slotting::verify::SlottingVerifica
 
 /// 事件模拟 + 立库调度 + 联合优化的统一入口（`asrs` / `joint` 模块实现）。
 pub fn solve_asrs(input: &str, options_json: Option<&str>) -> (String, Status) {
+    let t_entry = prof_now();
     let mut issues = Issues::new();
     let root = match aps_engine::json::parse(input) {
         Ok(value) => value,
@@ -626,12 +636,11 @@ pub fn solve_asrs(input: &str, options_json: Option<&str>) -> (String, Status) {
             return (envelope.to_json().canonical(), Status::InvalidInput);
         }
     };
-    let t1 = prof_now();
     let problem: AsrsProblem = parse_asrs_problem(&root, &mut issues);
     if profile_enabled() {
         eprintln!(
-            "[t] parse_total {:?} tasks={}",
-            t1.map(|clock| clock.elapsed()),
+            "[t] parse {}ms tasks={}",
+            prof_elapsed_ms(t_entry),
             problem.tasks.len()
         );
     }
@@ -648,7 +657,7 @@ pub fn solve_asrs(input: &str, options_json: Option<&str>) -> (String, Status) {
     reset_cancel();
     let outcome = crate::asrs::solve(&problem, &events, &options, &mut issues);
     if profile_enabled() {
-        eprintln!("[t] solve {:?}", t1.map(|clock| clock.elapsed()));
+        eprintln!("[t] search {}ms", prof_elapsed_ms(t_entry));
     }
     let fingerprint = fingerprint(&[
         ENGINE_NAME,

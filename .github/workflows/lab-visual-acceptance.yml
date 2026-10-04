@@ -50,10 +50,24 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: APS / MAPF / AGV 浏览器视觉、真实求解与交互验收
+        id: visual
         env:
           CI: "true"
           VISUAL_ARTIFACT_DIR: artifacts/visual
-        run: npm run test:visual
+        # 作业日志归档在外部存储（API 只回注解、日志取不到），所以失败时把日志**首尾各 20 KB**
+        # 打成 ::error:: 注解：Actions 汇总页 / PR / API 上直接能看到失败原因，
+        # 不必下载 Artifact 或整份日志。首尾各取一段是因为"启动即失败"和"逐模块结果"分别在两端。
+        run: |
+          set +e
+          npm run test:visual 2>&1 | tee "$RUNNER_TEMP/visual.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            head=$(python3 -c 'import sys;t=open(sys.argv[1],errors="replace").read()[:20000];sys.stdout.write(t.replace(chr(37),chr(37)+"25").replace(chr(13),chr(37)+"0D").replace(chr(10),chr(37)+"0A"))' "$RUNNER_TEMP/visual.log")
+            echo "::error title=visual acceptance (head)::${head}"
+            tail=$(python3 -c 'import sys;t=open(sys.argv[1],errors="replace").read()[-20000:];sys.stdout.write(t.replace(chr(37),chr(37)+"25").replace(chr(13),chr(37)+"0D").replace(chr(10),chr(37)+"0A"))' "$RUNNER_TEMP/visual.log")
+            echo "::error title=visual acceptance (tail)::${tail}"
+          fi
+          exit "$status"
 
       - name: 上传截图、参考图、console 日志与验收报告（保留 30 天）
         if: always()

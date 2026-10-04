@@ -495,7 +495,6 @@ export function DenseAsrsPanel() {
                 onSelectDevice={setSelectedDevice}
                 fitNonce={fitNonce}
                 active={clock.playing}
-                height={400}
               />
             ) : (
               <div className="mapf-visual sandbox-stage stage-loading">

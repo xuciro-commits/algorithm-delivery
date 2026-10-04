@@ -27,6 +27,8 @@ export interface SandboxSceneProps {
   /** 底板尺寸（格数），用于灯光/雾的量级。 */
   width: number;
   height: number;
+  /** 场景中心坐标（默认 [width/2, height/2]）。 */
+  center?: [number, number];
   className?: string;
   dpr?: [number, number];
   /**
@@ -56,6 +58,7 @@ export function SandboxScene({
   children,
   width,
   height,
+  center,
   className,
   dpr = [1, 2],
   active = false,
@@ -83,6 +86,7 @@ export function SandboxScene({
     threshold: mode.bloom.threshold,
     radius: mode.bloom.radius,
   };
+  const sceneCenter: [number, number] = center ?? [width / 2, height / 2];
   return (
     <div
       className={className}
@@ -119,10 +123,10 @@ export function SandboxScene({
         {artLighting ? (
           <>
             <ArtSceneEnvironment mode={mode} bbox={{ span }} />
-            <ArtLightRig span={span} center={[width / 2, height / 2]} mode={mode} />
+            <ArtLightRig span={span} center={sceneCenter} mode={mode} />
           </>
         ) : (
-          <SceneRig span={span} width={width} height={height} />
+          <SceneRig span={span} width={width} height={height} center={sceneCenter} />
         )}
         {children}
         <ArtBloom enabled={bloom.enabled} strength={bloom.strength} threshold={bloom.threshold} radius={bloom.radius} />
@@ -132,14 +136,23 @@ export function SandboxScene({
   );
 }
 
-function SceneRig({ span, width, height }: { span: number; width: number; height: number }) {
+function SceneRig({
+  span,
+  center,
+}: {
+  span: number;
+  width: number;
+  height: number;
+  center: [number, number];
+}) {
+  const [cx, cz] = center;
   return (
     <>
-      <ambientLight intensity={0.72} color="#d8e3ee" />
-      <hemisphereLight intensity={0.92} color="#dbeeff" groundColor="#46505a" />
+      <ambientLight intensity={0.25} color="#d8e3ee" />
+      <hemisphereLight intensity={0.32} color="#dbeeff" groundColor="#46505a" />
       <directionalLight
-        position={[span * 0.72, span * 1.55, span * 0.55]}
-        intensity={2.15}
+        position={[cx + span * 0.72, span * 1.55, cz + span * 0.55]}
+        intensity={2.1}
         color="#fff2df"
         castShadow
         shadow-mapSize-width={1024}
@@ -154,8 +167,7 @@ function SceneRig({ span, width, height }: { span: number; width: number; height
         shadow-normalBias={0.025}
         shadow-radius={4}
       />
-      <directionalLight position={[-span * 0.8, span * 0.7, -span * 0.65]} intensity={0.72} color="#aacdff" />
-      <pointLight position={[width * 0.5, span * 0.9, height * 0.5]} intensity={Math.min(12, span * 0.34)} distance={span * 2.3} decay={2} color="#d9eaff" />
+      <directionalLight position={[cx - span * 0.8, span * 0.7, cz - span * 0.65]} intensity={0.45} color="#aacdff" />
     </>
   );
 }
@@ -167,6 +179,8 @@ function SceneRig({ span, width, height }: { span: number; width: number; height
 function SceneHealthProbe() {
   const { gl, scene, camera, invalidate } = useThree();
   const frames = useRef(0);
+  const baseDistanceRef = useRef<number | null>(null);
+  const lastTargetPosRef = useRef<string>('');
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -195,7 +209,7 @@ function SceneHealthProbe() {
     invalidate();
   }, [gl, scene, invalidate]);
 
-  useFrame(() => {
+  useFrame((state) => {
     frames.current += 1;
     const canvas = gl.domElement;
     const context = gl.getContext();
@@ -203,7 +217,24 @@ function SceneHealthProbe() {
     canvas.dataset.webglDrawCalls = String(gl.info.render.calls);
     canvas.dataset.webglRendered = String(!context.isContextLost() && (gl.info.render.calls > 0 || frames.current > 1));
     canvas.dataset.hdriReady = String(Boolean(scene.environment));
-    canvas.dataset.cameraZoom = 'zoom' in camera ? Number(camera.zoom).toFixed(2) : 'perspective';
+
+    const isPerspective = Boolean((camera as any).isPerspectiveCamera);
+    if (isPerspective) {
+      const controls = (state as any).controls;
+      const target = controls?.target;
+      const currentDist = target ? camera.position.distanceTo(target) : camera.position.length();
+      const targetKey = target ? `${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}` : '';
+      if (baseDistanceRef.current === null || (targetKey && targetKey !== lastTargetPosRef.current)) {
+        baseDistanceRef.current = currentDist;
+        lastTargetPosRef.current = targetKey;
+      }
+      const baseDist = baseDistanceRef.current ?? currentDist;
+      const zoomFactor = baseDist > 0.001 && currentDist > 0.001 ? (baseDist / currentDist) * (Number(camera.zoom) || 1) : 1;
+      canvas.dataset.cameraZoom = zoomFactor.toFixed(2);
+    } else {
+      canvas.dataset.cameraZoom = 'zoom' in camera ? Number(camera.zoom).toFixed(2) : '1.00';
+    }
+
     canvas.dataset.canvasSize = `${canvas.clientWidth}x${canvas.clientHeight}`;
     // R3F useFrame runs immediately before gl.render(). Keep one follow-up frame in
     // demand mode so the probe can observe the renderer counters from a completed pass.

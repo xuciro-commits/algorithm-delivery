@@ -298,14 +298,19 @@ function RelocationLayer({ scene, t }: { scene: AsrsScene; t: number }) {
   );
 }
 
-export function Asrs3D({ scene, layers, t, selectedDevice, onSelectDevice, fitNonce, active, height = 460 }: Asrs3DProps) {
-  const span = Math.max(scene.bounds.span, 12);
+export function Asrs3D({ scene, layers, t, selectedDevice, onSelectDevice, fitNonce, active, height }: Asrs3DProps) {
+  const { centerX, centerZ, span, minX, maxX, minZ, maxZ } = scene.bounds;
+  const plateWidth = Math.max(maxX - minX + 8, span * 1.15, 16);
+  const plateHeight = Math.max(maxZ - minZ + 8, span * 0.85, 12);
+  const maxSpan = Math.max(span, 12);
+  const sceneCenter = useMemo(() => [centerX, centerZ] as [number, number], [centerX, centerZ]);
+  const cameraCenter = useMemo(() => [centerX, 0, centerZ] as [number, number, number], [centerX, centerZ]);
   const selected = selectedDevice ? scene.devices.find((device) => device.deviceId === selectedDevice) ?? null : null;
   return (
-    <div className="sandbox-stage" style={{ height }}>
-      <SandboxScene width={span} height={span * 0.72} lighting="art" active={active}>
-        <IsoCamera key={fitNonce} span={span} width={span} height={span * 0.72} />
-        <GroundPlate width={span * 1.2} height={span} cellSize={2} sectionSize={10} />
+    <div className="sandbox-stage" style={height ? { height } : undefined}>
+      <SandboxScene width={plateWidth} height={plateHeight} center={sceneCenter} lighting="art" active={active}>
+        <IsoCamera key={fitNonce} span={maxSpan} width={plateWidth} height={plateHeight} center={cameraCenter} />
+        <GroundPlate width={plateWidth} height={plateHeight} centerX={centerX} centerZ={centerZ} cellSize={2} sectionSize={10} />
         {layers.rack && <RackStructure racks={scene.rackSpecs} />}
         {layers.lanes && <LaneLayer scene={scene} />}
         {layers.stations && <StationLayer scene={scene} />}
@@ -332,7 +337,10 @@ export function Asrs3D({ scene, layers, t, selectedDevice, onSelectDevice, fitNo
         )}
       </SandboxScene>
       {/* 设备类型说明（视觉形态与契约 device.kind 的对应关系，不是"指标"） */}
-      <div className="stage-note muted small">
+      <div
+        className="stage-note muted small"
+        style={{ position: 'absolute', bottom: 8, left: 8, zIndex: 5, pointerEvents: 'none' }}
+      >
         {scene.devices.slice(0, 4).map((device) => (
           <span key={device.deviceId} className="legend-item">
             <span className="legend-dot" style={{ background: device.color }} />

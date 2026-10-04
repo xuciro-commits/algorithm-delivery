@@ -258,19 +258,24 @@ function AisleLayer({ scene }: { scene: SlottingScene }) {
   );
 }
 
-export function Slotting3D({ scene, layers, selected, onSelect, fitNonce, height = 460 }: Slotting3DProps) {
-  const span = Math.max(scene.bounds.span, 12);
+export function Slotting3D({ scene, layers, selected, onSelect, fitNonce, height }: Slotting3DProps) {
+  const { centerX, centerZ, span, minX, maxX, minZ, maxZ } = scene.bounds;
+  const plateWidth = Math.max(maxX - minX + 8, span * 1.15, 16);
+  const plateHeight = Math.max(maxZ - minZ + 8, span * 0.85, 12);
+  const maxSpan = Math.max(span, 12);
+  const sceneCenter = useMemo(() => [centerX, centerZ] as [number, number], [centerX, centerZ]);
+  const cameraCenter = useMemo(() => [centerX, 0, centerZ] as [number, number, number], [centerX, centerZ]);
   return (
-    <div className="sandbox-stage" style={{ height }}>
+    <div className="sandbox-stage" style={height ? { height } : undefined}>
       {/*
         这里是"始终常驻"而不是 `active={playing}`：库位画布没有回放时钟，
         高热库位的脉动高亮（HeatLayer/GlowNode 的 pulse）需要连续帧才动得起来；
         组件只在模块挂载时存在（切走即卸载），不构成后台 GPU 负载。
         `active` 必须显式写出（性能红线审计第 7 条）。
       */}
-      <SandboxScene width={span} height={span * 0.72} lighting="art" active>
-        <IsoCamera key={fitNonce} span={span} width={span} height={span * 0.72} />
-        <GroundPlate width={span * 1.25} height={span} cellSize={2} sectionSize={10} />
+      <SandboxScene width={plateWidth} height={plateHeight} center={sceneCenter} lighting="art" active>
+        <IsoCamera key={fitNonce} span={maxSpan} width={plateWidth} height={plateHeight} center={cameraCenter} />
+        <GroundPlate width={plateWidth} height={plateHeight} centerX={centerX} centerZ={centerZ} cellSize={2} sectionSize={10} />
         {layers.rack && <RackStructure racks={scene.rackSpecs} />}
         {layers.heat && <HeatLayer scene={scene} selected={selected} onSelect={onSelect} />}
         {layers.clusters && <ClusterLayer scene={scene} selected={selected} onSelect={onSelect} />}

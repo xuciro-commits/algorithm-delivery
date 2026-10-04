@@ -349,14 +349,14 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
     }
     let affinity_edges =
         ((params.affinity_clusters * params.affinity_cluster_size) as f64 * 1.5) as usize;
+    // 热门件占比：先建 SKU → isA 的索引再一次遍历库存。
+    // 原先是对**每个**库存单元线性扫全部 SKU（150k SKU × 1.05M 单元 ≈ 7.9e10 次比较），
+    // 压力档下这一处就能吃掉十几分钟；结果与旧实现逐位相同。
+    let is_a: std::collections::BTreeMap<&str, bool> =
+        skus.iter().map(|s| (s.id.as_str(), s.abc == 'A')).collect();
     let hot = inventory
         .iter()
-        .filter(|unit| {
-            skus.iter()
-                .find(|s| s.id == unit.sku_id)
-                .map(|s| s.abc == 'A')
-                .unwrap_or(false)
-        })
+        .filter(|unit| is_a.get(unit.sku_id.as_str()).copied().unwrap_or(false))
         .count();
     let stats = CatalogStats {
         skus: skus.len(),
@@ -472,7 +472,7 @@ pub fn generate_orders(
             base * abc_boost
         })
         .collect();
-    let weight_sum: f64 = weights.iter().sum::<f64>().max(1e-9);
+    let sampler = SkuSampler::new(&weights);
     let per_day = params.orders as f64 / total_days;
     // 关联簇成员表（同簇共同出库的强先验，来自目录生成时的真实结构）
     let cluster_members: Vec<Vec<usize>> = {
@@ -545,7 +545,7 @@ pub fn generate_orders(
                 let mut lines: Vec<OrderLine> = Vec::new();
                 let mut used: Vec<usize> = Vec::new();
                 for _ in 0..line_count {
-                    if let Some(index) = pick_sku(&mut rng, &weights, weight_sum, &used) {
+                    if let Some(index) = sampler.pick(&mut rng, &used) {
                         used.push(index);
                         let sku = &skus[index];
                         lines.push(OrderLine {
@@ -640,20 +640,80 @@ pub fn generate_orders(
     OrderBundle { orders, stats }
 }
 
-fn pick_sku(rng: &mut Rng, weights: &[f64], weight_sum: f64, used: &[usize]) -> Option<usize> {
-    for _ in 0..4 {
-        let mut target = rng.next_f64() * weight_sum;
-        for (index, weight) in weights.iter().enumerate() {
-            target -= weight;
-            if target <= 0.0 {
+/// 需求权重抽样器：前缀和 + 二分定位，避免"每个订单行都线性扫一遍全部 SKU"。
+///
+/// 旧实现对每个样本把 `target` 逐项递减到 ≤0（O(SKU 数)），压力档 150k SKU × 48 万个样本
+/// ≈ 7×10^10 次减法。这里用前缀和二分，把单次抽样降到 O(log n)。
+///
+/// **逐位一致性**：浮点加减不满足结合律，`target - w0 - w1 - …` 与 `prefix[i] - target`
+/// 在**边界附近**可能差一两个 ULP。所以这里给出 `band`（保守的舍入误差上界
+/// `8·n·ε·total`），落在带内就退回旧实现的逐项递减循环原样重放；
+/// 带外两者判定必然一致。带宽内的概率约 4×10⁻⁵/样本，对总耗时没有影响。
+struct SkuSampler<'a> {
+    weights: &'a [f64],
+    prefix: Vec<f64>,
+    total: f64,
+    band: f64,
+}
+
+impl<'a> SkuSampler<'a> {
+    fn new(weights: &'a [f64]) -> Self {
+        let mut prefix = Vec::with_capacity(weights.len());
+        let mut running = 0.0f64;
+        for weight in weights {
+            running += *weight;
+            prefix.push(running);
+        }
+        // `total` 用与旧实现完全相同的求和顺序（左到右），保证 `rng.next_f64() * total` 逐位一致。
+        let total: f64 = weights.iter().sum::<f64>().max(1e-9);
+        let band = 8.0 * weights.len() as f64 * f64::EPSILON * total;
+        SkuSampler {
+            weights,
+            prefix,
+            total,
+            band,
+        }
+    }
+
+    /// 二分定位；返回 `None` 表示"落在歧义带内或越界"，调用方按旧实现重放。
+    fn locate(&self, target: f64) -> Option<usize> {
+        let index = self.prefix.partition_point(|prefix| *prefix < target);
+        if index >= self.weights.len() {
+            return None;
+        }
+        if (target - self.prefix[index]).abs() <= self.band {
+            return None;
+        }
+        Some(index)
+    }
+
+    fn pick(&self, rng: &mut Rng, used: &[usize]) -> Option<usize> {
+        for _ in 0..4 {
+            let target = rng.next_f64() * self.total;
+            if let Some(index) = self.locate(target) {
                 if used.contains(&index) {
-                    break;
+                    // 与旧实现同义：旧代码在内层 `break` 后由外层再抽一次。
+                    continue;
                 }
                 return Some(index);
             }
+            // 歧义带内 / 越界：完全按旧实现逐项递减重放（判定与旧实现逐位一致）。
+            let mut residual = target;
+            let mut hit = None;
+            for (index, weight) in self.weights.iter().enumerate() {
+                residual -= weight;
+                if residual <= 0.0 {
+                    hit = Some(index);
+                    break;
+                }
+            }
+            match hit {
+                Some(index) if !used.contains(&index) => return Some(index),
+                _ => continue,
+            }
         }
+        None
     }
-    None
 }
 
 /// 常见场景的目录预设（场景库与实验室共用，避免每个场景各写一遍数字）。

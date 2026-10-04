@@ -1432,13 +1432,26 @@ fn relax(
 /// 单源最短路（秒 / 米）。二叉堆 + 惰性删除：骨架节点数千、边数万，堆实现比 O(n²) 选择快两个数量级，
 /// 也避免了旧实现在 2 万任务规模下的平方级退化。
 pub fn dijkstra(graph: &NodeGraph, source: &str) -> (Vec<f64>, Vec<f64>) {
+    let n = graph.positions.len();
+    match graph.index.get(source) {
+        Some(&src) => dijkstra_from_index(graph, src),
+        None => (vec![f64::INFINITY; n], vec![f64::INFINITY; n]),
+    }
+}
+
+/// 单源最短路（按**节点下标**入口）。
+///
+/// 与 `dijkstra(graph, id)` 的取值逐位一致——两者跑的是同一段代码，
+/// 下标入口只是省掉一次「字符串 → 下标」的查找。骨架端头矩阵（见 `wh::routing`）
+/// 用它按源批量取值。
+pub fn dijkstra_from_index(graph: &NodeGraph, src: usize) -> (Vec<f64>, Vec<f64>) {
     use std::collections::BinaryHeap;
     let n = graph.positions.len();
     let mut seconds = vec![f64::INFINITY; n];
     let mut meters = vec![f64::INFINITY; n];
-    let Some(&src) = graph.index.get(source) else {
+    if src >= n {
         return (seconds, meters);
-    };
+    }
     seconds[src] = 0.0;
     meters[src] = 0.0;
     let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
@@ -1457,14 +1470,26 @@ pub fn dijkstra(graph: &NodeGraph, source: &str) -> (Vec<f64>, Vec<f64>) {
 
 /// 单源单目标最短路：目标一确定就停，供热路径查询使用（无需预计算整张图）。
 pub fn dijkstra_until(graph: &NodeGraph, source: &str, target: &str) -> (f64, f64) {
-    use std::collections::BinaryHeap;
     if source == target {
         return (0.0, 0.0);
     }
-    let n = graph.positions.len();
     let (Some(&src), Some(&dst)) = (graph.index.get(source), graph.index.get(target)) else {
         return (f64::INFINITY, f64::INFINITY);
     };
+    dijkstra_until_index(graph, src, dst)
+}
+
+/// 单源单目标最短路（按**节点下标**入口）。取值与 `dijkstra_until(graph, a, b)` 逐位一致：
+/// 目标被弹出时的标号即最终值，提前退出与整图跑完在目标点上的取值相同。
+pub fn dijkstra_until_index(graph: &NodeGraph, src: usize, dst: usize) -> (f64, f64) {
+    use std::collections::BinaryHeap;
+    let n = graph.positions.len();
+    if src >= n || dst >= n {
+        return (f64::INFINITY, f64::INFINITY);
+    }
+    if src == dst {
+        return (0.0, 0.0);
+    }
     let mut seconds = vec![f64::INFINITY; n];
     let mut meters = vec![f64::INFINITY; n];
     seconds[src] = 0.0;

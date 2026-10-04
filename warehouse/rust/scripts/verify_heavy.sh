@@ -13,8 +13,9 @@
 #   * 全量 86 场景一次连跑会把所有时间线堆在同一个进程里，所以这里**按族**跑、逐族断言，
 #     和 CI 以前那版命令完全相同，只是搬到了本机。
 #
-# 参考耗时（2 vCPU 沙箱实测，M 系列芯片会快得多）：slotting 族 ≈20 s、dispatch 族 ≈138 s、
-# event/joint/stress 族各数十秒；全量基准（10 个 case）数分钟。
+# 参考耗时（2 vCPU 沙箱实测，M 系列芯片会快得多）：slotting 族 ≈8 s、event 族 ≈1 s、joint 族 ≈68 s；
+# dispatch 族与 stress 族（X01/X02 = 150k SKU / 1.9M 库位）求解需要 ≥8 GB 内存，沙箱（3.9 GB）跑不完，
+# 本机 36 GB 足够；生成侧已优化：X01 出题 13 s（344.9 MB 文档），全量基准（10 个 case）数分钟。
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
