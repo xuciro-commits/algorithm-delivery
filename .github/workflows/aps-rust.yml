@@ -1,8 +1,11 @@
 name: aps-rust
 
 # 说明：main 与 arena/** 分支上的引擎质量门由 lab.yml 统一触发（并产出 Lab 需要的
-# wasm 产物），PR 也由 lab.yml 覆盖。这里只在**其它分支**上兜底，避免同一次推送
-# 把同一套 Rust 质量门跑两遍（runner 资源翻倍）。
+# wasm 产物），PR 也由 lab.yml 覆盖；而且 lab.yml 会先做改动检测，只对改动过的引擎跑门。
+# 这里只在**其它分支**上兜底，避免同一次推送把同一套 Rust 质量门跑两遍（runner 资源翻倍）。
+#
+# 手动独立跑：Actions → 本工作流 → Run workflow，可只重跑这一个引擎的质量门，
+# 不触发 Lab 构建、也不影响其它模块（Lab 主链路见 lab.yml 的 engines 输入）。
 on:
   push:
     branches-ignore: [main, "arena/**"]

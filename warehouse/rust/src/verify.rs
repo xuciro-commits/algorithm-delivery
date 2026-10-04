@@ -462,6 +462,79 @@ fn verify_joint_document(root: &Json, strict: bool, issues: &mut Issues) -> Veri
     report
 }
 
+/// 独立重算块：把两种**合法**的报告形状统一到同一个键上。
+///
+/// 为什么需要统一：调度段的核验报告有两个入口，键名不同、语义相同——
+///   * 契约/CLI 形状（本文件的 `verify_asrs_document`）：`recomputed`；
+///   * 求解时形状（`asrs::verification_json`，即 `warehouse-verification/1.0` 的 `checked` 块）：
+///     求解时同一套独立验证器已经把时间线复核过一遍，计数写在 `checked` 里。
+///
+/// 联合结论必须"两段都能逐项对照数字"，否则 `recomputed.{slotting,asrs}` 里出现 Null
+/// 就等于**悄悄少核验了一段**（前端与验收都会误读）。这里只做键名归一，不重算、不造数：
+/// 两个键都没有时返回 Null，让缺失显式暴露。
+fn recomputed_block(report: &Json) -> Json {
+    if let Some(value @ Json::Obj(_)) = report.get("recomputed") {
+        return value.clone();
+    }
+    if let Some(value @ Json::Obj(_)) = report.get("checked") {
+        return value.clone();
+    }
+    Json::Null
+}
+
+/// 独立指标块：同样做形状归一。
+///
+/// * `verify_asrs_document` 直接给 `independentMetrics`；
+/// * 求解时报告只给 `checked.deviceBusySeconds`（逐设备忙时），这里换算成与
+///   `verify_asrs_document` 相同的 `{deviceBusySeconds, busyShare}` 形状
+///   （busyShare 的分母是验证器自己重放出来的时间线长度，不是求解器的 makespan）。
+fn independent_metrics_block(report: &Json) -> Json {
+    if let Some(value @ Json::Obj(_)) = report.get("independentMetrics") {
+        return value.clone();
+    }
+    let checked = match report.get("checked") {
+        Some(value @ Json::Obj(_)) => value,
+        _ => return Json::Null,
+    };
+    let entries = match checked.get("deviceBusySeconds") {
+        Some(Json::Arr(items)) => items,
+        _ => return Json::Null,
+    };
+    let horizon = match crate::contract::opt_f64(checked, "replayedHorizon_s") {
+        Some(value) => value,
+        None => 0.0,
+    };
+    let mut busy_cards: Vec<Json> = Vec::new();
+    let mut share_cards: Vec<Json> = Vec::new();
+    for entry in entries {
+        let device_id = match crate::contract::opt_str(entry, "deviceId") {
+            Some(id) => id,
+            None => continue,
+        };
+        let seconds = match crate::contract::opt_f64(entry, "busySeconds") {
+            Some(value) => value,
+            None => 0.0,
+        };
+        let share = if horizon > 0.0 {
+            seconds / horizon
+        } else {
+            0.0
+        };
+        busy_cards.push(Json::obj(vec![
+            ("deviceId", Json::str(device_id.clone())),
+            ("busySeconds", Json::Float(round(seconds, 3))),
+        ]));
+        share_cards.push(Json::obj(vec![
+            ("deviceId", Json::str(device_id)),
+            ("share", Json::Float(round(share, 4))),
+        ]));
+    }
+    Json::obj(vec![
+        ("deviceBusySeconds", Json::Arr(busy_cards)),
+        ("busyShare", Json::Arr(share_cards)),
+    ])
+}
+
 /// 把两段独立核验的报告合成一份联合核验报告（与 `verify_joint_document` 同形状）。
 ///
 /// 为什么要单独一个入口：联合求解在求解过程中就把**调度段**核验完了（报告在 `AsrsOutcome` 里），
@@ -481,13 +554,8 @@ pub fn compose_joint_verification(slotting: &Json, asrs: &Json) -> Json {
         Some(Json::Arr(items)) => items.clone(),
         _ => Vec::new(),
     };
-    let recomputed_of = |report: &Json| report.get("recomputed").cloned().unwrap_or(Json::Null);
-    let metrics_of = |report: &Json| {
-        report
-            .get("independentMetrics")
-            .cloned()
-            .unwrap_or(Json::Null)
-    };
+    let recomputed_of = recomputed_block;
+    let metrics_of = independent_metrics_block;
 
     let slotting_ok = ok_of(slotting);
     let asrs_ok = ok_of(asrs);

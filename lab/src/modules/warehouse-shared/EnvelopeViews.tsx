@@ -144,6 +144,35 @@ export function VerificationPanel({
           <pre className="small">{JSON.stringify(verification.checked, null, 1)}</pre>
         </details>
       )}
+      {verification.recomputed &&
+        (verification.kind === 'joint' ? (
+          // 联合核验：两段的重算数字是这条结论的全部依据，默认展开（不给"折叠起来看不见"的机会）。
+          <div className="verify-joint">
+            <p className="muted small">
+              两段独立重算（库位 / 调度）：数字由验证器从原始数据重算，与优化器自报的指标并列；
+              任一段缺失或未通过，这条联合结论都不成立。
+            </p>
+            <pre className="small">{JSON.stringify(verification.recomputed, null, 1)}</pre>
+          </div>
+        ) : (
+          <details className="mapf-details">
+            <summary>独立重算结果</summary>
+            <pre className="small">{JSON.stringify(verification.recomputed, null, 1)}</pre>
+          </details>
+        ))}
+      {verification.independentMetrics && (
+        <details className="mapf-details">
+          <summary>验证器独立指标（与优化器报告并列对照）</summary>
+          <pre className="small">{JSON.stringify(verification.independentMetrics, null, 1)}</pre>
+        </details>
+      )}
+      {verification.notes && verification.notes.length > 0 && (
+        <ul className="small muted">
+          {verification.notes.slice(0, 8).map((note, index) => (
+            <li key={`verify-note-${index}`}>{note}</li>
+          ))}
+        </ul>
+      )}
       {open && (
         <ul className="violation-list small">
           {violations.slice(0, 60).map((item, index) => (

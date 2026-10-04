@@ -264,19 +264,31 @@ MAPF 与 AGV 模块同样遵循"引擎唯一真相"：结果、指标、核验�
 
 ```
 GitHub Actions: lab.yml + lab-visual-acceptance.yml
-  push（main / arena/**）或 PR（lab/**、*/rust/web/**、*/mock/** …）
-    → 三个 Rust 质量门并行（只跑变更分支；main 与 arena/** 上由 lab.yml 统一触发，
+  push（main / arena/**）或 PR（lab/**、*/rust/web/**、*/mock/** …，且工作流自带 paths 过滤）
+    → changes：对本次推送/PR 做 git diff，判定 aps / mapf / agv / warehouse / lab 谁变了
+    → 只对"变了"的引擎跑 Rust 质量门（main 与 arena/** 由 lab.yml 统一触发，
       其它分支由 *-rust.yml 兜底，避免同一套门跑两遍）
+    → 没变的引擎：本地构建一次产物（wasm + CLI，走 cargo 缓存），不重复跑测试
     → npm ci → sync（自检）→ build（tsc + vite）        # runner 使用 Node 24
     → npm run test:post-build（静态检查 + 全部 Lab 检查 + Pages 仿真）
     → 仅 main / 手动触发：上传 `lab-preview`（14 天）→ 独立 Ubuntu Playwright job
       消费同一份 dist，真实 WebGL + 引擎运行检查，上传视觉 Artifact（30 天）
-    → push 到 main 且质量门通过时：部署到 GitHub Pages
+    → 与配置/产物相关的改动落到 main（或手动 deploy=on）时：部署到 GitHub Pages
 ```
 
 迭代优先：PR 与迭代分支不跑真实浏览器验收（它最贵），需要时手动触发 `lab.yml`；
 所有 job 都有 `timeout-minutes` 上限，避免挂死占用 runner。工作流本身的约定由
 `npm run check:workflows` 断言（Node 24 版 action、触发范围收敛、超时）。
+
+手动触发的输入（`lab.yml`，都在 Actions → Algorithm Lab → Run workflow）：
+
+| 输入 | 取值 | 说明 |
+| --- | --- | --- |
+| `engines` | `auto` / `all` / `none` / 单个引擎名 | 质量门跑哪些；`auto` 用 git diff 检测，也可以只跑一个引擎 |
+| `lab` | `auto` / `on` / `off` | 是否构建并测试 Lab（`auto` = 有相关改动才跑） |
+| `visual` | `auto` / `on` / `off` | 真实 WebGL 验收（`auto` = 仅 main） |
+| `deploy` | `auto` / `on` / `off` | `on` = 本次立刻部署一次 Pages（可只跑部署这一件事） |
+| `engine_tag` | `v1.0.0` | 用某个正式 Release 的引擎产物构建 Lab |
 
 - **子路径**：GitHub Pages 项目站点在 `https://<owner>.github.io/algorithm-delivery/`，
   因此 `vite.config.ts` 的 `base` 默认就是 `/algorithm-delivery/`，页面里所有资源

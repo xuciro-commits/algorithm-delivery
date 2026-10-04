@@ -1,5 +1,12 @@
 name: Algorithm Lab
 
+# 按需触发（改了哪里跑哪里）：
+#   * 推送 / PR：只在本文件 `paths` 覆盖到的目录有改动时才启动；
+#   * 启动后先跑 `changes` 检测改动落在哪个模块，**只对改动过的引擎**执行质量门；
+#     没改动的引擎只做一次本地构建（只为给 Lab 提供 wasm/CLI 产物，不重复跑测试）；
+#   * `workflow_dispatch` 可以单独跑任意一段：只跑某个引擎质量门、只跑 Lab 构建、
+#     只跑视觉验收、或者只做一次 Pages 部署（部署不依赖前面是否跑过质量门，
+#     但要求本次构建产物是可用的）。
 on:
   push:
     branches: [main, "arena/**"]
@@ -9,12 +16,8 @@ on:
       - "mapf/**"
       - "agv/**"
       - "warehouse/**"
-      - ".github/workflows/aps-quality.yml"
-      - ".github/workflows/mapf-quality.yml"
-      - ".github/workflows/agv-quality.yml"
-      - ".github/workflows/warehouse-quality.yml"
-      - ".github/workflows/lab.yml"
-      - ".github/workflows/lab-visual-acceptance.yml"
+      - "Makefile"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "lab/**"
@@ -22,14 +25,50 @@ on:
       - "mapf/**"
       - "agv/**"
       - "warehouse/**"
-      - ".github/workflows/aps-quality.yml"
-      - ".github/workflows/mapf-quality.yml"
-      - ".github/workflows/agv-quality.yml"
-      - ".github/workflows/warehouse-quality.yml"
-      - ".github/workflows/lab.yml"
-      - ".github/workflows/lab-visual-acceptance.yml"
+      - "Makefile"
+      - ".github/workflows/**"
   workflow_dispatch:
     inputs:
+      engines:
+        description: "引擎质量门：auto=按改动检测；all=全部；none=全不跑；也可只跑某一个"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - all
+          - none
+          - aps
+          - mapf
+          - agv
+          - warehouse
+      lab:
+        description: "Lab 构建与集成测试：auto=有相关改动才跑；on=强制跑；off=跳过"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - "on"
+          - "off"
+      visual:
+        description: "真实 WebGL 视觉验收（Playwright，较贵）：auto=仅 main；on=强制；off=跳过"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - "on"
+          - "off"
+      deploy:
+        description: "部署 GitHub Pages：auto=main 上的相关改动自动部署；on=本次立刻部署；off=不部署"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - "on"
+          - "off"
       engine_tag:
         description: "可选：使用正式 Release 的引擎（例如 v1.0.0）；留空则使用当前源码构建"
         required: false
@@ -43,29 +82,135 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: 改动范围检测
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      aps: ${{ steps.detect.outputs.aps }}
+      mapf: ${{ steps.detect.outputs.mapf }}
+      agv: ${{ steps.detect.outputs.agv }}
+      warehouse: ${{ steps.detect.outputs.warehouse }}
+      lab: ${{ steps.detect.outputs.lab }}
+      engines: ${{ steps.detect.outputs.engines }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # 需要历史才能对 push / 手动触发的提交做 diff（浅克隆会退化成"全部改动"）。
+          fetch-depth: 0
+
+      - name: 解析改动的模块
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          MODE: ${{ inputs.engines }}
+        run: |
+          set -euo pipefail
+          out="$GITHUB_OUTPUT"
+          mark() {
+            # mark <输出名> <正则>：命中则 true
+            if printf '%s\n' "$files" | grep -Eq "$2"; then
+              echo "$1=true" >> "$out"
+            else
+              echo "$1=false" >> "$out"
+            fi
+          }
+          set_all() {
+            # set_all <true|false>：四个引擎一起设置（用于"全跑/全不跑"）
+            value="$1"
+            for name in aps mapf agv warehouse; do echo "$name=$value" >> "$out"; done
+          }
+
+          case "${MODE:-auto}" in
+            all)
+              set_all true
+              echo "lab=true" >> "$out"
+              echo "engines=all" >> "$out"
+              ;;
+            none)
+              set_all false
+              echo "lab=false" >> "$out"
+              echo "engines=none" >> "$out"
+              ;;
+            aps|mapf|agv|warehouse)
+              set_all false
+              echo "$MODE=true" >> "$out"
+              echo "lab=false" >> "$out"
+              echo "engines=$MODE" >> "$out"
+              ;;
+            *)
+              # 与 HEAD 比较的基线：PR 用目标分支，push 用推送前的提交，手动触发用上一个提交。
+              # 基线拿不到时（首次推送、全零 SHA、浅历史、fork）退回"全部改动"——
+              # 宁可多跑一点，也不要因为拿不到 diff 就悄悄跳过检查。
+              base=""
+              if [ "$EVENT" = "pull_request" ]; then
+                git fetch --no-tags --quiet origin "$BASE_REF" || true
+                base="origin/$BASE_REF"
+              elif [ "$EVENT" = "push" ]; then
+                base="$BEFORE"
+              else
+                base=$(git rev-parse "$SHA^" 2>/dev/null || true)
+              fi
+              if [ -n "$base" ] && git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
+                files=$(git diff --name-only "$base" "$SHA")
+              else
+                files=$(git ls-files)
+              fi
+              mark aps '^(aps/|\.github/workflows/aps-)'
+              mark mapf '^(mapf/|\.github/workflows/mapf-)'
+              mark agv '^(agv/|\.github/workflows/agv-)'
+              mark warehouse '^(warehouse/|\.github/workflows/warehouse-)'
+              mark lab '^(lab/|Makefile$|README\.md$)'
+              # 编排类工作流（release / lab 本身）一改，四个引擎都要重验：
+              # 它们决定"产物怎么被打包与发布"，改错一次影响面是全仓库。
+              if printf '%s\n' "$files" | grep -Eq '^\.github/workflows/(release|lab)\.yml$'; then
+                set_all true
+                echo "lab=true" >> "$out"
+              fi
+              echo "engines=auto" >> "$out"
+              ;;
+          esac
+          echo "改动范围："
+          tr '\n' ' ' < "$out"
+          echo
+
   aps-quality:
     name: APS 质量门
+    needs: changes
+    if: ${{ needs.changes.outputs.aps == 'true' }}
     uses: ./.github/workflows/aps-quality.yml
 
   mapf-quality:
     name: MAPF 质量门
+    needs: changes
+    if: ${{ needs.changes.outputs.mapf == 'true' }}
     uses: ./.github/workflows/mapf-quality.yml
 
   agv-quality:
     name: AGV 质量门
+    needs: changes
+    if: ${{ needs.changes.outputs.agv == 'true' }}
     uses: ./.github/workflows/agv-quality.yml
 
   warehouse-quality:
     name: 仓储引擎质量门
+    needs: changes
+    if: ${{ needs.changes.outputs.warehouse == 'true' }}
     uses: ./.github/workflows/warehouse-quality.yml
 
   build-lab:
     name: 构建与验证 Lab
-    needs: [aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    needs: [changes, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 质量门被跳过（模块没改）不算失败：只要没有真的失败，Lab 就该继续构建。
+    # 手动触发时 lab=on / deploy=on / visual=on 都能强制构建。
+    if: ${{ !cancelled() && !failure() && (needs.changes.outputs.lab == 'true' || needs.changes.outputs.engines != 'none' || inputs.lab == 'on' || inputs.deploy == 'on' || inputs.visual == 'on') }}
     outputs:
       production_ready: ${{ steps.upload-preview.outcome == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: lab
@@ -74,18 +219,46 @@ jobs:
       LAB_BENCH_SIZES: 240,c48
       LAB_APS_BIN: ../aps/rust/target/release/aps
       MAPF_BIN: ../mapf/rust/target/release/mapf
+      AGV_BIN: ../agv/rust/target/release/agv
       # sync-warehouse.mjs 用原生 CLI 导出能力快照（算法/目标/档位）；缺了会退回 Cargo.toml。
       WAREHOUSE_BIN: ../warehouse/rust/target/release/warehouse
     steps:
       - uses: actions/checkout@v5
 
+      # 只有"没跑质量门"的引擎才需要本地构建：上一步的产物已经由质量门提供。
+      - name: 安装 Rust 1.88 与 wasm32（仅为未跑质量门的引擎准备产物）
+        if: ${{ needs.changes.outputs.aps != 'true' || needs.changes.outputs.mapf != 'true' || needs.changes.outputs.agv != 'true' || needs.changes.outputs.warehouse != 'true' }}
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+          rustup default 1.88.0
+          rustc --version && cargo --version
+
+      - name: 缓存 cargo（未改动引擎的产物构建）
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup
+            aps/rust/target
+            mapf/rust/target
+            agv/rust/target
+            warehouse/rust/target
+          key: ${{ runner.os }}-cargo-lab-${{ hashFiles('aps/rust/Cargo.lock', 'mapf/rust/Cargo.lock', 'agv/rust/Cargo.lock', 'warehouse/rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lab-
+            ${{ runner.os }}-cargo-
+
       - name: 下载 APS 质量门产物
+        if: ${{ needs.changes.outputs.aps == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: aps-engine-artifacts
           path: aps/rust
 
       - name: 整理 APS 质量门产物路径
+        if: ${{ needs.changes.outputs.aps == 'true' }}
         working-directory: .
         run: |
           mkdir -p aps/rust/dist aps/rust/target/release
@@ -96,12 +269,14 @@ jobs:
           chmod +x aps/rust/target/release/aps 2>/dev/null || true
 
       - name: 下载 MAPF 质量门产物
+        if: ${{ needs.changes.outputs.mapf == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: mapf-engine-artifacts
           path: mapf/rust
 
       - name: 整理 MAPF 质量门产物路径
+        if: ${{ needs.changes.outputs.mapf == 'true' }}
         working-directory: .
         run: |
           mkdir -p mapf/rust/dist mapf/rust/target/release
@@ -112,12 +287,14 @@ jobs:
           chmod +x mapf/rust/target/release/mapf 2>/dev/null || true
 
       - name: 下载 AGV 质量门产物
+        if: ${{ needs.changes.outputs.agv == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: agv-engine-artifacts
           path: agv/rust
 
       - name: 整理 AGV 质量门产物路径
+        if: ${{ needs.changes.outputs.agv == 'true' }}
         working-directory: .
         run: |
           mkdir -p agv/rust/dist agv/rust/target/release
@@ -128,12 +305,14 @@ jobs:
           chmod +x agv/rust/target/release/agv 2>/dev/null || true
 
       - name: 下载仓储引擎质量门产物
+        if: ${{ needs.changes.outputs.warehouse == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: warehouse-engine-artifacts
           path: warehouse/rust
 
       - name: 整理仓储引擎产物路径
+        if: ${{ needs.changes.outputs.warehouse == 'true' }}
         working-directory: .
         run: |
           mkdir -p warehouse/rust/dist warehouse/rust/target/release
@@ -142,6 +321,31 @@ jobs:
           fi
           test -s warehouse/rust/dist/warehouse_engine.wasm || { echo "未找到 warehouse_engine.wasm" >&2; ls -laR warehouse/rust; exit 1; }
           chmod +x warehouse/rust/target/release/warehouse 2>/dev/null || true
+
+      # 未被质量门覆盖的引擎：只构建 Lab 需要的产物（wasm + CLI）。
+      # 这里刻意**不跑**测试与验收——那部分是质量门的职责，改动的模块才会跑。
+      - name: 本地构建未跑质量门的引擎（只出产物）
+        working-directory: .
+        if: ${{ needs.changes.outputs.aps != 'true' || needs.changes.outputs.mapf != 'true' || needs.changes.outputs.agv != 'true' || needs.changes.outputs.warehouse != 'true' }}
+        run: |
+          set -euo pipefail
+          build_engine() {
+            name="$1"; dir="$2"; ran="$3"
+            if [ "$ran" = "true" ]; then
+              echo "== $name：质量门已产出产物，跳过本地构建"
+              return 0
+            fi
+            echo "== $name：本地构建（仅产物，未改动模块不重复跑测试）"
+            (cd "$dir" && bash scripts/build_wasm.sh && cargo build --release --locked)
+            test -s "$dir/dist/$(echo "$name" | tr 'A-Z' 'a-z')_engine.wasm" || {
+              echo "✗ $name wasm 产物缺失" >&2; ls -la "$dir/dist" >&2; exit 1;
+            }
+            test -x "$dir/target/release/$name" || { echo "✗ $name CLI 缺失" >&2; exit 1; }
+          }
+          build_engine aps aps/rust "${{ needs.changes.outputs.aps }}"
+          build_engine mapf mapf/rust "${{ needs.changes.outputs.mapf }}"
+          build_engine agv agv/rust "${{ needs.changes.outputs.agv }}"
+          build_engine warehouse warehouse/rust "${{ needs.changes.outputs.warehouse }}"
 
       - name: 准备正式 Release 引擎（手动选择时）
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.engine_tag != '' }}
@@ -241,7 +445,7 @@ jobs:
       # 迭代分支与 PR 不再上传，省 runner 时间与 artifact 存储。
       - name: 上传临时预览产物（保持 14 天）
         id: upload-preview
-        if: ${{ always() && steps.production-build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ always() && steps.production-build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || inputs.visual == 'on') }}
         uses: actions/upload-artifact@v6
         with:
           name: lab-preview
@@ -268,7 +472,9 @@ jobs:
           exit "$status"
 
       - name: 准备 GitHub Pages 部署产物
-        if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+        # 部署对"配置/产物"的依赖：main 上的相关改动自动准备；
+        # 手动 deploy=on 时即使是分支也准备（用于只跑一次部署）。
+        if: ${{ (github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && inputs.deploy != 'off') || (github.event_name == 'workflow_dispatch' && inputs.deploy == 'on') }}
         uses: actions/upload-pages-artifact@v5
         with:
           path: lab/dist
@@ -276,16 +482,17 @@ jobs:
   visual-acceptance:
     name: 三维视觉验收（真实 WebGL）
     needs: build-lab
-    # 真实浏览器验收很贵（Playwright + Chromium 下载）：只在 main 与手动触发时跑。
-    # PR / 迭代分支靠 test:post-build 的静态与集成检查把关；需要时手动触发本工作流。
-    if: ${{ always() && needs.build-lab.outputs.production_ready == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    # 真实浏览器验收很贵（Playwright + Chromium 下载）：默认只在 main 与手动触发时跑。
+    # auto=仅 main；on=强制（PR/分支也能跑）；off=跳过。
+    if: ${{ always() && needs.build-lab.outputs.production_ready == 'true' && (inputs.visual == 'on' || (inputs.visual != 'off' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request')) }}
     uses: ./.github/workflows/lab-visual-acceptance.yml
 
   deploy-pages:
     name: 部署 GitHub Pages
-    # 视觉验收可能被跳过（见上），所以不能用“needs 全部成功”的默认语义：
+    # 视觉验收可能被跳过（见上），所以不能用"needs 全部成功"的默认语义：
     # 只要 build-lab 成功、没被取消，就允许部署。
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.build-lab.result == 'success' }}
+    # 按需部署：main 上相关改动自动跑；手动 deploy=on 时立刻跑（可用于"改完就单独部署一次"）。
+    if: ${{ !cancelled() && needs.build-lab.result == 'success' && (((github.ref == 'refs/heads/main' && github.event_name != 'pull_request')) || (github.event_name == 'workflow_dispatch' && inputs.deploy == 'on')) && inputs.deploy != 'off' }}
     needs: [build-lab, visual-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 10

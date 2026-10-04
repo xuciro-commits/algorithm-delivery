@@ -292,6 +292,18 @@ fn joint_verification_covers_both_halves() {
             && matches!(recomputed.get("asrs"), Some(Json::Obj(_))),
         "recomputed 必须分两段给出：{recomputed:?}"
     );
+    // 调度段的报告来自"求解时同一套独立验证器"，键名是契约里的 `checked`；
+    // 合成联合报告时必须归一成 `recomputed` / `independentMetrics`，
+    // 否则联合信封里会缺一段数字（前端拿到 Null 只能猜，等于没核验）。
+    let metrics = verification
+        .get("independentMetrics")
+        .cloned()
+        .unwrap_or(Json::Null);
+    assert!(
+        matches!(metrics.get("slotting"), Some(Json::Obj(_)))
+            && matches!(metrics.get("asrs"), Some(Json::Obj(_))),
+        "independentMetrics 必须分两段给出：{metrics:?}"
+    );
 }
 
 /// 小工具：把 `(String, Status)` 变成 `(Json, Status)`，避免每处都写解析样板。

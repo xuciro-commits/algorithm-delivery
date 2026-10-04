@@ -40,9 +40,25 @@ export interface WarehouseViolation {
   subjects?: string[];
 }
 
+/**
+ * 独立核验报告（契约 `warehouse-verification/1.0`）。
+ *
+ * 两种形状都在用，且都合法：
+ *   * 求解时报告（`asrs::verification_json`）：`ok` + `violations` + `checked`（验证器复核计数）；
+ *   * 契约/CLI 形状（`verify` 子命令）：再加 `kind` / `recomputed` / `independentMetrics` / `notes`；
+ *   * 联合解：`kind = "joint"`，`recomputed` 与 `independentMetrics` 都按 `{slotting, asrs}` 两段给出
+ *     （调度段的数字来自求解时那份报告，由引擎归一成同一形状）。
+ *
+ * 面板据此把"验证器自己重算的数字"与优化器报告的指标并列展示 —— 缺哪一段就显式缺，
+ * 不补 0、不猜。
+ */
 export interface WarehouseVerification {
   ok: boolean;
+  kind?: string;
   checked?: Record<string, unknown>;
+  recomputed?: Record<string, unknown> | null;
+  independentMetrics?: Record<string, unknown> | null;
+  notes?: string[];
   violations?: WarehouseViolation[];
 }
 

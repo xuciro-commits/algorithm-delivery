@@ -601,6 +601,26 @@ pub fn verification_json(report: &AsrsVerification) -> Json {
                     "unservedTasks",
                     Json::int(report.checked.unserved_tasks as i64),
                 ),
+                // 逐设备忙时：验证器**自己重放时间线**算出来的（不是求解器的利用率口径）。
+                // 有了它，联合核验报告才能给出调度段的 `independentMetrics`
+                // （见 `verify::compose_joint_verification`），前端才能把
+                // "求解器报告的利用率" 与 "验证器重算的忙时" 逐台对照。
+                (
+                    "deviceBusySeconds",
+                    Json::Arr(
+                        report
+                            .checked
+                            .device_busy_seconds
+                            .iter()
+                            .map(|(device_id, seconds)| {
+                                Json::obj(vec![
+                                    ("deviceId", Json::str(device_id.clone())),
+                                    ("busySeconds", Json::Float(round(*seconds, 3))),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                ),
                 ("notes", Json::strings(report.checked.notes.clone())),
             ]),
         ),

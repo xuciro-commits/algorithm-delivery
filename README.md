@@ -161,8 +161,13 @@ npm run test:all
 
 1. 按 [lab/README.md §5](lab/README.md#5-新增一个算法模块) 添加模块，并提交改动。
 2. 发起 Pull Request：GitHub Actions 会构建并执行质量检查，但**不会**把 PR 预览发布到正式站点。
-3. PR 合并到 `main` 后，`lab.yml` 自动构建并部署 GitHub Pages。对 `lab/**`、`aps/**` 或相关工作流的修改都会触发；因此新增 Lab 或更新引擎后会重新发布整个实验室。
-4. 也可以在仓库 **Actions → Algorithm Lab → Run workflow** 手动运行发布工作流（选择 `main` 分支；需要时填写 `engine_tag` 指定正式引擎版本）。
+3. PR 合并到 `main` 后，`lab.yml` 自动构建并部署 GitHub Pages —— 而且**只跑改动到的那一段**：
+   质量门先做一次改动检测，只有改动过的引擎才重跑格式化/Clippy/验收；没改动的引擎只做一次
+   （带缓存的）产物构建，供 Lab 打包使用。因此新增 Lab 或只改一个引擎时，不必再等四个引擎全跑一遍。
+4. 也可以手动按需跑：仓库 **Actions → Algorithm Lab → Run workflow**，用输入项自由组合，例如
+   `engines=warehouse` 只跑仓储质量门、`lab=on` 只构建与测试 Lab、`visual=on` 强制跑真实 WebGL
+   验收、`deploy=on` 只做一次 Pages 部署（可以不跑质量门）；需要时再填 `engine_tag` 指定正式引擎版本。
+   单个引擎的质量门也可以直接在 **Actions → aps-rust / mapf-rust / agv-rust / warehouse-rust → Run workflow** 里独立触发。
 
 构建链路包括 APS Rust/WASM 质量门、Node 依赖安装、引擎与 Mock 同步、版本/哈希/产物自检、前端构建、实验室测试、Pages 子路径 HTTP 仿真，全部成功后才部署。Pull Request 的构建产物是保留 14 天的临时 Artifact；它不是正式 Release，也不会自动部署。
 
@@ -176,10 +181,19 @@ npm run test:all
 
 ## CI 工作流
 
-设计原则是**每个改动只跑一次必要的检查**：main 与 `arena/**` 分支上的引擎质量门由
-`lab.yml` 统一触发（并产出 Lab 需要的 WASM 产物），PR 也走 `lab.yml`；其它分支才由
-`*-rust.yml` 兜底，避免同一套 Rust 质量门被触发两遍。所有 job 都设了 `timeout-minutes`，
-真实浏览器视觉验收只在 main 与手动触发时运行（最贵的一步），action 全部使用支持 Node 24 的版本。
+设计原则是**改了哪里跑哪里、部署按需跑**：
+
+1. **触发收敛**：每个工作流的 `push` / `pull_request` 都带 `paths`，无关改动不会启动。
+2. **模块级分流**：`lab.yml` 先跑一个 `changes` job（对推送/PR 做真实 `git diff`，手动触发时
+   也可用 `engines` 输入直接指定），只有改动过的引擎才跑质量门；没改动的引擎只做一次带缓存的
+   产物构建（wasm + CLI），让 Lab 仍能完整打包——不重复跑测试与验收。
+3. **部署按需**：Pages 部署只在"与配置/产物相关的改动"落到 `main` 时触发（`lab.yml` 本身就带
+   路径过滤），也可以在 **Actions → Algorithm Lab → Run workflow** 里用 `deploy=on` 单独跑一次部署。
+4. **手动可拆**：所有主链路工作流都支持 `workflow_dispatch`，可以只跑一个引擎的质量门、只构建
+   Lab、只跑视觉验收或只做发布；`release.yml` 还支持 `dry_run=yes` 干跑与 `engines=` 只构建单引擎。
+
+所有 job 都设了 `timeout-minutes`，真实浏览器视觉验收只在 main 与手动触发时运行（最贵的一步），
+action 全部使用支持 Node 24 的版本。
 
 - [aps-rust.yml](.github/workflows/aps-rust.yml)、[mapf-rust.yml](.github/workflows/mapf-rust.yml)、[agv-rust.yml](.github/workflows/agv-rust.yml)：**非 main / 非 arena 分支**上的兜底质量门（main 与 PR 已由 lab.yml 覆盖）。
 - [aps-quality.yml](.github/workflows/aps-quality.yml)：格式、Clippy、Rust 测试、S01–S08、契约、WASM 与 Worker 取消回归。
@@ -189,9 +203,9 @@ npm run test:all
 - [agv-quality.yml](.github/workflows/agv-quality.yml)：格式、Clippy、Rust 测试、A01–A16 验收、45 项契约符合性、B01–B03 基准、WASM 与 Worker 取消回归。
 - [warehouse-rust.yml](.github/workflows/warehouse-rust.yml)：仓储引擎代码变更时运行可复用 Rust 质量门。
 - [warehouse-quality.yml](.github/workflows/warehouse-quality.yml)：格式、Clippy、Rust 测试（含端到端集成测试）、86 个标准场景**按族**验收、契约符合性、三维基准冒烟、WASM 构建与 ABI 冒烟。
-- [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 四个引擎质量门 → 构建/测试 Lab（Node 24）→ 部署 Pages。PR 与迭代分支只做构建与检查（不上传预览产物、不跑浏览器验收）；main 与手动触发才跑视觉验收。
+- [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 改动检测（只对改动过的引擎跑质量门）→ 构建/测试 Lab（Node 24）→ 按需部署 Pages。PR 与迭代分支只做构建与检查（不上传预览产物、不跑浏览器验收）；main 与手动触发才跑视觉验收；手动触发可单独跑某一段（`engines` / `lab` / `visual` / `deploy`）。
 - [lab-visual-acceptance.yml](.github/workflows/lab-visual-acceptance.yml)：独立 Ubuntu/Playwright Chromium 视觉验收（仅 main 与手动触发），消费同一次 production build，采集 APS/MAPF/AGV WebGL 截图、console 日志和实际引擎状态（30 天 Artifact，浏览器缓存复用）。
-- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV/Warehouse 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。
+- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV/Warehouse 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。也可手动触发：填 `tag=v1.0.0` 按该标签源码构建、`engines=warehouse` 只构建单个引擎（此时不上传 Release，避免发出不完整产物）、`dry_run=yes` 只验证构建链路。
 
 ### 创建正式 Release
 

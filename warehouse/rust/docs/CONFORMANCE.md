@@ -51,7 +51,7 @@
 | §5 对比矩阵 | `build_comparison()`（随机 / ABC / 联合，同一调度口径） | J01–J08 | `comparison` 三行数字来自真实调度 |
 | §5 Pareto | `build_pareto()`（权重网格 + 真实评估 + 非支配筛选） | J09 | `pareto` 非空且 `paretoNote` 说明采样方式 |
 | §5 可解释 | `explanation.{slotting,dispatch,reasons}` | J01/J09 | 三条必答问题都有非空字符串 |
-| §5 两段各自复核 | `verify.rs::compose_joint_verification`（调度段用求解时的报告 + 库位段选定最优轮后补一次独立核验） | J01–J12 | 信封 `verification.kind == "joint"`、两段都 `ok` 才为真；`tests/engine_pipeline.rs::joint_verification_covers_both_halves` 守这条 |
+| §5 两段各自复核 | `verify.rs::compose_joint_verification`（调度段用求解时的报告 + 库位段选定最优轮后补一次独立核验） | J01–J12 | 信封 `verification.kind == "joint"`、两段都 `ok` 才为真；`recomputed` 与 `independentMetrics` 都按 `{slotting, asrs}` 两段给出（`recomputed_block` / `independent_metrics_block` 把求解时报告的 `checked` 块归一成同一形状），`tests/engine_pipeline.rs::joint_verification_covers_both_halves` 守这条 |
 | §3.5/§10 关联簇 | `search.rs` 输出 `SlottingOutcome::cluster_of_sku` → `engine.rs::slotting_clusters_json` → 信封 `result.clusters{count,bySku,note}`（联合解同样带） | S01–S24/J04 | 三维叠加与解释读同一份引擎聚类（前端不重聚类，避免"面板说 N 簇、画布画另一套"） |
 
 ## 5. 契约 / 可复现 / 状态 / 规模

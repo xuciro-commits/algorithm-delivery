@@ -17,7 +17,7 @@
 | 实验室模块 | `lab/src/modules/{slotting,dense-asrs}/**` | ✅ 代码完成；本轮 `tsc --noEmit` 全仓通过、场景投影单测 `npm run test:warehouse:scenes` 20 项通过（都在本沙箱真跑过）；⏳ 未跑 `npm run build` / `test:render`（需要先 `npm run sync` 生成 vendor 产物） |
 | 代码格式与语法 | `cargo fmt`（rustfmt 1.8.0 / Rust 1.88） | ✅ 全量格式化并 `cargo fmt --check` 干净；格式化器逐文件解析通过 = 无语法错误 |
 | 静态检查（clippy） | `cargo clippy --all-targets -- -D warnings` | ⏳ 需要编译，本沙箱未跑（见 §3） |
-| CI 质量门 | `.github/workflows/warehouse-quality.yml` + `warehouse-rust.yml`（已接入 `lab.yml` / `release.yml`） | ⏳ 未在本沙箱触发（需推到 GitHub 才跑） |
+| CI 质量门 | `.github/workflows/warehouse-quality.yml` + `warehouse-rust.yml`（已接入 `lab.yml` / `release.yml`，且只对改动过的引擎触发） | ⏳ 未在本沙箱触发（需推到 GitHub 才跑） |
 
 ## 2. 本沙箱内**已获得**的结论（可复现的原始命令）
 
@@ -129,7 +129,9 @@ cd warehouse/rust && cargo build --release        # 约 70–90 s（2 vCPU 沙�
    本轮全量格式化后 `--check` 干净（约 28 个文件被重排，纯格式变更）。
 10. **联合核验覆盖两段**（`verify.rs::compose_joint_verification`）：信封里的 `verification` 不再是
     "只有调度段"，而是库位段（选定最优轮后补一次独立核验）+ 调度段（求解时已核验）合成；
-    任一段落空都不算通过，没有时间线时在 `notes` 里明说"调度段未核验"。
+    两段的**重算块与独立指标块都按 `{slotting, asrs}` 给出**（求解时报告的 `checked` 块由
+    `recomputed_block` / `independent_metrics_block` 归一到契约形状，含逐设备忙时与
+    `busyShare`），任一段落空都不算通过，没有时间线时在 `notes` 里明说"调度段未核验"。
     `rounds[].verified` 的语义收窄为"该轮调度段是否通过核验"，且关掉核验时如实为 `false`（此前是 `!verify`，即"没验也算过"）。
 11. **前端两个新图层的投影层单测**：`lab/scripts/test-warehouse-scenes.mjs`（新增 `npm run test:warehouse:scenes`，
     已并入 `test:post-build`）= 20 项断言，覆盖落位来源、关联簇过滤/配色/透传、倒垛成对配对与显示上限、
@@ -163,3 +165,39 @@ cd warehouse/rust && cargo build --release        # 约 70–90 s（2 vCPU 沙�
    （`cargo test` 会编译文档示例，不修会直接挂）。
 7. **CI**：新增 `warehouse-quality.yml` / `warehouse-rust.yml`，并接入 `lab.yml`
    （构建 Lab 前先过仓储质量门）与 `release.yml`（发布 Warehouse CLI 与 WASM）。
+
+## 6c. CI 首跑之后的修复（本轮）
+
+CI 首跑 `cargo test --release --locked`：8/9 通过，`joint_verification_covers_both_halves`
+在 `tests/engine_pipeline.rs:290` 失败（`recomputed.asrs = null`）。本轮按这条失败做了两件事。
+
+### 1) 联合核验报告的键名归一（真 bug，已修）
+
+* **根因**：调度段的核验在**求解时**就完成了，报告形状是契约 `warehouse-verification/1.0`
+  的 `{ok, violations, checked}`；库位段是选定最优轮后补跑的，形状是
+  `{kind, ok, violations, recomputed, independentMetrics, notes}`。
+  `compose_joint_verification` 只用 `recomputed` 取值，于是调度段那一半静默变成 `null`——
+  信封仍然写着 `ok = true`，前端与验收看到的却是"只有库位段有数字"。
+* **修复**（`src/verify.rs`）：新增两个归一函数，只改键名、不重算、不造数——
+  * `recomputed_block`：优先 `recomputed`，退到求解时报告的 `checked`；
+  * `independent_metrics_block`：优先 `independentMetrics`，否则把 `checked.deviceBusySeconds`
+    换算成同样的 `{deviceBusySeconds, busyShare}` 形状（`busyShare` 的分母是**验证器重放的**
+    时间线长度，不是求解器的 makespan）。
+  两段都取不到时仍返回 `null`——缺失要显式暴露，不许拿空对象糊过去。
+* **顺带补齐数据源**（`src/asrs/mod.rs::verification_json`）：求解时报告的 `checked` 里增加
+  `deviceBusySeconds`（逐设备忙时，由验证器自己重放时间线算出），这样联合报告的调度段
+  也能给出 `independentMetrics`，与库位段口径一致。
+* **测试加强**（`tests/engine_pipeline.rs`）：除 `recomputed.{slotting, asrs}` 外，再断言
+  `independentMetrics.{slotting, asrs}` 都是对象——防止将来有人把归一逻辑删掉。
+
+### 2) CI 改成"改了哪里跑哪里、部署按需、可手动拆开跑"
+
+| 工作流 | 本轮改动 |
+| --- | --- |
+| `lab.yml` | 新增 `changes` job：对推送/PR 做 `git diff` 判定 `aps / mapf / agv / warehouse / lab` 谁变了，**只对改动过的引擎跑质量门**；没改动的引擎只做一次带缓存的产物构建（wasm + CLI），Lab 仍能完整打包。`workflow_dispatch` 新增 `engines` / `lab` / `visual` / `deploy` 输入，可以只跑任意一段（例如只做一次 Pages 部署） |
+| `release.yml` | 新增 `workflow_dispatch`：`tag`（按该标签源码构建）、`engines`（只构建单个引擎，此时**不**发布 Release，避免发出不完整产物）、`dry_run`（只验证构建链路）；所有构建 job 的 `checkout` 改为按 `RELEASE_REF` 取标签 |
+| `*-rust.yml`（aps/mapf/agv/warehouse） | 保留"其它分支兜底"的路径过滤，并在注释里写明可手动独立触发单个引擎的质量门 |
+
+> 触发总原则：每个工作流的 `push` / `pull_request` 都带 `paths`；job 之间用 `changes` 的
+> 输出做**模块级分流**；部署只在与配置/产物相关的改动落到 `main`（或手动 `deploy=on`）时执行。
+> 工作流自身的约定仍由 `lab/scripts/check-workflows.mjs` 断言（本轮已在沙箱内实跑通过）。
