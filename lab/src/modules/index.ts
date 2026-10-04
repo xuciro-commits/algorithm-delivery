@@ -11,25 +11,15 @@ import { apsModule } from './aps';
 import { mapfModule } from './mapf';
 import { agvModule } from './agv';
 import { artLabModule } from './art-lab';
+import { slottingModule } from './slotting';
+import { denseAsrsModule } from './dense-asrs';
 
-const planned: AlgorithmModule[] = [
-  {
-    id: 'slotting',
-    name: '库位优化',
-    tagline: '按周转率与相关性分配库位',
-    category: '仓储优化',
-    status: 'planned',
-    plannedNote: '待接入：库位/商品/相关性模型，可视化用热力图。',
-  },
-  {
-    id: 'dense-asrs',
-    name: '密集立库',
-    tagline: '密集存储的巷道与提升机调度',
-    category: '仓储优化',
-    status: 'planned',
-    plannedNote: '待接入：货架/提升机/穿梭车模型，可视化用巷道剖面图。',
-  },
-];
+/**
+ * 仓储优化两个模块同属一个 Rust 引擎（`warehouse-engine`）：
+ *   slotting（库位优化）+ dense-asrs（密集立库调度）都能吃 `kind=joint` 的联合实例，
+ *   联合优化的闭环证据因此同时出现在两块画布上。
+ */
+const warehouse: AlgorithmModule[] = [slottingModule, denseAsrsModule];
 
 let installed = false;
 
@@ -41,5 +31,5 @@ export function installModules(): void {
   registerModule(mapfModule);
   registerModule(agvModule);
   registerModule(artLabModule);
-  for (const m of planned) registerModule(m);
+  for (const m of warehouse) registerModule(m);
 }

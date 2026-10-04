@@ -246,6 +246,10 @@ function PanelHost({
   if (module.id === 'aps') return <Panel {...apsProps} />;
   if (module.id === 'path-planning') return <Panel {...mapfProps} />;
   if (module.id === 'agv-dispatch') return <Panel {...agvProps} />;
+  // 仓储优化的两个模块自带引擎生命周期（各自的 useWarehouseEngine），
+  // 因此这里显式分支、不注入任何 props —— 避免"看起来共享、实际两套句柄"的混乱。
+  if (module.id === 'slotting') return <Panel />;
+  if (module.id === 'dense-asrs') return <Panel />;
   // 三维实验室复用三个引擎的句柄：几何来自上传模型，算法结果来自真实 WASM 引擎。
   if (module.id === 'art-lab') {
     const artProps: ArtLabEngineProps = {

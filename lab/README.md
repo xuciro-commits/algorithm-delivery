@@ -1,22 +1,48 @@
 # 算法实验室（Algorithm Lab）
 
 > Algorithm Delivery 项目的**统一算法实验 / 可视化 / 性能评测入口**。
-> 所有算法（APS 排程、MAPF 路径规划、AGV 调度，以及后续的库位优化、密集立库）都进这一个站点，
-> **不为单个算法单独建演示网站**。
+> 所有算法（APS 排程、MAPF 路径规划、AGV 调度、库位优化、密集立库，以及库位×调度的联合优化）
+> 都进这一个站点，**不为单个算法单独建演示网站**。
 >
 > 计算全部在浏览器内通过 WebAssembly 完成：不需要安装软件，也不依赖任何常驻服务端。
 > 展示层是一套**工业科技美术语言**（C4D / Octane 视觉参考、Three.js / R3F 实时渲染），
 > 三个实验室、三种视觉模式共用同一份几何与同一份真实算法数据。
 
-当前四个可运行模块 + 两个待接入模块：
+当前六个可运行模块（没有待接入模块）：
 
 | 模块 | 路由 | 说明 |
 | --- | --- | --- |
 | APS 生产排程 | `#aps` | 甘特 / 资源 / 核验 / 多次运行对比，求解在 Worker + WASM 内完成 |
 | MAPF 路径规划 | `#path-planning` | 地图优先编辑器 + 时空回放 + 动态事件 + 运行对比 |
 | AGV 多车调度 | `#agv-dispatch` | 地图编辑 + 任务相位回放 + 工作站容量 + 动态重调度汇总 |
+| 库位优化 | `#slotting` | 货架/库位/周转热力 3D 沙盘 + 落位与搬迁图层 + **关联簇叠加** + 多目标分解 + 基线对比；**也吃 joint 实例** |
+| 密集立库 | `#dense-asrs` | 巷道/提升机/穿梭车 3D + 真实设备时间线回放 + **倒垛/深位让位图层** + 冲突/缓冲 + 动态事件 |
 | 三维实验室 | `#art-lab` | 英雄设备 / 透明厂房 / 算法观察三个实验室（模式 A/B/C） |
-| 库位优化、密集立库 | — | `status: 'planned'`，只在首页显示路线图，**不渲染假数据** |
+
+仓储优化的两个模块共用同一个 Rust 引擎（`warehouse-engine` → WASM），都支持 `kind=joint` 的
+**联合优化**实例：库位侧给出"为什么放这儿"，调度侧用真实推演回答"这么放能省多少"，
+两段结论各自通过独立验证器复核后才允许出现在界面上。
+
+两个模块的公共约定（都来自引擎，不在前端硬编码）：
+
+* **场景选择**：场景下拉框按族列出引擎的 86 个标准场景（`S/D/E/J/X`），选中后自动跟随该场景的默认规模；
+  规模档位来自 `capabilities`（浏览器侧是 wasm-light 档：60k SKU / 300k 库位 / 20k 任务，超档如实返回
+  `UNSUPPORTED`，不静默缩小问题）；也可以导入/粘贴任意契约问题 JSON。
+* **参数开关**：算法（`capabilities.domains[*].algorithms`）、种子、时间预算、**双指令配对**
+  （`dualCommand`）、**是否产出时间线**（`includeTimeline`）、**求解时内嵌核验**（`verify`）。
+  引擎只实现 `reservation` 冲突策略；面板不会给出"看起来能选、其实没用"的旋钮。
+* **三条必答问题**：库位侧读 `result.explanation[]`（topic/text/evidence），调度/联合侧读
+  `result.explanation.{slotting,dispatch,reasons}`——文案里的数字都由引擎按本次推演指标生成。
+* **改善幅度**：同实例换策略/指令模式再跑一次，用运行历史里的逐指标差异表（更好/更差方向）说话；
+  跨规模不可比时运行对比会明确标出。
+* **图层的数据来源写在代码注释里，也写在图例里**：库位侧的「关联簇叠加」读 `result.clusters.bySku`
+  （引擎按订单共出库权重聚类，同簇同色；**前端不做二次聚类**，否则面板里的"N 个簇"会和画布打架）；
+  「落位/搬迁」读 `result.assignment`（联合实例读 `result.slottingAssignment`，两者都是同一份库位求解器的输出）；
+  密集立库的「倒垛/深位让位」读时间线 `locationStates` 里成对出现的两条状态迁移
+  （让空 + 落位），按事件时刻在时间轴上累积出现。某一层没有数据时**不画占位几何**，文案如实写"这次没有"。
+* **字段名以引擎输出为准**：任务轨迹里的设备/步骤 id 数组键名是 `devices`/`steps`，`deadline_s` 序列化成字符串，
+  步骤的距离键名是 `distanceM`、推迟键名是 `delayedBy_s`、资源键名是 `resourceId`——
+  类型定义与读取端都按引擎写，不按前端习惯改名（旧键名只作为兼容读取保留）。
 
 ```
 lab/
@@ -27,7 +53,8 @@ lab/
 │   │   ├── registry.ts         模块注册表（重复 id 直接报错）
 │   │   ├── aps/                APS 专属逻辑：参数模型、运行记录、可视化转换、引擎适配、React 钩子
 │   │   ├── mapf/               MAPF 引擎适配与类型（求解结果、动态块、运行记录）
-│   │   └── agv/                AGV 引擎适配与类型（车辆时间线、任务相位、核销汇总）
+│   │   ├── agv/                AGV 引擎适配与类型（车辆时间线、任务相位、核销汇总）
+│   │   └── warehouse/          仓储引擎适配与类型（信封/时间线/场景/能力，Worker 生命周期）
 │   ├── art/                    工业科技美术语言：令牌、材质预设、三种视觉模式、透明策略、装配层
 │   │   ├── tokens.ts           颜色与语义令牌（石墨 / 冰蓝 / 青 / 银白 / 琥珀）
 │   │   ├── materials.ts        MeshPhysicalMaterial / MeshStandardMaterial 预设（按角色选材质）
@@ -47,6 +74,8 @@ lab/
 │   │   └── gantt/              甘特图（含独立 README）
 │   ├── modules/                各算法模块（自带的引擎适配 + 可视化）
 │   │   ├── aps/ mapf/ agv/     三个算法模块（面板 + 3D/2D 装配 + 运行历史）
+│   │   ├── slotting/ dense-asrs/     仓储优化两个模块（面板 + 3D 沙盘 + 回放 + 运行历史）
+│   │   └── warehouse-shared/         两个仓储模块共用的几何/回放/指标/核验组件
 │   │   ├── art-lab/            三维实验室面板（HeroBench3D / FactorySandbox3D / playback / layout）
 │   │   └── index.ts            注册表装配（含 planned 路线图条目）
 │   └── vendor/                 **自动生成**（勿手改）：aps / mapf / agv 的 worker 副本
@@ -133,8 +162,8 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | 命令 | 作用 |
 | --- | --- |
 | `npm run dev` / `npm run preview` | 开发服务器 / 预览构建产物（都会先自动 `sync`） |
-| `npm run sync` | 把 APS/MAPF/AGV 三引擎的 wasm、Worker 胶水与 Mock 同步进实验室，生成各自的 `*-manifest.json` |
-| `npm run sync:aps` / `npm run sync:mapf` / `npm run sync:agv` | 只同步其中一个引擎 |
+| `npm run sync` | 把 APS/MAPF/AGV + 仓储（Warehouse）引擎的 wasm、Worker 胶水与 Mock 同步进实验室，生成各自的 `*-manifest.json` 与能力快照 |
+| `npm run sync:aps` / `npm run sync:mapf` / `npm run sync:agv` / `npm run sync:warehouse` | 只同步其中一个引擎 |
 | `npm run sync:assets` | 把 `design/assets` 里入选的 43 件上传模型同步到 `public/models` 并生成 `art-manifest.json` |
 | `npm run build` | 类型检查（tsc `--noEmit`）+ 打包（vite） |
 | `npm run typecheck` | 只做类型检查（需要 `npm i` 后的 typescript） |
@@ -157,7 +186,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run test:imports` | 不依赖 Rust/WASM：内置数据回退、PlanProblem 导入与标准 JSSP/FJSP 格式适配 |
 | `npm run test:core` | 核心冒烟：加载真实 WASM 求解，并断言实验室纯逻辑（30+ 项） |
 | `npm run test:runner` | 运行器生命周期：取消（终止 Worker）→ 自动重建 → 再求解；`dispose()` |
-| `npm run test:render` | 渲染冒烟：外壳/参数区/MAPF Visual Lab 与 AGV 面板骨架/待接入模块/空态（SSR，无需浏览器） |
+| `npm run test:render` | 渲染冒烟：外壳/参数区/MAPF Visual Lab 与 AGV/库位/立库面板骨架/空态（SSR，无需浏览器） |
 | `npm run test:grid` | 网格视口：2D 适配 / 缩放上下限 / 格↔像素互逆 / LOD 档位（含“极小地图不得被放大成巨框”的回归） |
 | `npm run test:mapf:scene` | MAPF 场景内核：命令撤销栈、预检逐错误码、序列化白名单、14 mock roundtrip、动态块构造与预检拦截 |
 | `npm run test:mapf:playback` | MAPF 回放时钟：seek/暂停/限速不变式（曾抓出 dt 毫秒未除 1000 的真 bug） |
@@ -165,6 +194,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | `npm run test:agv` | AGV Lab：场景内核 + 14 mock roundtrip + **真实 WASM 集成**（求解断言、独立核验、确定性、篡改必拒） |
 | `npm run test:agv:dynamic` | AGV 动态重调度：快照构造、事件块、重解后的汇总与指标对比 |
 | `npm run test:aps:line` | APS 产线装配：问题 → 设备/工位映射 → 三维舞台数据（不渲染） |
+| `npm run test:warehouse:scenes` | 仓储两个模块的场景投影（纯 Node + esbuild，不需要 Rust/WASM）：落位来源（`assignment` / `slottingAssignment`）、**关联簇叠加**（只画 ≥0 的簇、同簇同色、引擎没给就不画）、**倒垛/深位让位图层**（成对的"让空 + 落位"才算一次，入库状态迁移不算、缺落位格留 null、显示上限 400 但总数如实）、任务轨迹的设备取自 `tasks[].devices` |
 | `npm run test:dist` | 构建产物校验：子路径资源引用、清单 sha256 与产物一致、体积 |
 | `npm run test:pages` | **Pages 子路径仿真**：把 dist 挂到 `/algorithm-delivery/` 下用真实 HTTP 跑一遍 |
 | `npm run test:visual` | Playwright Chromium 检查真实 production WebGL 场景、HDRI、非黑屏、相机交互和真实引擎结果；需已构建的 dist 与 `npx playwright install --with-deps chromium`，产出九张图及 JSON/HTML/console Artifact |
@@ -180,7 +210,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | --- | --- | --- |
 | WASM 产物 | `aps/rust/dist/aps_engine.wasm`（`scripts/build_wasm.sh` 构建，或 CI 从正式 Release 下载） | `public/wasm/aps_engine.wasm` |
 | JS 胶水 | `aps/rust/web/aps-worker.js`（MAPF / AGV 同构） | `public/wasm/*-worker.js` + `src/vendor/*` |
-| Mock 场景 | `aps/mock/*.json`、`mapf/mock/*`、`agv/mock/*` | `public/mock/` 等 |
+| Mock 场景 | `aps/mock/*.json`、`mapf/mock/*`、`agv/mock/*`、`warehouse/mock/*` | `public/mock/`（四个领域**共用**） |
 | 规模/竞争型基准 | `aps benchmark` CLI 现场生成（`LAB_BENCH_SIZES=240,c48,c96`） | `public/mock/bench-*.json` |
 | 引擎版本/摘要 | 构建 CLI 的 `capabilities` 与产物自身 | `public/*-manifest.json` |
 
@@ -193,6 +223,12 @@ baseline 能解出 24 道工序、分析类导出可用。任何一项不满足�
 
 `public/wasm/`、`public/mock/`、`public/models/`、`src/vendor/`、`*-manifest.json` 都在 `.gitignore` 里，
 因为它们是生成物；真正的来源只有一份：`*/rust`、`*/mock` 与 `design/assets`。
+
+`public/mock/` 是**四个领域共用**的目录，文件名里看不出来自哪个域（仓储的 `asrs-*.json` 与 AGV 的 `a*`
+前缀就撞过：`test-agv-problem.mjs` 曾按 `/^[aw]/` 挑 AGV mock，把 AS/RS 文档一起扫了进来，直接把
+`npm run test:post-build` 跑挂）。因此**判断一份 mock 属于哪个领域一律按内容**
+（`schema_version` / 字段形状），不要按文件名前缀；确需按名字收敛时，务必同时加一条"反向护栏"，
+保证该命名空间下的文件都被选中过。
 
 ## 5. 在实验室里做什么（APS 模块）
 
@@ -235,19 +271,43 @@ MAPF 与 AGV 模块同样遵循"引擎唯一真相"：结果、指标、核验�
 
 ```
 GitHub Actions: lab.yml + lab-visual-acceptance.yml
-  push（main / arena/**）或 PR（lab/**、*/rust/web/**、*/mock/** …）
-    → 三个 Rust 质量门并行（只跑变更分支；main 与 arena/** 上由 lab.yml 统一触发，
+  push（main / arena/**）或 PR（lab/**、*/rust/web/**、*/mock/** …，且工作流自带 paths 过滤）
+    → changes：对本次推送/PR 做 git diff，判定 aps / mapf / agv / warehouse / lab 谁变了
+    → 只对"变了"的引擎跑 Rust 质量门（main 与 arena/** 由 lab.yml 统一触发，
       其它分支由 *-rust.yml 兜底，避免同一套门跑两遍）
+    → 没变的引擎：本地构建一次产物（wasm + CLI，走 cargo 缓存），不重复跑测试
     → npm ci → sync（自检）→ build（tsc + vite）        # runner 使用 Node 24
     → npm run test:post-build（静态检查 + 全部 Lab 检查 + Pages 仿真）
     → 仅 main / 手动触发：上传 `lab-preview`（14 天）→ 独立 Ubuntu Playwright job
       消费同一份 dist，真实 WebGL + 引擎运行检查，上传视觉 Artifact（30 天）
-    → push 到 main 且质量门通过时：部署到 GitHub Pages
+    → 与配置/产物相关的改动落到 main（或手动 deploy=on）时：部署到 GitHub Pages
 ```
 
 迭代优先：PR 与迭代分支不跑真实浏览器验收（它最贵），需要时手动触发 `lab.yml`；
-所有 job 都有 `timeout-minutes` 上限，避免挂死占用 runner。工作流本身的约定由
+所有 job 都有 `timeout-minutes` 上限（引擎质量门 20 分钟），避免挂死占用 runner。工作流本身的约定由
 `npm run check:workflows` 断言（Node 24 版 action、触发范围收敛、超时）。
+
+**CI 只验通过性，负荷与真实视觉验收在本机跑。** GitHub 托管 runner 约 4 vCPU / 8 GB，
+所以 CI 里只做：编译 / 格式 / clippy / 单元与集成测试 / 契约符合性 / WASM ABI 冒烟 / Lab 打包与
+纯 Node 检查（`npm run test:post-build`）。下面这些属于重活，请在本机执行（命令与逐项检查清单见
+根 [README「本地重型验证」](../README.md#本地重型验证ci-不跑请在本机跑)）：
+
+| 重活 | 命令 | CI 里的替代（轻） |
+| --- | --- | --- |
+| 仓储 86 场景按族验收 + 全量基准 | `bash warehouse/rust/scripts/verify_heavy.sh [--with-bench]` | 不跑（负荷验证） |
+| 真实浏览器视觉验收（Playwright） | `cd lab && npx playwright install --with-deps chromium && npm run test:visual` | 仅 `main` / 手动触发时跑，且只覆盖 APS/MAPF/AGV |
+| 新增两个仓储模块的视觉确认 | 浏览器打开 `#slotting` / `#dense-asrs` / `#art-lab` 按清单核对 | 不跑（见根 README 的检查清单） |
+| Lab 全量前端检查 | `cd lab && npm run test:all`（= build + test:post-build） | 同一份 `test:post-build` 会在 CI 跑 |
+
+手动触发的输入（`lab.yml`，都在 Actions → Algorithm Lab → Run workflow）：
+
+| 输入 | 取值 | 说明 |
+| --- | --- | --- |
+| `engines` | `auto` / `all` / `none` / 单个引擎名 | 质量门跑哪些；`auto` 用 git diff 检测，也可以只跑一个引擎 |
+| `lab` | `auto` / `on` / `off` | 是否构建并测试 Lab（`auto` = 有相关改动才跑） |
+| `visual` | `auto` / `on` / `off` | 真实 WebGL 验收（`auto` = 仅 main） |
+| `deploy` | `auto` / `on` / `off` | `on` = 本次立刻部署一次 Pages（可只跑部署这一件事） |
+| `engine_tag` | `v1.0.0` | 用某个正式 Release 的引擎产物构建 Lab |
 
 - **子路径**：GitHub Pages 项目站点在 `https://<owner>.github.io/algorithm-delivery/`，
   因此 `vite.config.ts` 的 `base` 默认就是 `/algorithm-delivery/`，页面里所有资源

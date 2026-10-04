@@ -19,10 +19,11 @@ export LAB_BENCH_SIZES="${LAB_BENCH_SIZES:-240,c48,c96}"
 
 log() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 
-log "1/6 构建 WASM 引擎（唯一来源：aps/rust、mapf/rust 与 agv/rust）"
+log "1/6 构建 WASM 引擎（唯一来源：aps/rust、mapf/rust、agv/rust 与 warehouse/rust）"
 (cd "$repo_root/aps/rust" && bash scripts/build_wasm.sh)
 (cd "$repo_root/mapf/rust" && bash scripts/build_wasm.sh)
 (cd "$repo_root/agv/rust" && bash scripts/build_wasm.sh)
+(cd "$repo_root/warehouse/rust" && bash scripts/build_wasm.sh)
 
 log "2/6 构建 CLI（生成基准数据用）"
 (cd "$repo_root/aps/rust" && cargo build --release --locked)
@@ -49,6 +50,13 @@ if [ ! -x "$mapf_cli" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET
 fi
 export MAPF_BIN="${MAPF_BIN:-$mapf_cli}"
 [ -x "$MAPF_BIN" ] || { echo "✗ 找不到 mapf CLI：$MAPF_BIN"; exit 1; }
+(cd "$repo_root/warehouse/rust" && cargo build --release --locked)
+warehouse_cli="$repo_root/warehouse/rust/target/release/warehouse"
+if [ ! -x "$warehouse_cli" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && [ -x "$CARGO_TARGET_DIR/release/warehouse" ]; then
+  warehouse_cli="$CARGO_TARGET_DIR/release/warehouse"
+fi
+export WAREHOUSE_BIN="${WAREHOUSE_BIN:-$warehouse_cli}"
+[ -x "$WAREHOUSE_BIN" ] || { echo "✗ 找不到 warehouse CLI：$WAREHOUSE_BIN"; exit 1; }
 
 log "3/6 安装锁定的实验室依赖"
 (cd "$lab_dir" && npm ci --no-audit --no-fund)

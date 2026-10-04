@@ -111,7 +111,9 @@ check('useFrame 回调内不 new 向量/颜色/材质', frameAlloc.length === 0,
 const stages = [...text.entries()].filter(([f, t]) => /<SandboxScene/.test(t));
 const withoutActive = stages.filter(([, t]) => {
   const uses = t.match(/<SandboxScene[\s\S]{0,400}?>/g) ?? [];
-  return uses.some((u) => !/active=/.test(u));
+  // 两种写法都算显式：`active={playing}` 与 JSX 简写 `active`（= `active={true}`）。
+  // 简写同样是作者主动写下的（不是组件默认值），此前只认 `active=` 会漏判。
+  return uses.some((u) => !/\bactive\b/.test(u));
 });
 check('每处 SandboxScene 都显式传 active', withoutActive.length === 0, withoutActive.map(([f]) => f).join(','));
 check('存在 3D 沙盘装配（MAPF/AGV/APS）', stages.length >= 3, `${stages.length} 处`);

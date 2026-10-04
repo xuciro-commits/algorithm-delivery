@@ -1,0 +1,95 @@
+{
+  "$id": "warehouse-verification/1.0",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "checked": {
+      "type": "object"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "violations": {
+      "items": {
+        "properties": {
+          "actual": {},
+          "at_s": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "class": {
+            "enum": [
+              "hard",
+              "soft"
+            ],
+            "type": "string"
+          },
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "deviceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected": {},
+          "locationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "type": "string"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "class",
+          "severity",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "ok",
+    "violations"
+  ],
+  "title": "独立核验报告",
+  "type": "object"
+}

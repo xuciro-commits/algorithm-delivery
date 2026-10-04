@@ -4,26 +4,120 @@ on:
   push:
     tags:
       - "v*"
+  # 手动发布：用于"标签已存在、只想重跑一次构建/发布"或先干跑验证。
+  #   * tag：必填，v* 形式（工作流按该标签的源码构建，而不是当前分支）；
+  #   * engines：只构建部分引擎时用（此时只做构建与产物上传，不创建 Release）；
+  #   * dry_run=yes：只构建、不发布。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的标签（必须已存在，例如 v1.0.0）"
+        required: true
+        type: string
+      engines:
+        description: "构建范围：all=全部（可发布）；也可只构建某一个引擎（只上传产物）"
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - aps
+          - mapf
+          - agv
+          - warehouse
+      dry_run:
+        description: "干跑：只构建与打包，不创建 Release"
+        required: false
+        type: choice
+        default: "no"
+        options:
+          - "no"
+          - "yes"
 
 permissions:
   contents: read
 
+env:
+  # 手动触发时按输入的标签构建；标签推送时就是当前 ref。
+  RELEASE_REF: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+  RELEASE_VERSION: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
+
 jobs:
+  plan:
+    name: 发布范围与标签校验
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      aps: ${{ steps.plan.outputs.aps }}
+      mapf: ${{ steps.plan.outputs.mapf }}
+      agv: ${{ steps.plan.outputs.agv }}
+      warehouse: ${{ steps.plan.outputs.warehouse }}
+      full: ${{ steps.plan.outputs.full }}
+    env:
+      MODE: ${{ inputs.engines }}
+    steps:
+      - name: 校验标签并规划构建范围
+        id: plan
+        run: |
+          set -euo pipefail
+          out="$GITHUB_OUTPUT"
+          case "$RELEASE_REF" in
+            refs/tags/v*) ;;
+            *) echo "发布必须基于 v* 标签（当前 RELEASE_REF=$RELEASE_REF）" >&2; exit 1 ;;
+          esac
+          mode="${MODE:-all}"
+          set_engine() { echo "$1=$2" >> "$out"; }
+          case "$mode" in
+            all)
+              set_engine aps true; set_engine mapf true; set_engine agv true; set_engine warehouse true
+              set_engine full true
+              ;;
+            aps|mapf|agv|warehouse)
+              for name in aps mapf agv warehouse; do
+                if [ "$name" = "$mode" ]; then set_engine "$name" true; else set_engine "$name" false; fi
+              done
+              # 只构建部分引擎时不上传 Release：产物不完整，宁可不发。
+              set_engine full false
+              ;;
+            *)
+              echo "engines 取值非法：$mode（支持 all / aps / mapf / agv / warehouse）" >&2
+              exit 1
+              ;;
+          esac
+          echo "发布版本：$RELEASE_VERSION（$RELEASE_REF），构建范围：$mode"
+          cat "$out"
+
   aps-quality:
     name: APS 质量门
+    needs: plan
+    if: ${{ needs.plan.outputs.aps == 'true' }}
     uses: ./.github/workflows/aps-quality.yml
 
   mapf-quality:
     name: MAPF 质量门
+    needs: plan
+    if: ${{ needs.plan.outputs.mapf == 'true' }}
     uses: ./.github/workflows/mapf-quality.yml
 
   agv-quality:
     name: AGV 质量门
+    needs: plan
+    if: ${{ needs.plan.outputs.agv == 'true' }}
     uses: ./.github/workflows/agv-quality.yml
+
+  warehouse-quality:
+    name: 仓储引擎质量门
+    needs: plan
+    if: ${{ needs.plan.outputs.warehouse == 'true' }}
+    uses: ./.github/workflows/warehouse-quality.yml
 
   build-cli:
     name: Native CLI · ${{ matrix.asset }}
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.aps == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +136,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: 安装 ARM64 Linux 交叉链接器
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -82,11 +178,17 @@ jobs:
 
   build-wasm:
     name: WebAssembly
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.aps == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -113,7 +215,11 @@ jobs:
 
   build-mapf-cli:
     name: MAPF Native CLI · ${{ matrix.asset }}
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.mapf == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -128,6 +234,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: 安装 ARM64 Linux 交叉链接器
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -168,11 +276,17 @@ jobs:
 
   build-mapf-wasm:
     name: MAPF WebAssembly
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.mapf == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -199,7 +313,11 @@ jobs:
 
   build-agv-cli:
     name: AGV Native CLI · ${{ matrix.asset }}
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.agv == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +332,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: 安装 ARM64 Linux 交叉链接器
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -253,11 +373,17 @@ jobs:
 
   build-agv-wasm:
     name: AGV WebAssembly
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.agv == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: 安装 Rust 1.88 与 wasm32 目标
         run: |
@@ -282,9 +408,114 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-warehouse-cli:
+    name: Warehouse Native CLI · ${{ matrix.asset }}
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.warehouse == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: linux-x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset: linux-aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: 安装 ARM64 Linux 交叉链接器
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: 安装 Rust 1.88 与目标平台
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustup target add "${{ matrix.target }}" --toolchain 1.88.0
+          rustc --version && cargo --version
+
+      - name: 构建 CLI
+        working-directory: warehouse/rust
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --locked --release --target "${{ matrix.target }}" --bin warehouse
+
+      - name: 打包
+        working-directory: warehouse/rust
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET: ${{ matrix.asset }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/release-assets" "$RUNNER_TEMP/warehouse-package"
+          cp "target/$TARGET/release/warehouse" "$RUNNER_TEMP/warehouse-package/warehouse"
+          chmod +x "$RUNNER_TEMP/warehouse-package/warehouse"
+          tar -C "$RUNNER_TEMP/warehouse-package" -czf "$GITHUB_WORKSPACE/release-assets/warehouse-$ASSET.tar.gz" warehouse
+
+      - name: 上传平台产物
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-warehouse-${{ matrix.asset }}
+          path: release-assets/warehouse-${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  build-warehouse-wasm:
+    name: Warehouse WebAssembly
+    needs: [plan, aps-quality, mapf-quality, agv-quality, warehouse-quality]
+    # 只构建本次选中的引擎（engines=all 时全部构建；部分构建不发布 Release）。
+    # `!cancelled() && !failure()`：部分引擎没被选中时它们的质量门是 skipped，
+    # 不能用默认的"needs 全部成功"语义（否则选了单引擎也会被连带跳过）。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.warehouse == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: 安装 Node.js 24（WASM 冒烟脚本需要）
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: 安装 Rust 1.88 与 wasm32 目标
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+
+      - name: 构建 WASM
+        working-directory: warehouse/rust
+        run: bash scripts/build_wasm.sh
+
+      - name: 准备 Release 产物
+        run: |
+          mkdir -p release-assets
+          cp warehouse/rust/dist/warehouse_engine.wasm release-assets/warehouse-engine-wasm32-unknown-unknown.wasm
+
+      - name: 上传 WASM 产物
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-warehouse-wasm32-unknown-unknown
+          path: release-assets/warehouse-engine-wasm32-unknown-unknown.wasm
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: 发布 GitHub Release
-    needs: [build-cli, build-wasm, build-mapf-cli, build-mapf-wasm, build-agv-cli, build-agv-wasm]
+    needs: [plan, build-cli, build-wasm, build-mapf-cli, build-mapf-wasm, build-agv-cli, build-agv-wasm, build-warehouse-cli, build-warehouse-wasm]
+    # 只有"全量构建成功"才发布：engines 选了单个引擎时 full=false（产物不完整，宁可不发），
+    # dry_run=yes 时只验证构建链路。
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.full == 'true' && inputs.dry_run != 'yes' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -299,7 +530,7 @@ jobs:
 
       - name: 生成版本信息与 SHA-256SUMS
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           printf 'Algorithm Delivery %s\n' "$VERSION" > release-assets/VERSION.txt
           cd release-assets
@@ -311,7 +542,7 @@ jobs:
       - name: 创建 Release（仅在所有平台构建成功后运行）
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           gh release create "$VERSION" release-assets/* \
             --title "Algorithm Delivery $VERSION" \

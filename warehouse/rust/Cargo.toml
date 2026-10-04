@@ -1,0 +1,32 @@
+[package]
+name = "warehouse-engine"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Warehouse Optimization Suite：库位优化（Warehouse Slotting）+ 密集立库联合调度（High-Density AS/RS Scheduling）+ 联合优化 + 仓储事件仿真 + 独立结果验证；native 与 wasm32 共用同一核心"
+license = "Apache-2.0"
+repository = "https://github.com/xuciro-commits/algorithm-delivery"
+publish = false
+
+# 复用仓库内零依赖基础件（JSON / SHA-256 / 单调时钟 / 峰值内存统计）。
+# 与 agv → aps、mapf → aps 的依赖方向一致：只复用**契约无关的基础设施**，
+# 不复制任何排程/路径/调度内部结构（两个新模块各有自己的问题模型与求解器）。
+[dependencies]
+aps-engine = { path = "../../aps/rust", default-features = false }
+
+[lib]
+name = "warehouse_engine"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "warehouse"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+opt-level = 1

@@ -14,7 +14,7 @@ jobs:
   quality:
     name: APS 质量门（native + WASM）
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: aps/rust
@@ -54,7 +54,16 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: 静态检查（clippy -D warnings）
-        run: cargo clippy --all-targets -- -D warnings
+        # 失败时把诊断（短格式）同时贴成一条错误注释：在 Actions 汇总页/PR 上直接看得见，
+        # 不必先下载整份运行日志再翻。日志本体仍然完整保留在步骤输出里。
+        run: |
+          if cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | tee /tmp/clippy.log; then
+            echo "clippy 通过（-D warnings）"
+          else
+            summary=$(python3 -c 'import sys;t=open("/tmp/clippy.log",errors="replace").read()[:20000];sys.stdout.write(t.replace("%","%25").replace(chr(13),"%0D").replace(chr(10),"%0A"))')
+            echo "::error title=clippy::${summary}"
+            exit 1
+          fi
 
       - name: 构建（release）
         run: cargo build --release --locked

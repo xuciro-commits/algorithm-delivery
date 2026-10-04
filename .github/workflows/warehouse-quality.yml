@@ -1,0 +1,112 @@
+name: warehouse-quality
+
+# 仓储引擎（库位优化 / 密集立库调度 / 联合优化）的质量门。
+#
+# 与 `aps-quality.yml` / `mapf-quality.yml` / `agv-quality.yml` 同构，差别只在：
+#   * 工作目录是 `warehouse/rust`；
+#   * 依赖审计允许的是 `aps-engine`（仓库内路径依赖，零第三方）。
+#
+# **这个门只验"通过性"，不验"负荷/规模"**：编译、格式、静态检查、单元与集成测试、
+# 契约符合性、WASM ABI 冒烟，用例都是 tiny/small 档，几分钟内出结论。
+# 86 个标准场景的按族验收（`stress` 档 150k SKU / 1.9M 库位、`dispatch` 族峰值 ≈3.2 GB）
+# 与全量基准属于负荷验证，已移出 CI，改在本地/大机器上用同一条命令跑：
+#   bash scripts/verify_heavy.sh            # 按族验收 + 契约
+#   bash scripts/verify_heavy.sh --with-bench
+# 见根 README「本地重型验证（CI 不跑，请在本机跑）」。
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality:
+    name: 仓储引擎质量门（native + WASM）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: warehouse/rust
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 安装 Node.js 24（WASM / Worker 冒烟）
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: 安装 Rust 1.88 与 wasm32 目标
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+          rustup default 1.88.0
+          rustc --version && cargo --version
+
+      - name: 缓存 cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup
+            warehouse/rust/target
+            aps/rust/target
+          key: ${{ runner.os }}-cargo-warehouse-${{ hashFiles('warehouse/rust/Cargo.lock', 'aps/rust/Cargo.lock') }}
+
+      - name: 依赖与许可证（SBOM 最小审计：仅允许 aps-engine 内部路径依赖）
+        run: |
+          cargo tree
+          test "$(grep -c '^\[\[package\]\]' Cargo.lock)" = "2"
+          cargo metadata --format-version 1 --no-deps \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin)["packages"][0]; deps=sorted(d["name"] for d in p["dependencies"]); assert deps==["aps-engine"], deps; assert all(not d.get("registry") for d in p["dependencies"]), p["dependencies"]; print(p["name"], "deps=1(aps-engine,path,third-party=0)")'
+
+      - name: 格式检查（rustfmt）
+        run: cargo fmt --all -- --check
+
+      - name: 静态检查（clippy -D warnings）
+        # 失败时把诊断（短格式）同时贴成一条错误注释：在 Actions 汇总页/PR 上直接看得见，
+        # 不必先下载整份运行日志再翻。日志本体仍然完整保留在步骤输出里。
+        run: |
+          if cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | tee /tmp/clippy.log; then
+            echo "clippy 通过（-D warnings）"
+          else
+            summary=$(python3 -c 'import sys;t=open("/tmp/clippy.log",errors="replace").read()[:20000];sys.stdout.write(t.replace("%","%25").replace(chr(13),"%0D").replace(chr(10),"%0A"))')
+            echo "::error title=clippy::${summary}"
+            exit 1
+          fi
+
+      - name: 构建（release）
+        run: cargo build --release --locked
+
+      - name: 单元 / 集成 / 文档测试
+        run: cargo test --release --locked
+
+      # 重型验收（86 个标准场景按族跑、stress 档 150k SKU / 1.9M 库位、dispatch 族峰值 ≈3.2 GB）
+      # 与全量基准不在这里跑：它们是负荷验证，GitHub 托管 runner 只比开发沙箱大一点点，
+      # 跑这些既慢又容易踩内存。请在本机跑 `bash scripts/verify_heavy.sh`
+      # （见根 README「本地重型验证（CI 不跑，请在本机跑）」）。
+
+      - name: 契约符合性检查（schema 防漂移 / mock / 引擎输出 / verify 报告 / 对抗样例）
+        run: python3 scripts/check_contracts.py
+
+      - name: 基准冒烟（三个域各一例 · 核验必须通过）
+        run: |
+          ./target/release/warehouse bench --case slotting-small,asrs-small,joint-small --tier wasm-light --out target/bench-smoke.json
+          python3 -c "import json; rows=json.load(open('target/bench-smoke.json'))['rows']; assert len(rows) == 3, rows; bad=[r['name'] for r in rows if not r['pass']]; assert not bad, ('基准未通过', bad); print('bench smoke: ' + ', '.join(r['name'] + '=' + r['status'] for r in rows))"
+
+      - name: WASM 构建 + ABI 冒烟（含独立核验与对抗样例）
+        run: bash scripts/build_wasm.sh
+
+      - name: 上传引擎产物（供 Lab 与 Release 使用，保留 14 天）
+        uses: actions/upload-artifact@v6
+        with:
+          name: warehouse-engine-artifacts
+          path: |
+            warehouse/rust/target/release/warehouse
+            warehouse/rust/dist/warehouse_engine.wasm
+          if-no-files-found: error
+          retention-days: 14

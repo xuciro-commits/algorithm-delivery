@@ -1,0 +1,220 @@
+{
+  "$id": "warehouse-solve-result/1.0",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "comparison": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "engine": {
+      "const": "rust-warehouse",
+      "type": "string"
+    },
+    "engineVersion": {
+      "type": "string"
+    },
+    "fingerprint": {
+      "minLength": 8,
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "path",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "objective": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "rulesetVersion": {
+      "type": "string"
+    },
+    "runtimeMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "status": {
+      "enum": [
+        "OPTIMAL_PROVEN",
+        "FEASIBLE_WITH_BOUND",
+        "FEASIBLE",
+        "BUDGET_EXCEEDED",
+        "NO_SOLUTION_FOUND",
+        "INFEASIBLE_PROVEN",
+        "CANCELLED",
+        "INVALID_INPUT",
+        "UNSUPPORTED",
+        "INTERNAL_ERROR"
+      ],
+      "type": "string"
+    },
+    "timeline": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "verification": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$id": "warehouse-verification/1.0",
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "properties": {
+            "checked": {
+              "type": "object"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "violations": {
+              "items": {
+                "properties": {
+                  "actual": {},
+                  "at_s": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "class": {
+                    "enum": [
+                      "hard",
+                      "soft"
+                    ],
+                    "type": "string"
+                  },
+                  "code": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "deviceId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expected": {},
+                  "locationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "position": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
+                  "severity": {
+                    "enum": [
+                      "info",
+                      "warning",
+                      "error"
+                    ],
+                    "type": "string"
+                  },
+                  "subjects": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "taskId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "class",
+                  "severity",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "ok",
+            "violations"
+          ],
+          "title": "独立核验报告",
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "engine",
+    "engineVersion",
+    "rulesetVersion",
+    "fingerprint",
+    "status",
+    "runtimeMs",
+    "issues",
+    "metrics",
+    "result",
+    "verification"
+  ],
+  "title": "求解结果信封（slotting / asrs / joint 共用）",
+  "type": "object"
+}

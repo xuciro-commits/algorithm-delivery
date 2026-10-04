@@ -1,0 +1,213 @@
+{
+  "$id": "warehouse-capabilities/1.0",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "compilerVersion": {
+      "type": "string"
+    },
+    "domains": {
+      "items": {
+        "properties": {
+          "algorithms": {
+            "items": {
+              "properties": {
+                "boundKind": {
+                  "type": "string"
+                },
+                "canProveInfeasible": {
+                  "type": "boolean"
+                },
+                "canProveOptimal": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "id": {
+            "enum": [
+              "slotting",
+              "asrs",
+              "joint"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "objectives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "supports": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
+      "minItems": 3,
+      "type": "array"
+    },
+    "engine": {
+      "const": "rust-warehouse",
+      "type": "string"
+    },
+    "engineVersion": {
+      "type": "string"
+    },
+    "limits": {
+      "type": "object"
+    },
+    "profile": {
+      "enum": [
+        "native",
+        "wasm-light"
+      ],
+      "type": "string"
+    },
+    "reproducibility": {
+      "type": "object"
+    },
+    "rulesetVersion": {
+      "type": "string"
+    },
+    "scenarios": {
+      "properties": {
+        "count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "families": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 5,
+          "type": "array"
+        }
+      },
+      "required": [
+        "count",
+        "families"
+      ],
+      "type": "object"
+    },
+    "statuses": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "hasSolution": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "OPTIMAL_PROVEN",
+              "FEASIBLE_WITH_BOUND",
+              "FEASIBLE",
+              "BUDGET_EXCEEDED",
+              "NO_SOLUTION_FOUND",
+              "INFEASIBLE_PROVEN",
+              "CANCELLED",
+              "INVALID_INPUT",
+              "UNSUPPORTED",
+              "INTERNAL_ERROR"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "status",
+          "hasSolution"
+        ],
+        "type": "object"
+      },
+      "minItems": 10,
+      "type": "array"
+    },
+    "tiers": {
+      "items": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "maxBudgetMs": {
+            "type": "number"
+          },
+          "maxLoadUnits": {
+            "type": "integer"
+          },
+          "maxLocations": {
+            "type": "integer"
+          },
+          "maxSkus": {
+            "type": "integer"
+          },
+          "maxTasks": {
+            "type": "integer"
+          },
+          "name": {
+            "enum": [
+              "native",
+              "wasm-light"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "maxSkus",
+          "maxLocations",
+          "maxLoadUnits",
+          "maxTasks",
+          "maxBudgetMs"
+        ],
+        "type": "object"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "verification": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "engine",
+    "engineVersion",
+    "rulesetVersion",
+    "profile",
+    "domains",
+    "statuses",
+    "tiers",
+    "scenarios"
+  ],
+  "title": "引擎档位能力声明",
+  "type": "object"
+}

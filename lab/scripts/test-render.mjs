@@ -3,7 +3,7 @@
  * 渲染冒烟（无需浏览器）：把 `App` 在 Node 里以 SSR 方式渲染出来，断言：
  *   - 外壳可渲染：标题、模块导航、已接入/待接入模块都在；
  *   - 引擎未就绪时给出可操作提示（而不是白屏或抛错）；
- *   - ready 模块（#path-planning 已接入 MAPF）渲染真面板；planned 模块（#agv-dispatch）显示路线图说明，且**不渲染任何假数据**；
+ *   - 五个 ready 模块（APS / MAPF / AGV / 库位优化 / 密集立库）都渲染真面板，且**不渲染任何假数据**；
  *   - 各算法模块 Panel 缺省（未传引擎上下文）时不崩溃。
  *
  * 说明：这里覆盖不了“浏览器里点运行”的完整交互（那部分由 test:core / test:runner /
@@ -65,9 +65,9 @@ check(
   html.includes('算法实验室') && html.includes('三维实时沙盘') && html.includes('视觉模式'),
   '机架式外壳：品牌区 + 视觉模式按钮组',
 );
-check('模块导航含 APS、MAPF、AGV（已就绪）与两个待接入模块',
+check('模块导航含五个已就绪模块（APS / MAPF / AGV / 库位优化 / 密集立库）',
   ['APS 计划排程', 'MAPF 路径规划', 'AGV 调度', '库位优化', '密集立库'].every((n) => html.includes(n)));
-check('模块导航标记“待接入”（仅未接入的 2 个）', (html.match(/待接入/g) ?? []).length >= 2);
+check('模块导航不再有待接入模块（两个仓储模块已接入真实引擎）', (html.match(/待接入/g) ?? []).length === 0);
 check('引擎未就绪时给出等待提示', html.includes('引擎尚未就绪') || html.includes('正在加载引擎产物'));
 check('参数区渲染完整（种子/时间/目标/规则/迭代/修复/严格核验）',
   ['种子 seed', '求解时间（ms）', '优化目标', '搜索规则', '迭代上限', '局部修复', '严格核验'].every((t) => html.includes(t)));
@@ -95,7 +95,12 @@ check('AGV 面板渲染调度实验骨架（agv-panel + 场景库）', html.incl
 html = render('#does-not-exist');
 check('未知 hash 回退到 APS 模块', html.includes('选择一个排程场景') && html.includes('求解配置'));
 
-// ---- 4) 各模块面板在无引擎上下文时可渲染（模块自带 props 的健壮性）----
-check('待接入模块不注册 Panel（避免渲染假界面）', html.length > 0);
+// ---- 3b) 仓储优化两个模块已就绪：渲染真面板（引擎横幅 + 空态），且不渲染假数据 ----
+html = render('#slotting');
+check('切到库位优化：渲染面板骨架与空态', html.includes('data-visual-module="slotting"') && html.includes('求解库位方案'));
+check('库位优化面板在引擎就绪前不显示结果/指标', !html.includes('metrics-grid') && html.includes('还没有结果'));
+html = render('#dense-asrs');
+check('切到密集立库：渲染面板骨架与空态', html.includes('data-visual-module="dense-asrs"') && html.includes('求解调度'));
+check('密集立库面板在引擎就绪前不显示结果/时间线', !html.includes('metrics-grid') && html.includes('还没有结果'));
 
 finish('✓ 渲染冒烟通过');
