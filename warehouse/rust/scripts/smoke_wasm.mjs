@@ -111,6 +111,8 @@ for (const item of cases) {
     continue;
   }
   const t0 = performance.now();
+  // 联合解先按"不带时间线"求解：这时的核验**必须如实报不通过**（调度段无法独立重放），
+  // 否则就成了"没验证也算过"。紧接着再用带时间线的联合解验证"两段都能通过"。
   const result = engine.solve(text, { includeTimeline: item.kind !== 'joint' });
   const ms = performance.now() - t0;
   const envelope = result.envelope ?? {};
@@ -132,12 +134,40 @@ for (const item of cases) {
   if (engine.hasAnalysis) {
     const verify = engine.verify(JSON.stringify(verifyDocument(document, envelope)));
     const ok = verify.report?.ok;
-    console.log(`  独立核验: ok=${ok} violations=${verify.report?.violations?.length ?? 0}`);
-    expect(ok === true, `${item.label} 独立核验未通过：${JSON.stringify(verify.report?.violations ?? []).slice(0, 200)}`);
+    const violations = verify.report?.violations ?? [];
+    console.log(`  独立核验: ok=${ok} violations=${violations.length}`);
+    if (item.kind === 'joint') {
+      // 没有时间线就没有可独立重放的调度段：结论必须是不通过，而且必须给出原因
+      // （`ok=false` + 空 violations 是没法诊断的，验证器现在会把缺失写成显式违规）。
+      expect(ok === false, '联合方案缺少时间线时不应通过核验（否则等于"没验证也算过"）');
+      expect(violations.length > 0, '缺少时间线时必须给出显式违规条目（不能 ok=false 却 violations=[]）');
+      const full = engine.solve(text, { includeTimeline: true });
+      const fullVerify = engine.verify(JSON.stringify(verifyDocument(document, full.envelope ?? {})));
+      const fullViolations = fullVerify.report?.violations ?? [];
+      console.log(
+        `  独立核验（带时间线 · 库位+调度两段）: ok=${fullVerify.report?.ok} violations=${fullViolations.length}`,
+      );
+      expect(
+        fullVerify.report?.ok === true,
+        `联合方案两段核验未通过：${JSON.stringify(fullViolations).slice(0, 200)}`,
+      );
+      // 对抗：篡改联合时间线（压缩一步时长）必须被拦下
+      const tampered = JSON.parse(full.raw);
+      const device = (tampered.timeline?.devices ?? []).find((entry) => (entry.steps ?? []).length > 0);
+      if (device) {
+        const step = device.steps[0];
+        step.end_s = Math.max(0, Number(step.start_s ?? 0) + 0.01);
+        const tamperedReport = engine.verify(JSON.stringify(verifyDocument(document, tampered)));
+        console.log(`  对抗（联合 · 压缩一步时长）: ok=${tamperedReport.report?.ok}`);
+        expect(tamperedReport.report?.ok === false, '被篡改的联合时间线居然通过了核验');
+      }
+    } else {
+      expect(ok === true, `${item.label} 独立核验未通过：${JSON.stringify(violations).slice(0, 200)}`);
+    }
   }
 
   // 对抗：篡改时间线（把某步压缩到 0.01s）必须被验证器拦下 —— 防止"验证器永远说 OK"
-  if (engine.hasAnalysis && (item.kind === 'asrs' || item.kind === 'joint')) {
+  if (engine.hasAnalysis && item.kind === 'asrs') {
     const tampered = JSON.parse(result.raw);
     const device = (tampered.timeline?.devices ?? []).find((entry) => (entry.steps ?? []).length > 0);
     if (device) {

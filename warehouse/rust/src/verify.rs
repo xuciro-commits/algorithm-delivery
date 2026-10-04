@@ -211,6 +211,13 @@ fn verify_asrs_document(root: &Json, strict: bool, issues: &mut Issues) -> Verif
         report
             .notes
             .push("问题本身不合法，无法验证调度方案".to_string());
+        // 结论是"不通过"就必须给出**可诊断的原因**：ok=false + violations 为空
+        // 会让人误以为是验证器自己出错（细节在 issues 里，但报告要能独立读懂）。
+        report.violations.push(crate::errors::Violation::new(
+            codes::SCHEMA_INVALID,
+            Severity::Error,
+            "问题本身不合法（详见 issues），无法独立验证调度方案",
+        ));
         return report;
     }
     // 时间线可以来自 solution.timeline 或文档顶层 timeline（两者都接受，语义相同）
@@ -226,6 +233,11 @@ fn verify_asrs_document(root: &Json, strict: bool, issues: &mut Issues) -> Verif
             "timeline",
             "缺少待验证的设备时间线（solution.timeline 或顶层 timeline）",
         );
+        report.violations.push(crate::errors::Violation::new(
+            codes::MISSING_FIELD,
+            Severity::Error,
+            "缺少待验证的设备时间线：没有时间线就无法独立重放调度段（求解时请打开 includeTimeline）",
+        ));
         report.ok = false;
         return report;
     }
@@ -233,6 +245,11 @@ fn verify_asrs_document(root: &Json, strict: bool, issues: &mut Issues) -> Verif
         Some(timeline) => timeline,
         None => {
             issues.error(codes::TYPE_MISMATCH, "timeline", "时间线结构与契约不符");
+            report.violations.push(crate::errors::Violation::new(
+                codes::TYPE_MISMATCH,
+                Severity::Error,
+                "时间线结构与契约不符，无法独立重放调度段",
+            ));
             report.ok = false;
             return report;
         }

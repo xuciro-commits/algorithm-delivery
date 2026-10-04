@@ -71,8 +71,6 @@ names = []
 while i < len(data):
     sid = data[i]
     i += 1
-    if sid == 0:
-        continue
     size, i = uleb(i)
     end = i + size
     if sid == 7:
