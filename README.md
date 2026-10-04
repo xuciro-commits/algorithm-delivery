@@ -162,6 +162,7 @@ FAMILIES=stress bash warehouse/rust/scripts/verify_heavy.sh
 cd warehouse/rust && cargo test --release --locked
 
 # 实验室：构建 + 全量前端检查（类型检查、渲染冒烟、场景投影、Pages 子路径仿真）
+# 与 CI 的 build-lab 是同一条命令（CI 也会跑），本机再跑一遍是为了留一份本地基线
 cd lab && npm ci && npm run test:all
 
 # 实验室：真实浏览器视觉验收（Playwright Chromium，最贵的一步；只覆盖 APS/MAPF/AGV 三个面板）

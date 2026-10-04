@@ -21,9 +21,13 @@
 
 ## 2. 本沙箱内**已获得**的结论（可复现的原始命令）
 
-> 时效说明：下面这些结论来自**本轮最终改动之前**的那次构建（源码当时能编译、命令真跑过）。
-> 本节之后的 §6 所列改动（关联簇输出、倒垛图层、压力档、字段对齐、全量格式化等）**尚未编译**——
-> 请先按 §3 的命令在目标机器上重建，再以那里的结果为准。
+> 时效说明：下面这些结论来自本沙箱的多轮实跑。§6 / §6b / §6c 所列改动之后，
+> **通过性项目已在沙箱里重新构建并复跑**：`cargo build --release --locked`、`cargo test --release --locked`
+> （9 项集成 + 1 项文档测试）、`python3 scripts/check_contracts.py`（51/51）、
+> `bash scripts/build_wasm.sh`（三域求解 + 篡改样例 + 联合双路径冒烟）、CLI 联合往返（`ok=true`，125 个落位 / 519 步）、
+> `lab` 的 `npm ci → npm run build → npm run test:post-build`。
+> 但下表里的 **86 场景规模结论仍来自改动前那一轮**（沙箱内存不足，本机无法复跑 `stress` / `dispatch` 全族）——
+> 规模与视觉项请按 §3 在目标机器上复跑后以那里的结果为准。
 
 构建与自检：
 
@@ -73,7 +77,7 @@ CI 只验通过性（见 §6c-4），下面这些**负荷 / 视觉**项请在目
 | 86 个标准场景（按族：`slotting / dispatch / event / joint / stress`） | `bash scripts/verify_heavy.sh` | 逐族断言 `failed == 0`，五族跑完再断言总数 86；沙箱 2–4 GB 内存不足（`dispatch` 族单独跑约 138 s 通过），建议 ≥8 GB |
 | 压力档 `X01` / `X02` | `FAMILIES=stress bash scripts/verify_heavy.sh` | 需求 §8 的 **150k SKU / 1.9M 库位** 规模档（占用率 55%）：规模、耗时与内存都要在本机实测 |
 | 基准 10 用例 | `bash scripts/verify_heavy.sh --with-bench` | 含 `slotting-large` / `asrs-large`（D16 级 6 000 任务）/ `joint-medium`，数分钟；沙箱只跑了三域冒烟 |
-| 实验室前端 | `cd lab && npm ci && npm run build && npm run test:all` | 类型检查 / 渲染冒烟 / 场景投影 / 产物与 Pages 子路径仿真 |
+| 实验室前端 | `cd lab && npm ci && npm run build && npm run test:all` | 类型检查 / 渲染冒烟 / 场景投影 / 产物与 Pages 子路径仿真。**沙箱已跑通**（等价于 `npm run build` + `npm run test:post-build`，见 §6c-6）；在本机再跑一遍是为了留一份基线 |
 | 浏览器视觉验收 | `cd lab && npx playwright install --with-deps chromium && npm run test:visual` | Playwright 只覆盖 APS/MAPF/AGV；**两个新模块（`#slotting` / `#dense-asrs`）的视觉要点在根 README 的本地检查清单里**，请在浏览器里逐条核对 |
 | CI 复核 | `gh run list --branch <branch>` 或 Actions 页面 | 通过性门（编译 / clippy / 测试 / 契约 / 基准冒烟 / WASM 冒烟）已在 CI 实跑过；负荷项在 CI 里**不会**再跑 |
 
@@ -262,3 +266,48 @@ gh workflow run lab.yml --ref <branch> -f engines=all -f lab=off -f visual=off -
 `esbuild` 解析全部 `lab/src/**/*.ts(x)` → 退出码 0、`check-workflows` / `check-docs` → ✓。
 （`test-art` 需要先 `npm run sync:assets` 生成 `public/models/art-manifest.json`；沙箱没跑同步，
 所以它只报这两条"缺生成物"，CI 里 sync 之后不会出现。）
+
+### 6) 联合核验、WASM 构建与 Lab 集成测试的三处修复（本轮，全部在沙箱复现过）
+
+1. **联合核验的\"静默通过\"风险（真 bug，已修）**：`verify_asrs_document` 有三处早退
+   （problem 本身非法 / `timeline` 为 `null` / `timeline` 类型不对），原来只往 `issues` 里写原因、
+   `violations` 留空。调用方看到的是 `ok=false` + **空** `violations`，无法定位
+   （WASM 冒烟里就长这样：`联合优化 独立核验未通过：[]`）。现在三处都补一条 `Violation`
+   （`SCHEMA_INVALID` / `MISSING_FIELD`（消息里直接点出 `includeTimeline`）/ `TYPE_MISMATCH`），
+   保证 **`ok=false` 一定伴随非空 `violations`**——这条不变量写进了代码注释，别再退回早退不报错。
+   根因不是 `slottingAssignment`（该字段在 `includeTimeline:false` 时也存在），而是冒烟脚本用
+   `includeTimeline:false` 求解联合问题 → 文档里没有 timeline → 核验**合法地**拒绝。
+   CLI 侧带 timeline 的联合往返实测：rc 0、`ok=true`、125 个落位、519 步 / 120 任务、
+   独立复算 7244 s / 4137 m。
+2. **WASM 冒烟补两段**：联合优化改为求解两次——无 timeline 必须 `ok === false` 且 `violations.length > 0`
+   （防\"没核验过 = 自动通过\"），带 timeline 必须 `ok === true` 且 0 违规；并给联合优化加了 timeline
+   篡改用例（必须被拒）；`asrs` 篡改段限定 `kind === 'asrs'`，语义不再混用。
+3. **`build_wasm.sh` 导出清单解析崩溃**：内嵌 Python 列 wasm 导出时，自定义 section 没有按 `size`
+   跳过（`if sid == 0: continue`），于是读到了 section 负载里的非 UTF-8 字节 → `UnicodeDecodeError`（0x92）。
+   四个引擎（`aps` / `mapf` / `agv` / `warehouse`）同步修掉，导出清单重新打得出来（`wh_*` + `aps_*`）。
+4. **Lab 集成测试挑 mock 的方式（真正卡住 CI 的那条）**：`lab/public/mock` 是**各领域共用**目录，
+   仓储模块把 `warehouse/mock/asrs-*.json` 同步进来之后，`lab/scripts/test-agv-problem.mjs` 仍按文件名前缀
+   `/^[aw]/` 挑 AGV mock → 用 AGV 解析器解析 AS/RS 文档 → 3 项失败 → `build-lab` 的
+   「Lab 静态检查、集成测试与产物校验」整步挂掉。改为**按内容**判定领域
+   （`schema_version = agv-dispatch-problem/*`），并加反向护栏：凡是按命名属于 AGV 命名空间的 mock
+   都必须声明 AGV 契约，防止\"按内容挑\"把文件悄悄漏掉却没人发现。
+   （这条也是给后续模块的约定：共享目录里按内容认领域，别按文件名前缀。）
+
+**本轮 CI 实跑记录（跑到哪、结论是什么，都是真跑，不是推测）**：
+
+| run | commit | 结果 |
+| --- | --- | --- |
+| `37207858358` | `4028836`（仓储核验 + WASM 构建修复） | APS / MAPF / AGV / **仓储** 四个质量门全部 **success**（含仓储门的 WASM 构建 + ABI 冒烟）；`构建与验证 Lab` 失败在「Lab 静态检查、集成测试与产物校验」 |
+| `37208472131` | `8660879`（Lab 集成测试修复） | `构建与验证 Lab` **success**；引擎质量门按变更检测 **skip**（本次只改了 `lab/scripts/**`，符合\"改了哪里跑哪里\"）；整轮 ≈5 分钟 |
+
+失败定位方式（值得记一笔）：Actions 的作业日志归档在外部存储、API 只回注解，所以没有\"翻日志\"这条路。
+改为**在本机等价复现**：`npm ci` → `npm run build`（sync + tsc + vite）→ `npm run test:post-build`，
+一次就把 `test-agv-problem.mjs` 的 3 项失败打到脸上。以后 CI 挂在 Lab 那一步，照这个顺序复现最快。
+
+**本轮在沙箱内新拿到的结论**（可直接复现）：
+
+* `lab`：`npm ci` → `npm run build` 通过（2657 modules / 33.9 s / `dist` 11.0 MB，base `/algorithm-delivery/`）；
+  `npm run test:post-build` **全绿**（含 `dist` 校验与 Pages 子路径仿真、136 个源文件的性能红线审计）。
+* `aps` / `mapf` / `agv` 三个引擎的 `build_wasm.sh` 在修完导出清单解析后各自构建成功
+  （648 KB / 912 KB / 1.34 MB，导出清单与冒烟都过）；`warehouse` 为 2 206 421 B。
+* `lab.yml` 的 `build-lab` `timeout-minutes` 由 60 收到 **30**（与四个质量门一起，全部落在\"几分钟出结论\"的预算内）。

@@ -209,7 +209,7 @@ LAB_BASE=/ npm run build:all # 本地根路径版本
 | --- | --- | --- |
 | WASM 产物 | `aps/rust/dist/aps_engine.wasm`（`scripts/build_wasm.sh` 构建，或 CI 从正式 Release 下载） | `public/wasm/aps_engine.wasm` |
 | JS 胶水 | `aps/rust/web/aps-worker.js`（MAPF / AGV 同构） | `public/wasm/*-worker.js` + `src/vendor/*` |
-| Mock 场景 | `aps/mock/*.json`、`mapf/mock/*`、`agv/mock/*` | `public/mock/` 等 |
+| Mock 场景 | `aps/mock/*.json`、`mapf/mock/*`、`agv/mock/*`、`warehouse/mock/*` | `public/mock/`（四个领域**共用**） |
 | 规模/竞争型基准 | `aps benchmark` CLI 现场生成（`LAB_BENCH_SIZES=240,c48,c96`） | `public/mock/bench-*.json` |
 | 引擎版本/摘要 | 构建 CLI 的 `capabilities` 与产物自身 | `public/*-manifest.json` |
 
@@ -222,6 +222,12 @@ baseline 能解出 24 道工序、分析类导出可用。任何一项不满足�
 
 `public/wasm/`、`public/mock/`、`public/models/`、`src/vendor/`、`*-manifest.json` 都在 `.gitignore` 里，
 因为它们是生成物；真正的来源只有一份：`*/rust`、`*/mock` 与 `design/assets`。
+
+`public/mock/` 是**四个领域共用**的目录，文件名里看不出来自哪个域（仓储的 `asrs-*.json` 与 AGV 的 `a*`
+前缀就撞过：`test-agv-problem.mjs` 曾按 `/^[aw]/` 挑 AGV mock，把 AS/RS 文档一起扫了进来，直接把
+`npm run test:post-build` 跑挂）。因此**判断一份 mock 属于哪个领域一律按内容**
+（`schema_version` / 字段形状），不要按文件名前缀；确需按名字收敛时，务必同时加一条"反向护栏"，
+保证该命名空间下的文件都被选中过。
 
 ## 5. 在实验室里做什么（APS 模块）
 
