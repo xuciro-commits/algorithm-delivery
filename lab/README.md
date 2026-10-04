@@ -277,8 +277,20 @@ GitHub Actions: lab.yml + lab-visual-acceptance.yml
 ```
 
 迭代优先：PR 与迭代分支不跑真实浏览器验收（它最贵），需要时手动触发 `lab.yml`；
-所有 job 都有 `timeout-minutes` 上限，避免挂死占用 runner。工作流本身的约定由
+所有 job 都有 `timeout-minutes` 上限（引擎质量门 20 分钟），避免挂死占用 runner。工作流本身的约定由
 `npm run check:workflows` 断言（Node 24 版 action、触发范围收敛、超时）。
+
+**CI 只验通过性，负荷与真实视觉验收在本机跑。** GitHub 托管 runner 约 4 vCPU / 8 GB，
+所以 CI 里只做：编译 / 格式 / clippy / 单元与集成测试 / 契约符合性 / WASM ABI 冒烟 / Lab 打包与
+纯 Node 检查（`npm run test:post-build`）。下面这些属于重活，请在本机执行（命令与逐项检查清单见
+根 [README「本地重型验证」](../README.md#本地重型验证ci-不跑请在本机跑)）：
+
+| 重活 | 命令 | CI 里的替代（轻） |
+| --- | --- | --- |
+| 仓储 86 场景按族验收 + 全量基准 | `bash warehouse/rust/scripts/verify_heavy.sh [--with-bench]` | 不跑（负荷验证） |
+| 真实浏览器视觉验收（Playwright） | `cd lab && npx playwright install --with-deps chromium && npm run test:visual` | 仅 `main` / 手动触发时跑，且只覆盖 APS/MAPF/AGV |
+| 新增两个仓储模块的视觉确认 | 浏览器打开 `#slotting` / `#dense-asrs` / `#art-lab` 按清单核对 | 不跑（见根 README 的检查清单） |
+| Lab 全量前端检查 | `cd lab && npm run test:all`（= build + test:post-build） | 同一份 `test:post-build` 会在 CI 跑 |
 
 手动触发的输入（`lab.yml`，都在 Actions → Algorithm Lab → Run workflow）：
 

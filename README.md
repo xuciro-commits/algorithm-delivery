@@ -143,6 +143,47 @@ bash scripts/build_wasm.sh                # 末尾自动跑 ABI 冒烟
 node scripts/test_worker_cancel.mjs
 ```
 
+### 本地重型验证（CI 不跑，请在本机跑）
+
+GitHub 托管 runner 只比开发沙箱大一点点（约 4 vCPU / 8 GB），所以 **CI 只验“通过性”**：
+编译、格式、静态检查（clippy `-D warnings`）、单元与集成测试、契约符合性、WASM ABI 冒烟
+——用例都是 tiny/small 档，几分钟出结论。**“负荷 / 规模”验证与真实浏览器视觉验收一律在本地跑**
+（下面的命令可以直接交给本机 AI 执行）：
+
+```bash
+# 仓储：86 个标准场景按族验收 + 契约符合性（≈1–3 分钟；stress 族建议 ≥8 GB 内存）
+bash warehouse/rust/scripts/verify_heavy.sh
+# 再加全量基准（10 个 case，native 档；含 slotting-large / asrs-large / joint-medium，数分钟）
+bash warehouse/rust/scripts/verify_heavy.sh --with-bench
+# 只补某一族（例如需求 §8 的压力档 X01/X02 = 150k SKU / 1.9M 库位）
+FAMILIES=stress bash warehouse/rust/scripts/verify_heavy.sh
+
+# 仓储：Rust 单元 / 集成 / 文档测试（CI 里跑的是同一条命令）
+cd warehouse/rust && cargo test --release --locked
+
+# 实验室：构建 + 全量前端检查（类型检查、渲染冒烟、场景投影、Pages 子路径仿真）
+cd lab && npm ci && npm run test:all
+
+# 实验室：真实浏览器视觉验收（Playwright Chromium，最贵的一步；只覆盖 APS/MAPF/AGV 三个面板）
+cd lab && npx playwright install --with-deps chromium && npm run test:visual
+```
+
+两个新增仓储模块（`#slotting` 库位优化、`#dense-asrs` 密集立库调度）**不在 Playwright 视觉脚本里**，
+请在本地浏览器按下面的清单人工确认（也可以截图 + 控制台日志交给本机 AI 判读）：
+
+| 检查点 | 期望 |
+| --- | --- |
+| `#slotting` 初屏 | 立体货架与深位剖面按工业比例、材质与光照渲染；空态不报错、不白屏 |
+| `#slotting` 跑一次求解 | 热力图 / 关联簇 / 落位 / 搬迁四个图层可开关；颜色与位置全部来自引擎输出（`heat`、`clusters`、`assignment`），前端不重算 |
+| `#slotting` 时间轴与运行对比 | 多次运行进入历史，diff 行标出更好 / 更差；数值与参数区的引擎指标一致 |
+| `#dense-asrs` 初屏 | 巷道 / 提升机 / 桁架 / 输送线按工业比例排布，设备与深位库位可见 |
+| `#dense-asrs` 跑一次求解 | 设备时间线可回放（1×–8×）、任务轨迹按 `tasks[].devices` 点亮、冲突与倒垛留痕成对出现 |
+| 联合（J 场景） | 轮次与 Pareto 图来自引擎真实评估；核验面板默认展开两段独立重算的数字 |
+| 美术模式 | `#art-lab` 的模式 A（工业原貌）/ B（工业科技艺术化）/ C（算法观察）对两个新模块同样生效，切换不丢数据 |
+
+> CI 的 `lab-visual-acceptance.yml`（Playwright）只覆盖原有的 APS / MAPF / AGV 三个面板，
+> 且默认只在 `main` 与手动触发时运行；分支与 PR 不跑浏览器验收。
+
 实验室静态检查（不需要 Rust、不需要浏览器，受限环境也能跑；含三维美术契约、性能红线、文档一致性）：
 
 ```bash
@@ -191,6 +232,12 @@ npm run test:all
    路径过滤），也可以在 **Actions → Algorithm Lab → Run workflow** 里用 `deploy=on` 单独跑一次部署。
 4. **手动可拆**：所有主链路工作流都支持 `workflow_dispatch`，可以只跑一个引擎的质量门、只构建
    Lab、只跑视觉验收或只做发布；`release.yml` 还支持 `dry_run=yes` 干跑与 `engines=` 只构建单引擎。
+5. **只做通过性、不做负荷**：CI 里的用例都是 tiny/small 档（编译 / 格式 / clippy `-D warnings` /
+   单元与集成测试 / 契约符合性 / WASM ABI 冒烟），几分钟内出结论。**86 个标准场景按族验收、
+   全量基准、真实浏览器视觉验收属于负荷与视觉验证，只在本地跑**（命令见上一节
+   “本地重型验证”）。四个引擎质量门因此都把 `timeout-minutes` 收到 20。
+6. **失败可读**：四个质量门的 clippy 步骤失败时会附加一条 `::error::` 注释（短格式诊断、截断 20 KB），
+   Actions 汇总页与 PR 上直接可见，不必再下载整份日志。
 
 所有 job 都设了 `timeout-minutes`，真实浏览器视觉验收只在 main 与手动触发时运行（最贵的一步），
 action 全部使用支持 Node 24 的版本。
@@ -202,7 +249,7 @@ action 全部使用支持 Node 24 的版本。
 - [agv-rust.yml](.github/workflows/agv-rust.yml)：AGV 代码变更时运行可复用 Rust 质量门。
 - [agv-quality.yml](.github/workflows/agv-quality.yml)：格式、Clippy、Rust 测试、A01–A16 验收、45 项契约符合性、B01–B03 基准、WASM 与 Worker 取消回归。
 - [warehouse-rust.yml](.github/workflows/warehouse-rust.yml)：仓储引擎代码变更时运行可复用 Rust 质量门。
-- [warehouse-quality.yml](.github/workflows/warehouse-quality.yml)：格式、Clippy、Rust 测试（含端到端集成测试）、86 个标准场景**按族**验收、契约符合性、三维基准冒烟、WASM 构建与 ABI 冒烟。
+- [warehouse-quality.yml](.github/workflows/warehouse-quality.yml)：格式、Clippy、release 构建、Rust 测试（含端到端集成测试）、契约符合性、三维基准冒烟（3 例）、WASM 构建与 ABI 冒烟——**只验通过性**；86 个标准场景按族验收已移出 CI，改由本地 `bash warehouse/rust/scripts/verify_heavy.sh` 执行（负荷验证：`dispatch` 族峰值约 3.2 GB）。
 - [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 改动检测（只对改动过的引擎跑质量门）→ 构建/测试 Lab（Node 24）→ 按需部署 Pages。PR 与迭代分支只做构建与检查（不上传预览产物、不跑浏览器验收）；main 与手动触发才跑视觉验收；手动触发可单独跑某一段（`engines` / `lab` / `visual` / `deploy`）。
 - [lab-visual-acceptance.yml](.github/workflows/lab-visual-acceptance.yml)：独立 Ubuntu/Playwright Chromium 视觉验收（仅 main 与手动触发），消费同一次 production build，采集 APS/MAPF/AGV WebGL 截图、console 日志和实际引擎状态（30 天 Artifact，浏览器缓存复用）。
 - [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV/Warehouse 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。也可手动触发：填 `tag=v1.0.0` 按该标签源码构建、`engines=warehouse` 只构建单个引擎（此时不上传 Release，避免发出不完整产物）、`dry_run=yes` 只验证构建链路。

@@ -14,7 +14,7 @@ jobs:
   quality:
     name: APS 质量门（native + WASM）
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: aps/rust

@@ -36,6 +36,12 @@ export interface Asrs3DProps {
   selectedDevice: string | null;
   onSelectDevice?: (deviceId: string | null) => void;
   fitNonce: number;
+  /**
+   * 是否连续渲染：只在回放中为真（暂停 / 拖动时间轴时按需渲染）。
+   * 与其他模块（MAPF / AGV / APS 传 `active={playing}`）同一约定：
+   * 不播放就不常驻 GPU（性能红线审计第 7 条）。
+   */
+  active: boolean;
   height?: number;
 }
 
@@ -292,12 +298,12 @@ function RelocationLayer({ scene, t }: { scene: AsrsScene; t: number }) {
   );
 }
 
-export function Asrs3D({ scene, layers, t, selectedDevice, onSelectDevice, fitNonce, height = 460 }: Asrs3DProps) {
+export function Asrs3D({ scene, layers, t, selectedDevice, onSelectDevice, fitNonce, active, height = 460 }: Asrs3DProps) {
   const span = Math.max(scene.bounds.span, 12);
   const selected = selectedDevice ? scene.devices.find((device) => device.deviceId === selectedDevice) ?? null : null;
   return (
     <div className="sandbox-stage" style={{ height }}>
-      <SandboxScene width={span} height={span * 0.72} lighting="art" active>
+      <SandboxScene width={span} height={span * 0.72} lighting="art" active={active}>
         <IsoCamera key={fitNonce} span={span} width={span} height={span * 0.72} />
         <GroundPlate width={span * 1.2} height={span} cellSize={2} sectionSize={10} />
         {layers.rack && <RackStructure racks={scene.rackSpecs} />}

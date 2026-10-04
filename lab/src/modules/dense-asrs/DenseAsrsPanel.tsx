@@ -494,6 +494,7 @@ export function DenseAsrsPanel() {
                 selectedDevice={selectedDevice}
                 onSelectDevice={setSelectedDevice}
                 fitNonce={fitNonce}
+                active={clock.playing}
                 height={400}
               />
             ) : (

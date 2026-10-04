@@ -12,7 +12,7 @@ warehouse/
 ├── rust/                     Rust 核心（lib + bin + wasm ABI + 脚本 + 文档）
 │   ├── src/{slotting,asrs,joint,wh,verify,...}
 │   ├── contracts/ ->  见 ../contracts
-│   ├── scripts/{build_wasm.sh,smoke_wasm.mjs,check_contracts.py}
+│   ├── scripts/{build_wasm.sh,smoke_wasm.mjs,check_contracts.py,verify_heavy.sh}
 │   ├── web/warehouse-worker.js
 │   └── docs/{USAGE,INTEGRATION,CONFORMANCE,MODEL-MATH,DEPENDENCIES,BENCHMARKS,DELIVERY}.md
 ├── contracts/*.schema.json   JSON 契约（draft-07，由 make_schemas.py 生成）
@@ -43,6 +43,11 @@ python3 -c "import json;d=json.load(open('/tmp/d04.out.json'));print(d['status']
 # 5) WASM 产物 + 冒烟 + 契约
 bash scripts/build_wasm.sh
 python3 scripts/check_contracts.py
+
+# 6) 重型验证（负荷/规模；CI **不跑**这些，见根 README「本地重型验证（CI 不跑，请在本机跑）」）
+bash scripts/verify_heavy.sh                 # 86 个标准场景按族验收 + 契约符合性
+bash scripts/verify_heavy.sh --with-bench    # 再加 10 个基准用例（native 档）
+FAMILIES=stress bash scripts/verify_heavy.sh # 只跑压力档（150k SKU / 1.9M 库位）
 ```
 
 ## 算法一句话
@@ -78,20 +83,23 @@ python3 scripts/check_contracts.py
 | 场景验收（逐场景） | `D01–D24` 全部 rc=0（`D16` 6 000 任务 3.2 s；`D17` 20 000 任务约 58 s，峰值内存 ≈3.2 GB）、`E01–E14` 全过、`J01–J12` 全过（含 `J09` 的 Pareto 判据）、`X12` 对抗验证 |
 | 代码格式与语法 | `cargo fmt --check` 干净（最终一轮做了全量格式化）：rustfmt 能逐个文件解析，等价于一次全仓语法检查 |
 | 基准 | `bench --tier wasm-light` 三个域各一例，`verificationOk=true`（`slotting-small` 21 ms / `asrs-small` 17 ms / `joint-small` 2.7 s） |
+| 静态检查（clippy） | ✅ **CI 实测**（2026-10-04 的 `2564dd3` 运行第 8 步 success）：`cargo clippy --all-targets -- -D warnings` 全绿 |
+| release 构建 | ✅ **CI 实测**（同一次运行第 9 步 success） |
+| Rust 测试（单元 / 集成 / 文档） | ✅ **CI 实测**（同一次运行第 10 步 success）：`cargo test --release --locked`，含端到端集成测试 `tests/engine_pipeline.rs`（其中 `joint_verification_covers_both_halves` 是本轮修好的用例） |
 
 ### 还没拿到结论（请在目标机器上补跑，命令照抄即可）
 
 | 项 | 命令 | 说明 |
 | --- | --- | --- |
-| 全量 86 场景一次连续运行 | `./target/release/warehouse acceptance --out /tmp/acc.json` | 沙箱 2–4 GB 内存不足（`dispatch` 族单独跑约 138 s）；建议 ≥8 GB。CI 里改按族跑（见 `warehouse-quality.yml`） |
-| Rust 测试（含端到端集成测试） | `cargo test --release --locked` | 本轮新增 `tests/engine_pipeline.rs`（生成 → 求解 → 独立核验 → 契约语义 → 不支持取值必须 `UNSUPPORTED`），沙箱未执行 |
-| 实验室前端 | `cd lab && npm ci && npm run sync && npm run build && npm run test:render` | 两个新模块的代码已完成，未经构建/渲染验证 |
-| 浏览器视觉验收 | `lab/scripts/visual-acceptance.mjs` | 只覆盖 APS/MAPF/AGV 三个面板的 Playwright 场景，仓储两个模块尚未纳入 |
-| 静态检查（clippy） | `cargo clippy --all-targets --locked -- -D warnings` | 需要完整编译，沙箱预算不足；`cargo fmt --check` 已干净，但 clippy 结论未拿到 |
-| 压力档 `X01` / `X02` | `./target/release/warehouse acceptance --ids X01,X02 --out /tmp/x.json` | 最终一轮把这两例对齐到需求 §8 的 150k SKU / 1.9M 库位压力档（占用率 55%）：规模、用时与内存都要在目标机器上实测（建议 ≥8 GB） |
+| 86 个标准场景（按族） | `bash scripts/verify_heavy.sh` | **负荷验证，已从 CI 移出**（CI 只验通过性）：`stress` 档 = 需求 §8 的 150k SKU / 1.9M 库位，`dispatch` 族峰值 ≈3.2 GB（D17 单例 20k 任务 ≈58 s），建议 ≥8 GB 内存 |
+| 压力档 `X01` / `X02` | `FAMILIES=stress bash scripts/verify_heavy.sh` | 这两例对齐到需求 §8 的 150k SKU / 1.9M 库位压力档（占用率 55%）：规模、用时与内存要在本机实测 |
+| 全量基准（10 个 case） | `bash scripts/verify_heavy.sh --with-bench` | 含 `slotting-large` / `asrs-large` / `joint-medium` 三个大例，用于如实报告规模与用时 |
+| 实验室前端 | `cd lab && npm ci && npm run build && npm run test:all` | 类型检查 / 渲染冒烟 / 场景投影 / 产物与 Pages 子路径；两个新模块需要真实浏览器确认视觉（见根 README 的本地清单） |
+| 浏览器视觉验收 | `cd lab && npm run test:visual` | Playwright 只覆盖 APS/MAPF/AGV 三个面板；仓储两个模块（`#slotting` / `#dense-asrs`）的视觉要点写进了根 README 的本地检查清单 |
 
-最终一轮只写了代码与文档，**没有在沙箱里重新编译**：`cargo fmt --check` 干净（= 无语法错误），
-但编译期错误、clippy 结论、压力档的实测数据都还没有——请在目标机器上按上面的命令补齐，
-`rust/docs/DELIVERY.md` §6 列出了这一轮到底改了什么。
+沙箱里没有编译过这一轮的改动，但 **CI 已经把「编译 + clippy + 单元/集成/文档测试」跑绿**
+（见上表的三条 CI 实测）：因此"能否编译、逻辑是否通过"已有证据，"负荷/规模"与"真实浏览器视觉"
+才是需要在目标机器上补的那部分。CI 不再跑的负荷项已封进 `rust/scripts/verify_heavy.sh`，
+一条命令即可复现；`rust/docs/DELIVERY.md` §6c 记录了 CI 的三次运行结果与这次的分工调整。
 
 细节与"怎么复跑"见 [`rust/docs/DELIVERY.md`](rust/docs/DELIVERY.md)。
