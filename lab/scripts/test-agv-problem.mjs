@@ -71,8 +71,28 @@ const {
 // mock roundtrip
 {
   const mockDir = join(labDir, 'public', 'mock');
-  const files = existsSync(mockDir) ? readdirSync(mockDir).filter((f) => /^[aw]/.test(f) && f.endsWith('.json')) : [];
+  // public/mock 是**各领域共用**的目录：仓储 AS/RS 的 asrs-*.json 同样以 a 开头，
+  // 按文件名前缀（旧的 /^[aw]/）挑 AGV mock 会把别的领域的问题文档一起扫进来，
+  // 于是出现“用 AGV 解析器解析仓储文档”的假失败。改为按内容判定领域
+  // （schema_version = agv-dispatch-problem/*），领域再多也不会误伤。
+  const isAgvMock = (f) => {
+    if (!f.endsWith('.json')) return false;
+    try {
+      const meta = JSON.parse(readFileSync(join(mockDir, f), 'utf8'));
+      return typeof meta.schema_version === 'string' && meta.schema_version.startsWith('agv-dispatch-problem/');
+    } catch {
+      return false;
+    }
+  };
+  const candidates = existsSync(mockDir)
+    ? readdirSync(mockDir).filter((f) => /^(a\d|warehouse-)/.test(f) && f.endsWith('.json')).sort()
+    : [];
+  const files = candidates.filter(isAgvMock);
   check(`找到 AGV mock（${files.length} 个）`, files.length >= 13, files.join(' '));
+  // 反向护栏：凡是按名字看应当属于 AGV 的 mock，都必须声明 AGV 契约；
+  // 否则就是“按内容挑选”把文件悄悄漏掉了，不能只是数量变少却没人发现。
+  const missing = candidates.filter((f) => !files.includes(f));
+  check(`AGV 命名空间的 mock 全部声明 AGV 契约（缺 ${missing.length} 个）`, missing.length === 0, missing.join(' '));
   let okCount = 0;
   for (const f of files) {
     const text = readFileSync(join(mockDir, f), 'utf8');
