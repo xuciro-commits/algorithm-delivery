@@ -128,10 +128,8 @@ pub fn unsupported_policy_requests(
         bad += 1;
     }
     if (dispatch.rolling_horizon_s - DEFAULT_ROLLING_HORIZON_S).abs() > 1e-9 {
-        let supported = format!(
-            "{}（当前是一次性全量推演，不做滚动时域重排）",
-            DEFAULT_ROLLING_HORIZON_S
-        );
+        let supported =
+            format!("{DEFAULT_ROLLING_HORIZON_S}（当前是一次性全量推演，不做滚动时域重排）");
         reject(
             issues,
             "problem.dispatch.rollingHorizon_s",
@@ -289,9 +287,7 @@ pub fn solve_with_verification(
         } else {
             None
         },
-        verification: verification
-            .as_ref()
-            .map(|report| verification_json(report)),
+        verification: verification.as_ref().map(verification_json),
         report: verification,
     }
 }

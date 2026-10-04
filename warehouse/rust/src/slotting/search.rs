@@ -724,7 +724,7 @@ fn jv_assignment(matrix: &[f64], rows: usize, cols: usize) -> Option<Vec<usize>>
             result[p[j] - 1] = j - 1;
         }
     }
-    if result.iter().any(|value| *value == usize::MAX) {
+    if result.contains(&usize::MAX) {
         return None;
     }
     Some(result)
@@ -970,8 +970,9 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
                     codes::BOUND_AVAILABLE,
                     "optimality",
                     format!(
-                        "精确分派最优值 {:.3} 已获得，但报告的方案在线性松弛口径下为 {:.3}                         （为降低拥堵/搬迁代价做了调整），因此本方案不再声称最优；下界仍然有效",
-                        bound, linear
+                        "精确分派最优值 {bound:.3} 已获得，但报告的方案在线性松弛口径下为 \
+                         {linear:.3}（为降低拥堵/搬迁代价做了调整），因此本方案不再声称最优；\
+                         下界仍然有效"
                     ),
                 );
             }
@@ -1076,7 +1077,7 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
     );
     metrics.unmet_constraints = state.unassigned;
     metrics.scale.assignments = model.lu_sku.len().saturating_sub(state.unassigned);
-    metrics.scale.note = if model.lu_sku.len() > 0 {
+    metrics.scale.note = if !model.lu_sku.is_empty() {
         format!(
             "本结果来自 {} 个货物单元 × {} 个库位的实例；拥堵为排队代理模型，搬迁代价按设备运行时间计算",
             model.lu_sku.len(),
@@ -1447,14 +1448,16 @@ pub fn fill_gaps(model: &mut SlottingModel, mut assignment: Vec<i64>, seed: u64)
         assignment.resize(model.lu_sku.len(), -1);
     }
     let mut occupied = vec![false; model.locations.len()];
-    for lu in 0..model.lu_sku.len() {
-        let loc = assignment[lu];
-        if loc >= 0 {
-            if can_place(model, lu, loc as usize).is_err() || occupied[loc as usize] {
-                assignment[lu] = -1;
-            } else {
-                occupied[loc as usize] = true;
-            }
+    // 先剔除"非法或与已有落位冲突"的热启动值（同一库位只能放一个货物单元）
+    for (lu, loc) in assignment.iter_mut().enumerate() {
+        if *loc < 0 {
+            continue;
+        }
+        let index = *loc as usize;
+        if can_place(model, lu, index).is_err() || occupied[index] {
+            *loc = -1;
+        } else {
+            occupied[index] = true;
         }
     }
     let fallback = greedy_seed(model, seed);
@@ -1726,9 +1729,7 @@ fn genetic(
 ) -> SearchOutcomeInternal {
     let mut rng = Rng::new(seed_from(&["ga", &seed.to_string()]));
     let n = model.lu_sku.len();
-    let population_size = (options.max_iterations.unwrap_or(0) as usize)
-        .max(24)
-        .min(60);
+    let population_size = (options.max_iterations.unwrap_or(0) as usize).clamp(24, 60);
     let generations = problem.algorithm.max_iterations.clamp(20, 400);
     let mut population: Vec<Vec<usize>> = Vec::with_capacity(population_size);
     let base: Vec<usize> = {
@@ -1770,9 +1771,9 @@ fn genetic(
         if scored[0].0 < best_scalar - 1e-9 {
             best_scalar = scored[0].0;
             best_genome = scored[0].1.clone();
-            best_iteration = generation as u64;
+            best_iteration = generation;
         }
-        stats.iterations = generation as u64;
+        stats.iterations = generation;
         if generation % trace_every == 0 {
             stats.trace.push(round(best_scalar, 6));
             if stats.trace.len() > 256 {
@@ -1846,9 +1847,8 @@ fn order_crossover(a: &[usize], b: &[usize], rng: &mut Rng) -> Vec<usize> {
     }
     let (lo, hi) = (cut_a, cut_b + 1);
     let mut child = vec![usize::MAX; n];
-    for index in lo..=hi.min(n - 1) {
-        child[index] = a[index];
-    }
+    let upper = hi.min(n - 1) + 1;
+    child[lo..upper].copy_from_slice(&a[lo..upper]);
     let mut cursor = (hi + 1) % n;
     for offset in 0..n {
         let gene = b[(hi + 1 + offset) % n];

@@ -173,9 +173,9 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
 
     let mut skus: Vec<SkuSpec> = Vec::with_capacity(n);
     let mut pieces = 0.0f64;
-    for i in 0..n {
+    for (i, weight) in weights.iter().enumerate() {
         let rank = i + 1;
-        let share = weights[i] / weight_sum;
+        let share = weight / weight_sum;
         let size = sizes[rng.below(sizes.len())];
         let cv_base = params.demand_cv * if params.shape == "uniform" { 0.6 } else { 1.0 };
         let cv = (cv_base * (0.6 + rng.next_f64() * 0.9)).max(0.05);
@@ -222,7 +222,7 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
         };
         let mean_daily = ((share * total_units as f64 * 4.0) / 30.0).max(0.5);
         skus.push(SkuSpec {
-            id: format!("SKU-{:06}", rank),
+            id: format!("SKU-{rank:06}"),
             name: format!("商品 {rank}"),
             category: if frozen {
                 "冷冻".to_string()
@@ -519,10 +519,8 @@ pub fn generate_orders(
             .map(|f| f * (0.85 + rng.next_f64() * 0.3))
             .collect();
         let hour_sum: f64 = hour_weights.iter().sum::<f64>().max(1e-9);
-        for hour in 0..24usize {
-            let count = ((day_total * hour_weights[hour]) / hour_sum)
-                .round()
-                .max(0.0) as usize;
+        for (hour, weight) in hour_weights.iter().enumerate() {
+            let count = ((day_total * weight) / hour_sum).round().max(0.0) as usize;
             peak_by_hour.push(count);
             for _ in 0..count {
                 seq += 1;

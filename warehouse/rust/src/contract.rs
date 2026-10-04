@@ -1337,7 +1337,7 @@ pub fn parse_slotting_problem(root: &Json, issues: &mut Issues) -> SlottingProbl
             "未声明硬约束：验证器将按软约束处理（建议显式声明）",
         );
     }
-    SlottingProblem {
+    let problem = SlottingProblem {
         id: opt_str(root, "id").unwrap_or_else(|| "SLT-UNKNOWN".to_string()),
         scenario_id: opt_str(root, "scenarioId"),
         dataset_version: {
@@ -1361,7 +1361,21 @@ pub fn parse_slotting_problem(root: &Json, issues: &mut Issues) -> SlottingProbl
         cost_model: CostModelSpec::parse(field(root, "costModel").unwrap_or(&Json::Null)),
         events: parse_dynamic_events(root),
         hard_constraints,
+    };
+    // 逐时需求权重要么不给（用默认 24 段），要么必须正好 24 段：
+    // 少几段会让生成器漏掉一整天里的部分时段，多出来的段会被悄悄忽略——
+    // 两种都属于"静默改变模型"，这里直接报错而不是降级。
+    if !problem.demand.hourly_factor.is_empty() && problem.demand.hourly_factor.len() != 24 {
+        issues.error(
+            codes::VALUE_RANGE,
+            "problem.demand.hourlyFactor",
+            format!(
+                "逐时需求权重必须是 24 段（实际 {} 段）",
+                problem.demand.hourly_factor.len()
+            ),
+        );
     }
+    problem
 }
 
 /* ------------------------------------------------------------------ *
@@ -1625,9 +1639,9 @@ fn write_canonical(value: &Json, out: &mut String) {
             if f.is_finite() {
                 let rounded = (f * 1_000_000.0).round() / 1_000_000.0;
                 if rounded.fract() == 0.0 && rounded.abs() < 1e15 {
-                    out.push_str(&format!("{:.1}", rounded));
+                    out.push_str(&format!("{rounded:.1}"));
                 } else {
-                    out.push_str(&format!("{}", rounded));
+                    out.push_str(&format!("{rounded}"));
                 }
             } else {
                 out.push_str("null");

@@ -106,7 +106,7 @@ pub fn build_scenarios(model: &SlottingModel, count: usize, seed: u64) -> Vec<Sc
         });
     }
     // 6) 提升机降速（立库最常见的退化场景）
-    if model.lift_ids.len() > 0 {
+    if !model.lift_ids.is_empty() {
         let degraded = rng.below(model.lift_ids.len());
         let mut capacity = vec![1.0f64; model.lift_ids.len()];
         capacity[degraded] = 0.5;
@@ -147,8 +147,7 @@ pub fn build_scenarios(model: &SlottingModel, count: usize, seed: u64) -> Vec<Sc
             lift_capacity: vec![1.0; model.lift_ids.len()],
             weight: 1.0,
             description: format!(
-                "结构性随机情景（σ={:.2}）：逐 SKU 相关偏移 + 可能的巷道降级",
-                sigma
+                "结构性随机情景（σ={sigma:.2}）：逐 SKU 相关偏移 + 可能的巷道降级"
             ),
         });
     }

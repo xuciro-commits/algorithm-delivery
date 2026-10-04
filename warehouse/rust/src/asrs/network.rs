@@ -133,6 +133,8 @@ impl ReservationTable {
     }
 
     /// 查询 [from, to] 内该资源上是否有其他设备的占用；返回最早可开始的时刻与阻塞者。
+    // 这几个参数共同描述"一次占用"，拆成结构体反而看不出它们是同一次预约的组成部分。
+    #[allow(clippy::too_many_arguments)]
     pub fn earliest(
         &self,
         resource_id: &str,
@@ -470,6 +472,7 @@ impl<'a> RunNetwork<'a> {
     }
 
     /// 巷道内运行时间（梯形速度曲线；载荷影响速度）。
+    #[allow(clippy::too_many_arguments)]
     pub fn in_aisle_seconds(
         &self,
         aisle_id: &str,

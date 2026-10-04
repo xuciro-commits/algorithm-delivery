@@ -178,7 +178,7 @@ pub fn human_duration(seconds: f64) -> String {
         return "—".to_string();
     }
     if seconds < 60.0 {
-        format!("{:.1} s", seconds)
+        format!("{seconds:.1} s")
     } else if seconds < 3600.0 {
         format!("{:.1} min", seconds / 60.0)
     } else {

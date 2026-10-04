@@ -21,6 +21,18 @@ use crate::asrs::timeline::{BufferState, LocationState, Step, TaskTrace, Timelin
 use crate::contract::{AsrsProblem, DeviceKind, DeviceSpec, DynamicEvent, WarehouseTask};
 use crate::util::{mean, round, seed_from, Rng};
 
+/// 空驶路径的一段：`(起点, 起点节点, 终点, 终点节点, 占用的资源, 是否允许会车)`。
+/// 跨巷道 / 跨层时会把一步空驶拆成多段，每段只占用一条资源，
+/// 验证器才能逐段复核互斥、三维里也能如实画出拐弯。
+type DriveSegment = (
+    DevicePosition,
+    Option<String>,
+    DevicePosition,
+    Option<String>,
+    String,
+    bool,
+);
+
 /// 调度选项（CLI / 实验室 / wasm 共用）。
 #[derive(Debug, Clone)]
 pub struct AsrsOptions {
@@ -724,6 +736,7 @@ fn commit_step(
 }
 
 /// 选择执行任务的设备：能力过滤 + 最早可用 + 空驶距离（策略相关）。
+#[allow(clippy::too_many_arguments)]
 fn select_device(
     network: &RunNetwork,
     world: &World,
@@ -738,9 +751,9 @@ fn select_device(
     let candidates = network.devices_for(kind, aisle_id, level);
     let mut scored: Vec<(f64, String)> = Vec::new();
     for device in candidates {
-        if world.device_available(&device.id, 0.0, 0.0).0 > 0.0 && false {
-            continue;
-        }
+        // 故障/保养窗口不在这里剔除候选：那是"这台设备此刻不可用、要顺延"，
+        // 不是"这台设备不存在"。真正的占用顺延由排程阶段的 `device_available` 处理，
+        // 并写进 conflictEvents（可复核），选择阶段只按"可用时刻 + 空驶距离"打分。
         let position = state
             .device_pos
             .get(&device.id)
@@ -1009,7 +1022,7 @@ pub fn simulate(
                                 at_s: trace.end_s,
                                 location_id: free.clone(),
                                 load_unit_id: Some(load_unit.clone()),
-                                reason: format!("倒垛落位（来自 {}）", blocked_location),
+                                reason: format!("倒垛落位（来自 {blocked_location}）"),
                             });
                         }
                     } else {
@@ -1065,15 +1078,17 @@ pub fn simulate(
     // —— 指标 ——
     // 只把**输入任务**计入 tasksTotal/tasksDone/tasksUnserved；倒垛是派生的搬运作业，单独统计。
     let input_task_ids: BTreeSet<String> = order.iter().map(|task| task.id.clone()).collect();
-    let mut metrics = ScheduleMetrics::default();
-    metrics.tasks_total = order.len();
-    metrics.conflicts = state.reservations.conflicts.len();
-    metrics.deadlocks_prevented = state.reservations.deadlocks_prevented;
-    metrics.reservations = state.reservations.reservations();
-    metrics.relocation_tasks = relocation_tasks;
-    metrics.blocked_moves = blocked_moves;
-    metrics.dual_command_pairs = dual_pairs;
-    metrics.conflict_events = state.conflicts.clone();
+    let mut metrics = ScheduleMetrics {
+        tasks_total: order.len(),
+        conflicts: state.reservations.conflicts.len(),
+        deadlocks_prevented: state.reservations.deadlocks_prevented,
+        reservations: state.reservations.reservations(),
+        relocation_tasks,
+        blocked_moves,
+        dual_command_pairs: dual_pairs,
+        conflict_events: state.conflicts.clone(),
+        ..ScheduleMetrics::default()
+    };
     for step in &timeline.steps {
         metrics.travel_meters += step.distance_m;
         metrics.energy_kwh += step.energy_kwh;
@@ -1322,14 +1337,7 @@ fn run_task(
     // 既无法精确复核互斥，也没法在三维里如实画出车怎么拐弯。
     let same_lane = cursor.aisle_id.as_deref() == Some(record.aisle_id.as_str())
         && cursor.level == record.level;
-    let mut segments: Vec<(
-        DevicePosition,
-        Option<String>,
-        DevicePosition,
-        Option<String>,
-        String,
-        bool,
-    )> = Vec::new();
+    let mut segments: Vec<DriveSegment> = Vec::new();
     if same_lane {
         segments.push((
             cursor.clone(),
@@ -1435,7 +1443,7 @@ fn run_task(
             loaded: false,
             distance_m: meters,
             energy_kwh: meters * shuttle.energy_kwh_per_meter + shuttle.energy_kwh_per_move,
-            note: format!("空驶到 {}（{}）", location_id, kind),
+            note: format!("空驶到 {location_id}（{kind}）"),
             resource_id: Some(resource.clone()),
             resources: Vec::new(),
             delayed_by_s: 0.0,
@@ -1633,8 +1641,7 @@ fn run_task(
                     world.device_available(&lift_id, lift_start, lift_motion.change_level_s + 30.0);
                 if let Some(reason) = &outage {
                     state.conflicts.push(format!(
-                        "{lift_id} 在 {:.0}s 处于故障窗口（{reason}），提升被推迟",
-                        lift_start
+                        "{lift_id} 在 {lift_start:.0}s 处于故障窗口（{reason}），提升被推迟"
                     ));
                 }
                 let (lift_seconds, lift_meters) =
@@ -1808,11 +1815,9 @@ fn nearest_aisle_end(
     let mut best: Option<(f64, String, DevicePosition)> = None;
     for node_id in &aisle.end_node_ids {
         // 端头节点按层命名（N-{aisle}-L{level}-{W|E}）
-        let candidate_id = if node_id.contains("-L") {
-            node_id.clone()
-        } else {
-            format!("{node_id}")
-        };
+        // 端头节点在模板里可能只写巷道名（`N-A01-E`），也可能已经带层号；
+        // 两种都按原样使用，缺层号时下面 `or_else` 会补上 {level}。
+        let candidate_id = node_id.clone();
         let node = network.topology.node(&candidate_id).or_else(|| {
             let with_level = format!(
                 "{}-L{level}-{}",
@@ -1964,8 +1969,7 @@ pub fn solve(network: &mut RunNetwork, world: &World, options: &AsrsOptions) -> 
     best.metrics.sim_iterations = iterations + 1;
     best.metrics.compute_ms = round(crate::engine::now_ms() - started, 3);
     best.order_notes.push(format!(
-        "联合搜索：{} 次真实重演（每次都是完整时间线，不用代理指标）",
-        iterations
+        "联合搜索：{iterations} 次真实重演（每次都是完整时间线，不用代理指标）"
     ));
     best
 }

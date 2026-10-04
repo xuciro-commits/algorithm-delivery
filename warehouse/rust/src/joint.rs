@@ -119,6 +119,9 @@ impl Default for JointOutcome {
     }
 }
 
+/// 本轮胜出方案的完整证据：`(轮次记录, 库位解, 调度解, 时间线, 核验报告)`。
+type RoundBest = (RoundRecord, Json, Json, Option<Json>, Option<Json>);
+
 /// 一轮的实测数据（全部来自真实求解，不用估算值）。
 #[derive(Debug, Clone, Default)]
 struct RoundRecord {
@@ -186,7 +189,7 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
     let mut records: Vec<RoundRecord> = Vec::new();
     // 最优轮的关联簇归属（三维叠加与解释共用；与库位侧同一份口径）。
     let mut best_clusters = Json::Null;
-    let mut best: Option<(RoundRecord, Json, Json, Option<Json>, Option<Json>)> = None;
+    let mut best: Option<RoundBest> = None;
     // 反馈通道：把调度侧观测到的拥堵回写到库位模型的成本参数上
     let mut congestion_feedback = 0.0f64;
     let mut round_index = 0u64;
@@ -426,6 +429,10 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
                             (
                                 "slottingTravelSecondsPerDay",
                                 Json::Float(record.slotting_travel_seconds_per_day),
+                            ),
+                            (
+                                "slottingCongestionSecondsPerDay",
+                                Json::Float(record.slotting_congestion_seconds_per_day),
                             ),
                             ("relocationCount", Json::int(record.relocation_count as i64)),
                             ("tasksDone", Json::int(record.asrs_tasks_done as i64)),

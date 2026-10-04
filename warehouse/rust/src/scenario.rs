@@ -68,6 +68,7 @@ pub struct ScenarioSpec {
     pub must_show: &'static [&'static str],
 }
 
+#[allow(clippy::too_many_arguments)]
 const fn spec(
     id: &'static str,
     family: Family,
@@ -1737,7 +1738,7 @@ fn build_tasks(
                 .copied()
                 .filter(|index| locations[*index].depth >= 2)
                 .collect();
-            let pick = if !deep_free.is_empty() && rng.next_f64() < 0.4 {
+            if !deep_free.is_empty() && rng.next_f64() < 0.4 {
                 let candidate = deep_free[rng.below(deep_free.len())];
                 free_pool.retain(|index| *index != candidate);
                 candidate
@@ -1749,8 +1750,7 @@ fn build_tasks(
                 free_pool[rng.below(free_pool.len())]
             } else {
                 rng.below(locations.len())
-            };
-            pick
+            }
         };
         let location = locations[location_index].clone();
         let unit = unit_of_location.get(location.id.as_str()).copied();

@@ -350,7 +350,7 @@ pub fn compute_affinity(problem: &SlottingProblem) -> Affinity {
     let target_clusters = ((n as f64).sqrt() / 4.0).round().clamp(0.0, 64.0) as usize;
     if target_clusters > 0 && n > target_clusters {
         let mut parent: Vec<usize> = (0..n).collect();
-        fn find(parent: &mut Vec<usize>, mut x: usize) -> usize {
+        fn find(parent: &mut [usize], mut x: usize) -> usize {
             while parent[x] != x {
                 parent[x] = parent[parent[x]];
                 x = parent[x];
@@ -369,11 +369,10 @@ pub fn compute_affinity(problem: &SlottingProblem) -> Affinity {
             }
         }
         let mut labels: BTreeMap<usize, usize> = BTreeMap::new();
-        for i in 0..n {
-            let root = find(&mut parent, i);
+        for (index, label_slot) in cluster_of.iter_mut().enumerate() {
+            let root = find(&mut parent, index);
             let next = labels.len();
-            let label = *labels.entry(root).or_insert(next);
-            cluster_of[i] = label as i64;
+            *label_slot = *labels.entry(root).or_insert(next) as i64;
         }
         clusters = labels.len();
     }
@@ -1113,13 +1112,17 @@ pub fn build_migrations(model: &mut SlottingModel, state: &SlottingState) -> Vec
     actions
 }
 
+/// 一条解释：`(主题, 结论, 证据清单)`。CLI 报告、面板与三维高亮都按这三段渲染，
+/// 确定性 / 鲁棒 / 动态三条求解路径共用同一种形状。
+pub type Explanation = (String, String, Vec<(String, Json)>);
+
 /// 解释"为什么货物应该放在这些库位"（SRS §14 问题 1）——必须引用真实计算证据。
 pub fn explain(
     model: &SlottingModel,
     state: &SlottingState,
     infeasibility: Option<&str>,
-) -> Vec<(String, String, Vec<(String, Json)>)> {
-    let mut out: Vec<(String, String, Vec<(String, Json)>)> = Vec::new();
+) -> Vec<Explanation> {
+    let mut out: Vec<Explanation> = Vec::new();
     let mut a_seconds = 0.0;
     let mut a_count = 0usize;
     let mut c_seconds = 0.0;
@@ -1316,7 +1319,7 @@ pub struct SlottingOutcome {
     pub migrations: Vec<MigrationAction>,
     pub metrics: SlottingMetrics,
     pub objectives: Vec<ObjectiveValue>,
-    pub explanations: Vec<(String, String, Vec<(String, Json)>)>,
+    pub explanations: Vec<Explanation>,
     pub pareto: Vec<BTreeMap<String, f64>>,
     pub search: SearchSummary,
     pub issues: Issues,

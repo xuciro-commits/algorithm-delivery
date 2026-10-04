@@ -546,7 +546,6 @@ pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Statu
         &outcome.seed.to_string(),
         input,
     ]);
-    let mut issues = issues;
     for issue in outcome.issues.items.iter() {
         issues.items.push(issue.clone());
     }

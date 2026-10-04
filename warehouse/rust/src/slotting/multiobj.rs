@@ -293,7 +293,7 @@ fn scalar_of(values: &[f64], weights: &Weights, model: &SlottingModel) -> f64 {
 }
 
 /// 快速非支配排序 + 拥挤距离。
-fn assign_ranks(population: &mut Vec<Individual>) {
+fn assign_ranks(population: &mut [Individual]) {
     let size = population.len();
     let mut dominated: Vec<Vec<usize>> = vec![Vec::new(); size];
     let mut domination_count = vec![0usize; size];
@@ -390,9 +390,8 @@ fn crossover(a: &[usize], b: &[usize], rng: &mut Rng) -> Vec<usize> {
     }
     let (lo, hi) = (cut_a, cut_b + 1);
     let mut child = vec![usize::MAX; n];
-    for index in lo..=hi.min(n - 1) {
-        child[index] = a[index];
-    }
+    let upper = hi.min(n - 1) + 1;
+    child[lo..upper].copy_from_slice(&a[lo..upper]);
     let mut cursor = (hi + 1) % n;
     for offset in 0..n {
         let gene = b[(hi + 1 + offset) % n];

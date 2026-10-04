@@ -329,7 +329,7 @@ pub fn bind_triggers(
             .unwrap_or_default();
         let matched = applied
             .iter()
-            .find(|event| event.affected.iter().any(|item| *item == sku))
+            .find(|event| event.affected.contains(&sku))
             .or_else(|| applied.first());
         if let Some(event) = matched {
             action.trigger = Some((event.kind.clone(), event.at_s, event.detail.clone()));

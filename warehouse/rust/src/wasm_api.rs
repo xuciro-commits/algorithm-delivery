@@ -37,15 +37,16 @@ pub extern "C" fn wh_alloc(len: usize) -> *mut u8 {
     pointer
 }
 
-/// 释放输入缓冲。
+/// 释放输入缓冲（`wh_alloc` 的配对调用）。
+///
+/// # Safety
+/// `pointer` / `len` 必须来自同一次 `wh_alloc` 调用，且没有被重复释放。
 #[no_mangle]
-pub extern "C" fn wh_free(pointer: *mut u8, len: usize) {
+pub unsafe extern "C" fn wh_free(pointer: *mut u8, len: usize) {
     if pointer.is_null() || len == 0 {
         return;
     }
-    unsafe {
-        let _ = Vec::from_raw_parts(pointer, len, len);
-    }
+    let _ = Vec::from_raw_parts(pointer, len, len);
 }
 
 /// 释放结果缓冲（宿主读完即调用）。
@@ -185,14 +186,8 @@ pub extern "C" fn wh_solve_with_options(
         Some(text) => text,
         None => return Status::InvalidInput.code(),
     };
-    let options = if options_len == 0 {
-        None
-    } else {
-        match read_input(options_ptr, options_len) {
-            Some(value) => Some(value),
-            None => None,
-        }
-    };
+    // 空指针 / 长度为 0 由 `read_input` 判成 None（与 native CLI"没给参数"同义）
+    let options = read_input(options_ptr, options_len);
     crate::engine::reset_cancel();
     let kind = aps_engine::json::parse(&text)
         .ok()
