@@ -16,10 +16,10 @@ use crate::slotting::strategies;
 use aps_engine::json::Json;
 
 use crate::slotting::{
-    build_metrics, build_migrations, build_model, can_place, evaluate, explain, prove_infeasibility,
-    risk_measure, seed_random_assignment, stability_of, validate_problem, CostConfig,
-    ObjectiveValue, SearchSummary, SlottingModel, SlottingOutcome, SlottingSolveOptions,
-    SlottingState,
+    build_metrics, build_migrations, build_model, can_place, evaluate, explain,
+    prove_infeasibility, risk_measure, seed_random_assignment, stability_of, validate_problem,
+    CostConfig, ObjectiveValue, SearchSummary, SlottingModel, SlottingOutcome,
+    SlottingSolveOptions, SlottingState,
 };
 use crate::util::{mean, percentile, round, seed_from, Rng};
 
@@ -50,8 +50,16 @@ pub fn weights_of(problem: &SlottingProblem) -> Weights {
         let reference = objective
             .normalizer
             .unwrap_or_else(|| crate::slotting::default_normalizer(&objective.id));
-        let scale = if reference > 0.0 { 1.0 / reference } else { 1.0 };
-        let sign = if objective.direction == "min" { 1.0 } else { -1.0 };
+        let scale = if reference > 0.0 {
+            1.0 / reference
+        } else {
+            1.0
+        };
+        let sign = if objective.direction == "min" {
+            1.0
+        } else {
+            -1.0
+        };
         let value = objective.weight * scale * sign;
         match objective.id.as_str() {
             "expected-travel-time" => w.time += value,
@@ -212,10 +220,7 @@ fn destroy(
                 .map(|lu| {
                     let loc = state.loc_of_lu[*lu] as usize;
                     // 移除收益 = 该库位对目标的贡献（越高越该重排）
-                    (
-                        model.unit_flow[*lu] * weighted_seconds(model, loc),
-                        *lu,
-                    )
+                    (model.unit_flow[*lu] * weighted_seconds(model, loc), *lu)
                 })
                 .collect();
             scored.sort_by(|a, b| {
@@ -353,7 +358,11 @@ fn insertion_cost(model: &SlottingModel, state: &SlottingState, lu: usize, loc: 
     let flow = model.unit_flow[lu];
     let time = flow * weighted_seconds(model, loc);
     let cost = &model.costs[loc];
-    let capacity = model.aisle_capacity.get(cost.aisle_index).copied().unwrap_or(0.0);
+    let capacity = model
+        .aisle_capacity
+        .get(cost.aisle_index)
+        .copied()
+        .unwrap_or(0.0);
     let before = state.aisle_flow[cost.aisle_index];
     let after = before + flow;
     let delta = aisle_congestion(
@@ -445,7 +454,11 @@ fn repair(
                             second = cost;
                         }
                     }
-                    let regret = if second.is_finite() { second - first } else { 1e9 };
+                    let regret = if second.is_finite() {
+                        second - first
+                    } else {
+                        1e9
+                    };
                     if regret > best_regret {
                         best_regret = regret;
                         best = index;
@@ -467,7 +480,8 @@ fn repair(
                             if *loc < 0 || model.lu_sku[other_lu] != *mate {
                                 continue;
                             }
-                            best_mate_bay = Some((*loc as usize, model.locations[*loc as usize].bay));
+                            best_mate_bay =
+                                Some((*loc as usize, model.locations[*loc as usize].bay));
                             break;
                         }
                         if let Some((mate_loc, mate_bay)) = best_mate_bay {
@@ -826,10 +840,7 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
             problem.algorithm.seeds.clone()
         };
         if declared.is_empty() {
-            vec![options
-                .seed
-                .unwrap_or(problem.algorithm.seed)
-                .max(1)]
+            vec![options.seed.unwrap_or(problem.algorithm.seed).max(1)]
         } else {
             declared
         }
@@ -858,7 +869,9 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
                     budget_ms,
                 ),
                 "tabu" => tabu(&mut model, problem, options, &weights, seed, budget_ms),
-                "sa" => simulated_annealing(&mut model, problem, options, &weights, seed, budget_ms),
+                "sa" => {
+                    simulated_annealing(&mut model, problem, options, &weights, seed, budget_ms)
+                }
                 "ga" => genetic(&mut model, problem, options, &weights, seed, budget_ms),
                 "nsga2" => multiobj::nsga2(&mut model, problem, options, &weights, seed, budget_ms),
                 "robust" => crate::slotting::robust::robust(
@@ -866,7 +879,8 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
                 ),
                 other => {
                     // 基础策略：确定性构造（不做任何搜索，保证与教材口径一致）
-                    let (basic_model, assignment, _) = strategies::solve_basic(problem, other, cost_config.clone());
+                    let (basic_model, assignment, _) =
+                        strategies::solve_basic(problem, other, cost_config.clone());
                     let mut basic_model = basic_model;
                     let state = SlottingState::rebuild(&mut basic_model, &assignment);
                     SearchOutcomeInternal {
@@ -889,7 +903,9 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
         per_seed.push((seed, round(scalar, 6)));
         let better = best
             .as_ref()
-            .map(|(best_model, best_result, _)| scalar < fast_scalar(best_model, &best_result.state, &weights))
+            .map(|(best_model, best_result, _)| {
+                scalar < fast_scalar(best_model, &best_result.state, &weights)
+            })
             .unwrap_or(true);
         if better {
             best = Some((model, result, seed));
@@ -1012,7 +1028,11 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
                     optimality.method,
                     round(gap * 100.0, 2),
                     optimality.scope,
-                    if budget_hit { "；本次为预算受限结束" } else { "" }
+                    if budget_hit {
+                        "；本次为预算受限结束"
+                    } else {
+                        ""
+                    }
                 ),
             );
         }
@@ -1036,7 +1056,12 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
         );
     }
 
-    let stability = stability_of(&per_seed.iter().map(|(_, value)| *value).collect::<Vec<f64>>());
+    let stability = stability_of(
+        &per_seed
+            .iter()
+            .map(|(_, value)| *value)
+            .collect::<Vec<f64>>(),
+    );
     let explanations = explain(&model, &state, infeasibility.as_deref());
     // 对照矩阵：同一模型、同一口径下比较"当前布局 / 随机布局 / 本次方案"。
     let comparison = comparison_json(&mut model, &state, &weights);
@@ -1098,15 +1123,38 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
         robust_cvar: None,
     };
     if algorithm == "robust" {
-        summary.robust_mean = Some(round(objective.values.get("expected-travel-time").copied().unwrap_or(0.0), 3));
+        summary.robust_mean = Some(round(
+            objective
+                .values
+                .get("expected-travel-time")
+                .copied()
+                .unwrap_or(0.0),
+            3,
+        ));
         summary.robust_cvar = Some(round(cvar_of_state(&model, &state), 3));
         summary.robust_worst = Some(round(
-            objective.values.get("expected-travel-time").copied().unwrap_or(0.0)
+            objective
+                .values
+                .get("expected-travel-time")
+                .copied()
+                .unwrap_or(0.0)
                 * state.congestion_factor(&model),
             3,
         ));
     }
     let assignment_map = state.loc_of_lu.clone();
+    // 关联簇归属（按 SKU 下标对齐；未成簇记 -1）——解释与三维叠加共用同一份口径。
+    let cluster_of_sku: Vec<(String, i64)> = model
+        .skus
+        .iter()
+        .enumerate()
+        .map(|(index, sku)| {
+            (
+                sku.id.clone(),
+                model.affinity.cluster_of.get(index).copied().unwrap_or(-1),
+            )
+        })
+        .collect();
     SlottingOutcome {
         status,
         budget_exceeded: budget_hit,
@@ -1124,6 +1172,7 @@ pub fn run(problem: &SlottingProblem, options: &SlottingSolveOptions) -> Slottin
         issues,
         comparison,
         assignment_map,
+        cluster_of_sku,
     }
 }
 
@@ -1144,9 +1193,7 @@ fn cvar_of_state(model: &SlottingModel, state: &SlottingState) -> f64 {
     // 逐货物单元运行时间视为随机变量的经验分布（用于稳健目标的报告）
     let values: Vec<f64> = (0..state.loc_of_lu.len())
         .filter(|lu| state.loc_of_lu[*lu] >= 0)
-        .map(|lu| {
-            model.unit_flow[lu] * weighted_seconds(model, state.loc_of_lu[lu] as usize)
-        })
+        .map(|lu| model.unit_flow[lu] * weighted_seconds(model, state.loc_of_lu[lu] as usize))
         .collect();
     if values.is_empty() {
         return 0.0;
@@ -1170,14 +1217,25 @@ fn objective_values(
             let reference = spec
                 .normalizer
                 .unwrap_or_else(|| crate::slotting::default_normalizer(&spec.id));
-            let ratio = if reference > 0.0 { raw / reference } else { raw };
+            let ratio = if reference > 0.0 {
+                raw / reference
+            } else {
+                raw
+            };
             ObjectiveValue {
                 id: spec.id.clone(),
                 direction: spec.direction.clone(),
                 unit: spec.unit.clone(),
                 weight: spec.weight,
                 raw: round(raw, 4),
-                normalized: round(if spec.direction == "min" { 1.0 - ratio.min(1.0) } else { ratio.min(1.0) }, 4),
+                normalized: round(
+                    if spec.direction == "min" {
+                        1.0 - ratio.min(1.0)
+                    } else {
+                        ratio.min(1.0)
+                    },
+                    4,
+                ),
                 conflicts_with: Vec::new(),
                 note: spec.note.clone(),
             }
@@ -1203,6 +1261,7 @@ fn failed_outcome(algorithm: String, status: Status, issues: Issues) -> Slotting
         issues,
         comparison: Json::Null,
         assignment_map: Vec::new(),
+        cluster_of_sku: Vec::new(),
     }
 }
 
@@ -1242,7 +1301,11 @@ fn alns(
     seed: u64,
     budget_ms: f64,
 ) -> SearchOutcomeInternal {
-    let mut rng = Rng::new(seed_from(&["alns", &seed.to_string(), &problem.algorithm.algorithm]));
+    let mut rng = Rng::new(seed_from(&[
+        "alns",
+        &seed.to_string(),
+        &problem.algorithm.algorithm,
+    ]));
     let initial = greedy_seed(model, seed);
     let mut state = SlottingState::rebuild(model, &initial);
     let mut current = fast_scalar(model, &state, weights);
@@ -1317,12 +1380,14 @@ fn alns(
         if iteration % segment == 0 {
             for index in 0..destroy_weights.len() {
                 let score = segment_scores[index] / segment_uses[index].max(1) as f64;
-                destroy_weights[index] = (0.8 * destroy_weights[index] + 0.2 * score.max(0.1)).max(0.05);
+                destroy_weights[index] =
+                    (0.8 * destroy_weights[index] + 0.2 * score.max(0.1)).max(0.05);
             }
             for index in 0..repair_weights.len() {
-                let score =
-                    segment_scores[DESTROY_OPS.len() + index] / segment_uses[DESTROY_OPS.len() + index].max(1) as f64;
-                repair_weights[index] = (0.8 * repair_weights[index] + 0.2 * score.max(0.1)).max(0.05);
+                let score = segment_scores[DESTROY_OPS.len() + index]
+                    / segment_uses[DESTROY_OPS.len() + index].max(1) as f64;
+                repair_weights[index] =
+                    (0.8 * repair_weights[index] + 0.2 * score.max(0.1)).max(0.05);
             }
             segment_scores.iter_mut().for_each(|value| *value = 0.0);
             segment_uses.iter_mut().for_each(|value| *value = 0);
@@ -1449,7 +1514,10 @@ fn tabu(
     let mut best_state = state.clone_state();
     let mut best_scalar = current;
     let mut tabu_until: BTreeMap<(usize, i64), u64> = BTreeMap::new();
-    let tenure = options.tabu_tenure.unwrap_or((model.lu_sku.len() as f64).sqrt() as u64).max(4);
+    let tenure = options
+        .tabu_tenure
+        .unwrap_or((model.lu_sku.len() as f64).sqrt() as u64)
+        .max(4);
     let max_iterations = options
         .max_iterations
         .unwrap_or(problem.algorithm.max_iterations.max(1))
@@ -1488,7 +1556,10 @@ fn tabu(
             if tabu_active && value >= best_scalar - 1e-9 {
                 continue; // 禁忌且不能特赦
             }
-            if best_move.map(|(_, current_best)| value < current_best).unwrap_or(true) {
+            if best_move
+                .map(|(_, current_best)| value < current_best)
+                .unwrap_or(true)
+            {
                 best_move = Some((candidate_move, value));
             }
         }
@@ -1735,7 +1806,7 @@ fn genetic(
     }
 
     let assignment = decode_assignment(model, &best_genome);
-        let state = SlottingState::rebuild(model, &assignment);
+    let state = SlottingState::rebuild(model, &assignment);
     stats.best_iteration = best_iteration;
     stats.elapsed_ms = round(crate::engine::now_ms() - started, 3);
     SearchOutcomeInternal {
@@ -1848,7 +1919,9 @@ fn exact_seeded(
     let started = crate::engine::now_ms();
     let mut state = SlottingState::rebuild(model, &assignment);
     let mut stats = SearchStats::default();
-    stats.operators.insert("精确分派（匈牙利算法）".to_string(), 1);
+    stats
+        .operators
+        .insert("精确分派（匈牙利算法）".to_string(), 1);
     // 预算内做一轮确定性邻域改良（不改变已证明的分派最优性结论，仅用于拥堵/搬迁项）
     let mut improved = 0u64;
     let deadline = started + budget_ms * 0.5;
@@ -1874,9 +1947,7 @@ fn exact_seeded(
     stats.iterations = improved;
     stats.best_iteration = improved;
     stats.elapsed_ms = round(crate::engine::now_ms() - started, 3);
-    stats
-        .operators
-        .insert("邻域改良迭代".to_string(), improved);
+    stats.operators.insert("邻域改良迭代".to_string(), improved);
     SearchOutcomeInternal {
         state,
         stats,
@@ -1982,7 +2053,10 @@ fn comparison_point(
     (
         "point".to_string(),
         Json::obj(vec![
-            ("weightedObjective", Json::Float(round(fast_scalar(model, state, weights), 4))),
+            (
+                "weightedObjective",
+                Json::Float(round(fast_scalar(model, state, weights), 4)),
+            ),
             (
                 "linearSecondsPerDay",
                 Json::Float(round(linear_relaxation_value(model, state), 4)),
@@ -2018,11 +2092,7 @@ fn comparison_snapshot(state: &SlottingState) -> Json {
 
 /// 三方对照：当前布局（problem.currentAssignment）作为基线，随机布局作为下界参照，
 /// 本次方案作为结果。全部用同一套目标函数与同一套库位成本重算，不用任何"历史报告值"。
-fn comparison_json(
-    model: &mut SlottingModel,
-    state: &SlottingState,
-    weights: &Weights,
-) -> Json {
+fn comparison_json(model: &mut SlottingModel, state: &SlottingState, weights: &Weights) -> Json {
     let mut rows: Vec<(String, Json)> = Vec::new();
     // 1) 当前布局
     let current_assignment = model.current_loc.clone();

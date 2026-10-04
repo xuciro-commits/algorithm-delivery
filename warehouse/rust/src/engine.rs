@@ -32,6 +32,44 @@ pub fn cancel() {
     CANCELLED.store(true, Ordering::Relaxed);
 }
 
+/// 调试计时开关：native 读环境变量；wasm32 上恒为关闭。
+///
+/// 为什么这么写：`std::time::Instant::now()` 在 `wasm32-unknown-unknown` 上会 panic，
+/// `std::env::var` 也不可用；所以所有调试计时在 wasm 目标下都是**编译期关闭**的空操作，
+/// 保证浏览器里的行为与 native 一致（只是没有 [t]/[prof] 日志）。
+#[cfg(not(target_arch = "wasm32"))]
+pub fn profile_enabled() -> bool {
+    std::env::var("WH_TIME").is_ok() || std::env::var("WH_PROF").is_ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn profile_enabled() -> bool {
+    false
+}
+
+/// 调试计时起点：未开启调试时为 `None`（调用方把它交给 `prof_elapsed_ms`）。
+#[cfg(not(target_arch = "wasm32"))]
+pub fn prof_now() -> Option<std::time::Instant> {
+    if profile_enabled() {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn prof_now() -> Option<std::time::Instant> {
+    None
+}
+
+/// 计时读数（毫秒）：未开启调试返回 0。
+pub fn prof_elapsed_ms(start: Option<std::time::Instant>) -> u64 {
+    match start {
+        Some(clock) => clock.elapsed().as_millis() as u64,
+        None => 0,
+    }
+}
+
 pub fn reset_cancel() {
     CANCELLED.store(false, Ordering::Relaxed);
 }
@@ -92,14 +130,17 @@ impl Envelope {
             ("engineVersion", Json::str(ENGINE_VERSION)),
             ("rulesetVersion", Json::str(crate::RULESET_VERSION)),
             ("fingerprint", Json::str(self.fingerprint.clone())),
-            ("runtimeMs", Json::Float(crate::util::round(self.runtime_ms, 3))),
-            ("objective", Json::Float(crate::util::round(self.objective, 6))),
+            (
+                "runtimeMs",
+                Json::Float(crate::util::round(self.runtime_ms, 3)),
+            ),
+            (
+                "objective",
+                Json::Float(crate::util::round(self.objective, 6)),
+            ),
             ("result", self.result.clone()),
             ("metrics", self.metrics.clone()),
-            (
-                "timeline",
-                self.timeline.clone().unwrap_or(Json::Null),
-            ),
+            ("timeline", self.timeline.clone().unwrap_or(Json::Null)),
             (
                 "verification",
                 self.verification.clone().unwrap_or(Json::Null),
@@ -109,9 +150,33 @@ impl Envelope {
     }
 }
 
+/// 关联簇归属（`{ count, bySku }`）：三维里的"关联簇叠加"与解释面板都读这一份。
+///
+/// 为什么由引擎给、不让前端算：聚类口径（并查集阈值、目标簇数）是算法的一部分，
+/// 前端再算一次就会出现"解释说的是 7 个簇、画布上画的是 9 个簇"这种对不上的情况。
+pub fn slotting_clusters_json(outcome: &SlottingOutcome) -> Json {
+    let mut by_sku = std::collections::BTreeMap::new();
+    let mut clusters: i64 = 0;
+    for (sku, cluster) in &outcome.cluster_of_sku {
+        by_sku.insert(sku.clone(), Json::int(*cluster));
+        clusters = clusters.max(*cluster + 1);
+    }
+    Json::obj(vec![
+        ("count", Json::int(clusters)),
+        ("bySku", Json::Obj(by_sku)),
+        (
+            "note",
+            Json::str(
+                "并查集按订单共出库权重聚类（确定性），-1 表示未成簇；仅用于分组可视化与解释",
+            ),
+        ),
+    ])
+}
+
 /// 把库位优化结果序列化成契约形态（`warehouse-slotting-solution/1.0`）。
 pub fn slotting_solution_json(outcome: &SlottingOutcome) -> Json {
     Json::obj(vec![
+        ("kind", Json::str("slotting")),
         ("status", Json::str(outcome.status.as_str())),
         ("algorithm", Json::str(outcome.algorithm.clone())),
         ("seed", Json::int(outcome.seed as i64)),
@@ -149,6 +214,7 @@ pub fn slotting_solution_json(outcome: &SlottingOutcome) -> Json {
                     .collect(),
             ),
         ),
+        ("clusters", slotting_clusters_json(outcome)),
         (
             "migrationPlan",
             Json::obj(vec![
@@ -202,10 +268,20 @@ pub fn slotting_solution_json(outcome: &SlottingOutcome) -> Json {
             Json::obj(vec![
                 ("iterations", Json::int(outcome.search.iterations as i64)),
                 ("restarts", Json::int(outcome.search.restarts as i64)),
-                ("bestIteration", Json::int(outcome.search.best_iteration as i64)),
+                (
+                    "bestIteration",
+                    Json::int(outcome.search.best_iteration as i64),
+                ),
                 (
                     "trace",
-                    Json::Arr(outcome.search.trace.iter().map(|v| Json::Float(*v)).collect()),
+                    Json::Arr(
+                        outcome
+                            .search
+                            .trace
+                            .iter()
+                            .map(|v| Json::Float(*v))
+                            .collect(),
+                    ),
                 ),
                 (
                     "operators",
@@ -239,7 +315,9 @@ pub fn slotting_solution_json(outcome: &SlottingOutcome) -> Json {
                             ("text", Json::str(text.clone())),
                             (
                                 "evidence",
-                                Json::Obj(facts.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+                                Json::Obj(
+                                    facts.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                                ),
                             ),
                         ])
                     })
@@ -281,7 +359,10 @@ fn migration_json(action: &crate::slotting::MigrationAction) -> Json {
             "estimatedDeviceSeconds",
             Json::Float(action.estimated_device_seconds),
         ),
-        ("estimatedEnergyKwh", Json::Float(action.estimated_energy_kwh)),
+        (
+            "estimatedEnergyKwh",
+            Json::Float(action.estimated_energy_kwh),
+        ),
         (
             "trigger",
             match &action.trigger {
@@ -313,20 +394,26 @@ pub fn slotting_metrics_json(outcome: &SlottingOutcome) -> Json {
             "expectedPickSeconds",
             Json::Float(metrics.expected_pick_seconds),
         ),
-        ("expectedPutSeconds", Json::Float(metrics.expected_put_seconds)),
         (
-            "affinityCoherence",
-            Json::Float(metrics.affinity_coherence),
+            "expectedPutSeconds",
+            Json::Float(metrics.expected_put_seconds),
         ),
+        ("affinityCoherence", Json::Float(metrics.affinity_coherence)),
         ("aisleLoadGini", Json::Float(metrics.aisle_load_gini)),
         ("liftPeakRatio", Json::Float(metrics.lift_peak_ratio)),
         ("congestionIndex", Json::Float(metrics.congestion_index)),
-        ("relocationCount", Json::int(metrics.relocation_count as i64)),
+        (
+            "relocationCount",
+            Json::int(metrics.relocation_count as i64),
+        ),
         (
             "relocationDeviceSeconds",
             Json::Float(metrics.relocation_device_seconds),
         ),
-        ("unmetConstraints", Json::int(metrics.unmet_constraints as i64)),
+        (
+            "unmetConstraints",
+            Json::int(metrics.unmet_constraints as i64),
+        ),
         ("computeMs", Json::Float(metrics.compute_ms)),
         (
             "stability",
@@ -434,9 +521,20 @@ pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Statu
                 .collect(),
         })
         .unwrap_or_default();
+    let t1 = prof_now();
+    if profile_enabled() {
+        eprintln!(
+            "[t] parse_total {:?} inventory={}",
+            t1.map(|clock| clock.elapsed()),
+            problem.inventory.len()
+        );
+    }
     let started = now_ms();
     reset_cancel();
     let outcome = search::run(&problem, &options);
+    if profile_enabled() {
+        eprintln!("[t] solve {:?}", t1.map(|clock| clock.elapsed()));
+    }
     let fingerprint = fingerprint(&[
         ENGINE_NAME,
         ENGINE_VERSION,
@@ -450,11 +548,21 @@ pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Statu
     for issue in outcome.issues.items.iter() {
         issues.items.push(issue.clone());
     }
+    let solution_json = slotting_solution_json(&outcome);
+    // 独立核验随解一起给出：验证器与搜索器物理隔离（各自重建模型、各自重放约束），
+    // 因此"引擎说可行"与"验证器说可行"是两条证据链。`options.verify=false` 可关掉
+    // （极端规模下验收/基准要省内存时用），但默认开着——这是交付纪律，不是性能优化项。
+    let verification = if options.verify && outcome.status.has_solution() {
+        let report = crate::slotting::verify::verify_slotting(&problem, &solution_json, true);
+        Some(slotting_verification_json(&report))
+    } else {
+        None
+    };
     let envelope = Envelope {
-        result: slotting_solution_json(&outcome),
+        result: solution_json,
         metrics: slotting_metrics_json(&outcome),
         timeline: None,
-        verification: None,
+        verification,
         status: outcome.status,
         objective: outcome
             .metrics
@@ -466,8 +574,36 @@ pub fn solve_slotting(input: &str, options_json: Option<&str>) -> (String, Statu
         fingerprint,
         runtime_ms: now_ms() - started,
     };
+    let t2 = prof_now();
     let text = envelope.to_json().canonical();
+    if profile_enabled() {
+        eprintln!(
+            "[t] canonical {:?} bytes={}",
+            t2.map(|clock| clock.elapsed()),
+            text.len()
+        );
+    }
     (text, outcome.status)
+}
+
+/// 库位方案核验块（信封里的 `verification`）：与调度侧同一形状
+/// （`ok` / `violations` / `checked`），面板与契约检查不需要分域特判。
+fn slotting_verification_json(report: &crate::slotting::verify::SlottingVerification) -> Json {
+    Json::obj(vec![
+        ("ok", Json::Bool(report.ok)),
+        (
+            "violations",
+            Json::Arr(
+                report
+                    .violations
+                    .iter()
+                    .map(crate::asrs::violation_json)
+                    .collect(),
+            ),
+        ),
+        ("checked", report.recomputed.clone()),
+        ("notes", Json::strings(report.notes.clone())),
+    ])
 }
 
 /// 事件模拟 + 立库调度 + 联合优化的统一入口（`asrs` / `joint` 模块实现）。
@@ -476,20 +612,32 @@ pub fn solve_asrs(input: &str, options_json: Option<&str>) -> (String, Status) {
     let root = match aps_engine::json::parse(input) {
         Ok(value) => value,
         Err(error) => {
-            issues.error(codes::SCHEMA_INVALID, "$", format!("输入不是合法 JSON：{error:?}"));
+            issues.error(
+                codes::SCHEMA_INVALID,
+                "$",
+                format!("输入不是合法 JSON：{error:?}"),
+            );
             let envelope = Envelope {
                 status: Status::InvalidInput,
                 issues,
                 ..Default::default()
             };
-            return (
-                envelope.to_json().canonical(),
-                Status::InvalidInput,
-            );
+            return (envelope.to_json().canonical(), Status::InvalidInput);
         }
     };
+    let t1 = prof_now();
     let problem: AsrsProblem = parse_asrs_problem(&root, &mut issues);
+    if profile_enabled() {
+        eprintln!(
+            "[t] parse_total {:?} tasks={}",
+            t1.map(|clock| clock.elapsed()),
+            problem.tasks.len()
+        );
+    }
     let events = parse_dynamic_events(&root);
+    // 极端规模（79 万库位 / 20 万订单）下，输入 JSON 树与结构化问题同时驻留会顶到内存上限：
+    // 结构已经抽干净了，这里把输入树释放掉再进推演。
+    drop(root);
     let options = crate::asrs::AsrsOptions::from_json(
         options_json
             .and_then(|text| aps_engine::json::parse(text).ok())
@@ -498,6 +646,9 @@ pub fn solve_asrs(input: &str, options_json: Option<&str>) -> (String, Status) {
     let started = now_ms();
     reset_cancel();
     let outcome = crate::asrs::solve(&problem, &events, &options, &mut issues);
+    if profile_enabled() {
+        eprintln!("[t] solve {:?}", t1.map(|clock| clock.elapsed()));
+    }
     let fingerprint = fingerprint(&[
         ENGINE_NAME,
         ENGINE_VERSION,
@@ -508,17 +659,25 @@ pub fn solve_asrs(input: &str, options_json: Option<&str>) -> (String, Status) {
         input,
     ]);
     let envelope = Envelope {
-        result: outcome.result.clone(),
-        metrics: outcome.metrics.clone(),
-        timeline: outcome.timeline.clone(),
-        verification: outcome.verification.clone(),
+        result: outcome.result,
+        metrics: outcome.metrics,
+        timeline: outcome.timeline,
+        verification: outcome.verification,
         status: outcome.status,
         objective: outcome.objective,
         issues,
         fingerprint,
         runtime_ms: now_ms() - started,
     };
+    let t2 = prof_now();
     let text = envelope.to_json().canonical();
+    if profile_enabled() {
+        eprintln!(
+            "[t] canonical {:?} bytes={}",
+            t2.map(|clock| clock.elapsed()),
+            text.len()
+        );
+    }
     (text, outcome.status)
 }
 
@@ -528,16 +687,17 @@ pub fn solve_joint(input: &str, options_json: Option<&str>) -> (String, Status) 
     let root = match aps_engine::json::parse(input) {
         Ok(value) => value,
         Err(error) => {
-            issues.error(codes::SCHEMA_INVALID, "$", format!("输入不是合法 JSON：{error:?}"));
+            issues.error(
+                codes::SCHEMA_INVALID,
+                "$",
+                format!("输入不是合法 JSON：{error:?}"),
+            );
             let envelope = Envelope {
                 status: Status::InvalidInput,
                 issues,
                 ..Default::default()
             };
-            return (
-                envelope.to_json().canonical(),
-                Status::InvalidInput,
-            );
+            return (envelope.to_json().canonical(), Status::InvalidInput);
         }
     };
     let options = crate::joint::JointOptions::from_json(
@@ -556,17 +716,25 @@ pub fn solve_joint(input: &str, options_json: Option<&str>) -> (String, Status) 
         input,
     ]);
     let envelope = Envelope {
-        result: outcome.result.clone(),
-        metrics: outcome.metrics.clone(),
-        timeline: outcome.timeline.clone(),
-        verification: outcome.verification.clone(),
+        result: outcome.result,
+        metrics: outcome.metrics,
+        timeline: outcome.timeline,
+        verification: outcome.verification,
         status: outcome.status,
         objective: outcome.objective,
         issues,
         fingerprint,
         runtime_ms: now_ms() - started,
     };
+    let t2 = prof_now();
     let text = envelope.to_json().canonical();
+    if profile_enabled() {
+        eprintln!(
+            "[t] canonical {:?} bytes={}",
+            t2.map(|clock| clock.elapsed()),
+            text.len()
+        );
+    }
     (text, outcome.status)
 }
 
@@ -576,7 +744,11 @@ pub fn verify(input: &str, options_json: Option<&str>) -> (String, Status) {
     let root = match aps_engine::json::parse(input) {
         Ok(value) => value,
         Err(error) => {
-            issues.error(codes::SCHEMA_INVALID, "$", format!("输入不是合法 JSON：{error:?}"));
+            issues.error(
+                codes::SCHEMA_INVALID,
+                "$",
+                format!("输入不是合法 JSON：{error:?}"),
+            );
             return (
                 Json::obj(vec![
                     ("ok", Json::Bool(false)),

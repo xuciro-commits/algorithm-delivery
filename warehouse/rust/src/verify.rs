@@ -45,12 +45,7 @@ impl VerificationReport {
             ("ok", Json::Bool(self.ok)),
             (
                 "violations",
-                Json::Arr(
-                    self.violations
-                        .iter()
-                        .map(asrs::violation_json)
-                        .collect(),
-                ),
+                Json::Arr(self.violations.iter().map(asrs::violation_json).collect()),
             ),
             (
                 "summary",
@@ -115,6 +110,46 @@ pub fn verify_document(root: &Json, strict: bool, issues: &mut Issues) -> Json {
 }
 
 /* ------------------------------------------------------------------ *
+ * 文档定位：单域文档 vs 联合文档
+ * ------------------------------------------------------------------ */
+
+/// 库位子文档：`{kind:"joint", slotting:{...}, asrs:{...}, ...}` 里取 `slotting`；
+/// 单域文档（`{kind:"slotting", problem:{...}}`）返回原文档。
+///
+/// 为什么要这一层：联合方案必须让**两段各自过一遍独立验证器**，而不是拼成一个
+/// 更大的问题再验（那会把两段的口径混在一起，也掩盖"哪一段没通过"）。
+fn slotting_root(root: &Json) -> &Json {
+    match root.get("slotting") {
+        Some(value @ Json::Obj(_)) => value,
+        _ => root,
+    }
+}
+
+/// 调度子文档：联合文档取 `asrs`，单域文档返回原文档。
+fn asrs_root(root: &Json) -> &Json {
+    match root.get("asrs") {
+        Some(value @ Json::Obj(_)) => value,
+        _ => root,
+    }
+}
+
+/// 动态事件：先在子文档里找，再回退到被 `problem` 包装的问题体（两种嵌套都接受）。
+fn events_for(root: &Json, scope: &Json) -> Vec<crate::contract::DynamicEvent> {
+    let primary = parse_dynamic_events(scope);
+    if !primary.is_empty() {
+        return primary;
+    }
+    let unwrapped = crate::contract::problem_root(root);
+    if !std::ptr::eq(
+        unwrapped as *const Json as *const u8,
+        root as *const Json as *const u8,
+    ) {
+        return parse_dynamic_events(unwrapped);
+    }
+    primary
+}
+
+/* ------------------------------------------------------------------ *
  * 库位优化方案验证
  * ------------------------------------------------------------------ */
 
@@ -123,7 +158,7 @@ fn verify_slotting_document(root: &Json, strict: bool, issues: &mut Issues) -> V
         kind: "slotting".to_string(),
         ..Default::default()
     };
-    let problem = parse_slotting_problem(root, issues);
+    let problem = parse_slotting_problem(slotting_root(root), issues);
     if issues.has_errors() {
         report.ok = false;
         report
@@ -131,11 +166,15 @@ fn verify_slotting_document(root: &Json, strict: bool, issues: &mut Issues) -> V
             .push("问题本身不合法，无法验证方案（先修正 issues 里的字段级错误）".to_string());
         return report;
     }
-    // 求解器提交的方案
-    let solution = crate::contract::field(root, "solution")
+    // 求解器提交的方案（允许 `{assignment:[...]}` 或裸数组两种写法）
+    let raw_solution = crate::contract::field(root, "solution")
         .or_else(|| crate::contract::field(root, "slottingSolution"))
         .cloned()
         .unwrap_or(Json::Null);
+    let solution = match raw_solution {
+        Json::Arr(_) => Json::obj(vec![("assignment", raw_solution.clone())]),
+        other => other,
+    };
     if matches!(solution, Json::Null) {
         issues.error(codes::MISSING_FIELD, "solution", "缺少待验证的库位方案");
         report.ok = false;
@@ -160,21 +199,25 @@ fn verify_slotting_document(root: &Json, strict: bool, issues: &mut Issues) -> V
  * ------------------------------------------------------------------ */
 
 fn verify_asrs_document(root: &Json, strict: bool, issues: &mut Issues) -> VerificationReport {
-    let problem = parse_asrs_problem(root, issues);
-    let events = parse_dynamic_events(root);
+    let scope = asrs_root(root);
+    let problem = parse_asrs_problem(scope, issues);
+    let events = events_for(root, scope);
     let options = AsrsOptions::from_json(Some(root));
     let mut report = VerificationReport {
         kind: "asrs".to_string(),
         ..Default::default()
     };
     if issues.has_errors() {
-        report.notes.push("问题本身不合法，无法验证调度方案".to_string());
+        report
+            .notes
+            .push("问题本身不合法，无法验证调度方案".to_string());
         return report;
     }
     // 时间线可以来自 solution.timeline 或文档顶层 timeline（两者都接受，语义相同）
     let timeline_json = crate::contract::field(root, "solution")
         .and_then(|solution| crate::contract::field(solution, "timeline"))
         .or_else(|| crate::contract::field(root, "timeline"))
+        .or_else(|| crate::contract::field(scope, "timeline"))
         .cloned()
         .unwrap_or(Json::Null);
     if matches!(timeline_json, Json::Null) {
@@ -267,16 +310,14 @@ fn verify_asrs_document(root: &Json, strict: bool, issues: &mut Issues) -> Verif
     report.notes = verification.checked.notes.clone();
     // 严格模式：把"未服务任务"也当成错误
     if strict && verification.checked.unserved_tasks > 0 {
-        report.violations.push(
-            crate::errors::Violation::new(
-                codes::NO_SOLUTION,
-                Severity::Warning,
-                format!(
-                    "严格模式下有 {} 个任务未被服务（结果仍然可行，但不是完整交付）",
-                    verification.checked.unserved_tasks
-                ),
+        report.violations.push(crate::errors::Violation::new(
+            codes::NO_SOLUTION,
+            Severity::Warning,
+            format!(
+                "严格模式下有 {} 个任务未被服务（结果仍然可行，但不是完整交付）",
+                verification.checked.unserved_tasks
             ),
-        );
+        ));
         report.notes.push(
             "严格模式：未服务任务被视为不可交付；请在结果里如实说明原因（设备不足 / 库位冻结 / 交期冲突）"
                 .to_string(),
@@ -318,13 +359,15 @@ fn parse_timeline(value: &Json) -> Option<crate::asrs::Timeline> {
         });
     }
     for state in crate::contract::arr(value, "bufferStates") {
-        timeline.buffer_states.push(crate::asrs::timeline::BufferState {
-            at_s: crate::contract::opt_f64(state, "at_s").unwrap_or(0.0),
-            buffer_id: crate::contract::opt_str(state, "bufferId").unwrap_or_default(),
-            occupancy: crate::contract::opt_i64(state, "occupancy").unwrap_or(0) as i32,
-            capacity: crate::contract::opt_i64(state, "capacity").unwrap_or(0) as i32,
-            reason: crate::contract::opt_str(state, "reason").unwrap_or_default(),
-        });
+        timeline
+            .buffer_states
+            .push(crate::asrs::timeline::BufferState {
+                at_s: crate::contract::opt_f64(state, "at_s").unwrap_or(0.0),
+                buffer_id: crate::contract::opt_str(state, "bufferId").unwrap_or_default(),
+                occupancy: crate::contract::opt_i64(state, "occupancy").unwrap_or(0) as i32,
+                capacity: crate::contract::opt_i64(state, "capacity").unwrap_or(0) as i32,
+                reason: crate::contract::opt_str(state, "reason").unwrap_or_default(),
+            });
     }
     for state in crate::contract::arr(value, "locationStates") {
         timeline
@@ -364,6 +407,7 @@ fn parse_step(device_id: &str, value: &Json) -> Option<crate::asrs::timeline::St
         energy_kwh: crate::contract::opt_f64(value, "energyKwh").unwrap_or(0.0),
         note: crate::contract::opt_str(value, "note").unwrap_or_default(),
         resource_id: crate::contract::opt_str(value, "resourceId"),
+        resources: crate::contract::str_array(value, "resources"),
         delayed_by_s: crate::contract::opt_f64(value, "delayedBy_s").unwrap_or(0.0),
     })
 }
@@ -418,6 +462,82 @@ fn verify_joint_document(root: &Json, strict: bool, issues: &mut Issues) -> Veri
     report
 }
 
+/// 把两段独立核验的报告合成一份联合核验报告（与 `verify_joint_document` 同形状）。
+///
+/// 为什么要单独一个入口：联合求解在求解过程中就把**调度段**核验完了（报告在 `AsrsOutcome` 里），
+/// **库位段**则在选定最优轮之后补一次独立核验；这里只负责"合成两份报告"，
+/// 不重新跑验证器、也不再计算任何指标——所以信封里的 `verification` 与 CLI `verify` 的判据是同一条。
+///
+/// 语义约定：两段都为真，联合才为真；调度段缺失（例如本次没有产出时间线）时，
+/// `ok` 只反映库位段，并在 `notes` 里写明"调度段未核验"，绝不把缺失当通过。
+pub fn compose_joint_verification(slotting: &Json, asrs: &Json) -> Json {
+    let ok_of = |report: &Json| {
+        report
+            .get("ok")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    };
+    let violations_of = |report: &Json| match report.get("violations") {
+        Some(Json::Arr(items)) => items.clone(),
+        _ => Vec::new(),
+    };
+    let recomputed_of = |report: &Json| report.get("recomputed").cloned().unwrap_or(Json::Null);
+    let metrics_of = |report: &Json| {
+        report
+            .get("independentMetrics")
+            .cloned()
+            .unwrap_or(Json::Null)
+    };
+
+    let slotting_ok = ok_of(slotting);
+    let asrs_ok = ok_of(asrs);
+    let asrs_present = !matches!(asrs, Json::Null);
+    let mut violations = violations_of(slotting);
+    violations.extend(violations_of(asrs));
+    let mut notes: Vec<String> = Vec::new();
+    notes.push("库位段：独立库位验证器只读契约与方案重算（不读求解器内部状态）".to_string());
+    if asrs_present {
+        notes.push(
+            "调度段：独立调度验证器在求解时对时间线复核（含时空预约、互斥、容量与派生任务）"
+                .to_string(),
+        );
+    } else {
+        notes.push(
+            "调度段未核验：本次没有产出可复核的时间线（includeTimeline=false），             联合结论只覆盖库位段"
+                .to_string(),
+        );
+    }
+    if slotting_ok && asrs_ok {
+        notes.push(
+            "两段均通过独立核验：报告里的指标由验证器从原始数据重算，可与优化器数字对照"
+                .to_string(),
+        );
+    } else {
+        notes.push("至少一段未通过独立核验：该联合结果不可交付，不能对外声称改善".to_string());
+    }
+
+    Json::obj(vec![
+        ("kind", Json::str("joint")),
+        ("ok", Json::Bool(slotting_ok && asrs_ok)),
+        ("violations", Json::Arr(violations)),
+        (
+            "recomputed",
+            Json::obj(vec![
+                ("slotting", recomputed_of(slotting)),
+                ("asrs", recomputed_of(asrs)),
+            ]),
+        ),
+        (
+            "independentMetrics",
+            Json::obj(vec![
+                ("slotting", metrics_of(slotting)),
+                ("asrs", metrics_of(asrs)),
+            ]),
+        ),
+        ("notes", Json::strings(notes)),
+    ])
+}
+
 /// 指标一致性交叉检查（优化器 vs 验证器）。
 pub fn cross_check_metrics(
     optimizer: &Json,
@@ -445,8 +565,7 @@ pub fn cross_check_metrics(
                 issues.error(
                     constraints::METRIC_MISMATCH,
                     optimizer_key.to_string(),
-                    "优化器与验证器给出的数字不一致：以验证器为准，并排查求解器实现"
-                        .to_string(),
+                    "优化器与验证器给出的数字不一致：以验证器为准，并排查求解器实现".to_string(),
                 );
             }
         }

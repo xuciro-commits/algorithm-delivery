@@ -1,0 +1,111 @@
+name: warehouse-quality
+
+# 仓储引擎（库位优化 / 密集立库调度 / 联合优化）的质量门。
+#
+# 与 `aps-quality.yml` / `mapf-quality.yml` / `agv-quality.yml` 同构，差别只在：
+#   * 工作目录是 `warehouse/rust`；
+#   * 依赖审计允许的是 `aps-engine`（仓库内路径依赖，零第三方）；
+#   * 验收按族分五次跑（`slotting / dispatch / event / joint / stress`）：
+#     全量 86 场景一次连跑会把 20k 任务的时间线堆在同一个进程里（实测 3+ GB），
+#     分族跑既省内存，又能让失败定位直接落在族上；最后再断言总数正好 86。
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality:
+    name: 仓储引擎质量门（native + WASM）
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: warehouse/rust
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 安装 Node.js 24（WASM / Worker 冒烟）
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: 安装 Rust 1.88 与 wasm32 目标
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+          rustup target add wasm32-unknown-unknown --toolchain 1.88.0
+          rustup default 1.88.0
+          rustc --version && cargo --version
+
+      - name: 缓存 cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup
+            warehouse/rust/target
+            aps/rust/target
+          key: ${{ runner.os }}-cargo-warehouse-${{ hashFiles('warehouse/rust/Cargo.lock', 'aps/rust/Cargo.lock') }}
+
+      - name: 依赖与许可证（SBOM 最小审计：仅允许 aps-engine 内部路径依赖）
+        run: |
+          cargo tree
+          test "$(grep -c '^\[\[package\]\]' Cargo.lock)" = "2"
+          cargo metadata --format-version 1 --no-deps \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin)["packages"][0]; deps=sorted(d["name"] for d in p["dependencies"]); assert deps==["aps-engine"], deps; assert all(not d.get("registry") for d in p["dependencies"]), p["dependencies"]; print(p["name"], "deps=1(aps-engine,path,third-party=0)")'
+
+      - name: 格式检查（rustfmt）
+        run: cargo fmt --all -- --check
+
+      - name: 静态检查（clippy -D warnings）
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: 构建（release）
+        run: cargo build --release --locked
+
+      - name: 单元 / 集成 / 文档测试
+        run: cargo test --release --locked
+
+      # 压力族（stress：X01/X02）按需求 §8 生成 150k SKU / 1.9M 库位档并跑真实求解（预算 30 s），
+      # 是这份套件里最吃内存的两例。若 runner 内存吃紧，优先把它们拆开跑
+      # （`warehouse acceptance --ids X01` / `--ids X02`），**不要**降低断言或调小规模。
+      - name: 86 个标准场景验收（按族运行，逐族断言全过）
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          for family in slotting dispatch event joint stress; do
+            ./target/release/warehouse acceptance --family "$family" --out "target/acceptance-$family.json"
+            python3 -c "import json,sys; d=json.load(open('target/acceptance-' + sys.argv[1] + '.json')); assert d['failed'] == 0, (sys.argv[1], d['failed']); print('  ' + sys.argv[1] + ': ' + str(d['passed']) + '/' + str(d['total']) + ' passed')" "$family"
+          done
+          python3 -c "import glob,json; rows=[json.load(open(p)) for p in glob.glob('target/acceptance-*.json')]; total=sum(d['total'] for d in rows); passed=sum(d['passed'] for d in rows); assert total == 86, ('标准场景应为 86 个，实际', total); print('验收合计：' + str(passed) + '/' + str(total))"
+
+      - name: 契约符合性检查（schema 防漂移 / mock / 引擎输出 / verify 报告 / 对抗样例）
+        run: python3 scripts/check_contracts.py
+
+      - name: 基准冒烟（三个域各一例 · 核验必须通过）
+        run: |
+          ./target/release/warehouse bench --case slotting-small,asrs-small,joint-small --tier wasm-light --out target/bench-smoke.json
+          python3 -c "import json; rows=json.load(open('target/bench-smoke.json'))['rows']; assert len(rows) == 3, rows; bad=[r['name'] for r in rows if not r['pass']]; assert not bad, ('基准未通过', bad); print('bench smoke: ' + ', '.join(r['name'] + '=' + r['status'] for r in rows))"
+
+      - name: WASM 构建 + ABI 冒烟（含独立核验与对抗样例）
+        run: bash scripts/build_wasm.sh
+
+      - name: 上传引擎产物（供 Lab 与 Release 使用，保留 14 天）
+        uses: actions/upload-artifact@v6
+        with:
+          name: warehouse-engine-artifacts
+          path: |
+            warehouse/rust/target/release/warehouse
+            warehouse/rust/dist/warehouse_engine.wasm
+            warehouse/rust/target/acceptance-slotting.json
+            warehouse/rust/target/acceptance-dispatch.json
+            warehouse/rust/target/acceptance-event.json
+            warehouse/rust/target/acceptance-joint.json
+            warehouse/rust/target/acceptance-stress.json
+          if-no-files-found: error
+          retention-days: 14

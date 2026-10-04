@@ -86,12 +86,28 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
         .unwrap_or("")
         .to_string();
     let scale_report = document.get("stats").cloned().unwrap_or(Json::Null);
+    // 大规模/极端规模场景：不把百万级步骤的时间线塞进验收进程（2–4 GB 沙箱会 OOM）
+    let tier = scenario_spec.map(|spec| spec.scale).unwrap_or("small");
+    let compact_options = if matches!(tier, "large" | "extreme" | "stress") {
+        Some("{\"includeTimeline\":false}")
+    } else {
+        None
+    };
+    // 压力档位的库位核验：验证器要重建一份模型（作业集规模与求解同量级），
+    // 在 2–4 GB 沙箱里把峰值内存翻倍是不可接受的风险，因此验收在 large/extreme
+    // 档显式关闭**信封内**核验（中等规模与 mock 全量开启；X12 另有对抗核验用例）。
+    let compact_slotting_options = if matches!(tier, "large" | "extreme" | "stress") {
+        Some("{\"verify\":false}")
+    } else {
+        None
+    };
 
     // 逐族执行
     let (status, envelope, objective) = match kind.as_str() {
         "slotting" | "stress" => {
             let text = document.canonical();
-            let (out, status) = crate::engine::solve_slotting(&text, None);
+            drop(document);
+            let (out, status) = crate::engine::solve_slotting(&text, compact_slotting_options);
             let parsed = aps_engine::json::parse(&out).unwrap_or(Json::Null);
             let objective = parsed
                 .get("objective")
@@ -105,13 +121,15 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
         }
         "asrs" => {
             let text = document.canonical();
-            let (out, status) = crate::engine::solve_asrs(&text, None);
+            drop(document);
+            let (out, status) = crate::engine::solve_asrs(&text, compact_options);
             let parsed = aps_engine::json::parse(&out).unwrap_or(Json::Null);
             (status, parsed, 0.0)
         }
         "joint" => {
             let text = document.canonical();
-            let (out, status) = crate::engine::solve_joint(&text, None);
+            drop(document);
+            let (out, status) = crate::engine::solve_joint(&text, compact_options);
             let parsed = aps_engine::json::parse(&out).unwrap_or(Json::Null);
             (status, parsed, 0.0)
         }
@@ -155,9 +173,7 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
     checks.push((
         "solution-presence".to_string(),
         if has_solution { result_present } else { true },
-        format!(
-            "有解={has_solution}，result 存在={result_present}，issues 非空={issues_present}"
-        ),
+        format!("有解={has_solution}，result 存在={result_present}，issues 非空={issues_present}"),
     ));
 
     // ---- 判据 3：独立验证（调度类场景必须有 verification 且通过）----
@@ -191,17 +207,38 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
             _ => None,
         })
         .unwrap_or(-1);
-    let scale_ok = reported_locations >= 0;
+    let reported_skus = scale_report
+        .get("skus")
+        .and_then(|value| match value {
+            Json::Int(v) => Some(*v),
+            _ => None,
+        })
+        .unwrap_or(-1);
+    // 规模判据绑到场景声明的档位：X01 要真的到 150k SKU、X02 要真的到 1.9M 库位。
+    // 只断言"报告了库位数"会让"把规模偷偷调小再报告小数字"也算通过。
+    let (scale_floor_locations, scale_floor_skus) = match id {
+        "X01" => (0, 150_000),
+        "X02" => (1_500_000, 0),
+        _ => (0, 0),
+    };
+    let scale_ok = reported_locations >= scale_floor_locations && reported_skus >= scale_floor_skus;
     checks.push((
         "scale-honesty".to_string(),
         scale_ok,
-        format!("报告库位数 {reported_locations}"),
+        format!(
+            "报告库位数 {reported_locations}（下限 {scale_floor_locations}）、SKU {reported_skus}（下限 {scale_floor_skus}）"
+        ),
     ));
 
     // ---- 判据 5：复现性（同 seed 再跑一次，目标值必须一致）----
     let mut reproducible = true;
     let mut reproduce_detail = "跳过（未产生可比值）".to_string();
-    if kind == "slotting" && matches!(status, Status::Feasible | Status::FeasibleWithBound | Status::OptimalProven) {
+    if kind == "slotting"
+        && matches!(
+            status,
+            Status::Feasible | Status::FeasibleWithBound | Status::OptimalProven
+        )
+    {
         let second = scenario::build(id, scale, seed, &mut Issues::new());
         let (out2, _) = crate::engine::solve_slotting(&second.canonical(), None);
         let parsed2 = aps_engine::json::parse(&out2).unwrap_or(Json::Null);
@@ -216,7 +253,11 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
         reproducible = (objective - objective2).abs() < 1e-9;
         reproduce_detail = format!("objective {objective:.6} vs {objective2:.6}");
     }
-    checks.push(("reproducibility".to_string(), reproducible, reproduce_detail));
+    checks.push((
+        "reproducibility".to_string(),
+        reproducible,
+        reproduce_detail,
+    ));
 
     // ---- 判据 6：场景必须展示的现象 ----
     if let Some(spec) = scenario_spec {
@@ -247,7 +288,9 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
                 "bound" => {
                     bound_available
                         || matches!(
-                            envelope.get("result").and_then(|value| value.get("optimalityProven")),
+                            envelope
+                                .get("result")
+                                .and_then(|value| value.get("optimalityProven")),
                             Some(Json::Bool(true))
                         )
                 }
@@ -280,17 +323,19 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
                         _ => None,
                     })
                     .unwrap_or(false),
-                "dynamic" => envelope
-                    .get("result")
-                    .and_then(|value| value.get("timeline"))
-                    .and_then(|value| value.get("bufferStates"))
-                    .map(|value| !matches!(value, Json::Null))
-                    .unwrap_or(false)
-                    || envelope
-                        .get("timeline")
-                        .and_then(|value| value.get("locationStates"))
+                "dynamic" => {
+                    envelope
+                        .get("result")
+                        .and_then(|value| value.get("timeline"))
+                        .and_then(|value| value.get("bufferStates"))
                         .map(|value| !matches!(value, Json::Null))
-                        .unwrap_or(false),
+                        .unwrap_or(false)
+                        || envelope
+                            .get("timeline")
+                            .and_then(|value| value.get("locationStates"))
+                            .map(|value| !matches!(value, Json::Null))
+                            .unwrap_or(false)
+                }
                 "scale" => scale_ok,
                 "issues" => issues_present || !matches!(status, Status::InvalidInput),
                 "violation" => envelope
@@ -327,7 +372,11 @@ pub fn run_one(id: &str, scale: Option<&str>, seed: Option<u64>) -> AcceptanceRe
 }
 
 /// 运行一组场景（`--family S` / `--ids S01,D04` / 全部）。
-pub fn run_selection(family: Option<&str>, ids: &[String], limit: Option<usize>) -> Vec<AcceptanceResult> {
+pub fn run_selection(
+    family: Option<&str>,
+    ids: &[String],
+    limit: Option<usize>,
+) -> Vec<AcceptanceResult> {
     let mut selected: Vec<&str> = if !ids.is_empty() {
         scenario::SCENARIOS
             .iter()
@@ -341,7 +390,10 @@ pub fn run_selection(family: Option<&str>, ids: &[String], limit: Option<usize>)
             .map(|scenario| scenario.id)
             .collect()
     } else {
-        scenario::SCENARIOS.iter().map(|scenario| scenario.id).collect()
+        scenario::SCENARIOS
+            .iter()
+            .map(|scenario| scenario.id)
+            .collect()
     };
     if let Some(limit) = limit {
         selected.truncate(limit);

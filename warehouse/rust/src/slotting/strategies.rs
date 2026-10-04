@@ -39,7 +39,14 @@ pub const ALGORITHMS: &[&str] = &[
 pub fn is_basic(algorithm: &str) -> bool {
     matches!(
         algorithm,
-        "random" | "fixed" | "nearest-available" | "abc-class" | "turnover" | "coi" | "class-based" | "dispersion"
+        "random"
+            | "fixed"
+            | "nearest-available"
+            | "abc-class"
+            | "turnover"
+            | "coi"
+            | "class-based"
+            | "dispersion"
     )
 }
 
@@ -92,11 +99,7 @@ pub fn solve_basic<'a>(
 ///
 /// 返回 (assignment, 未落位数量)。硬约束不满足时回退到"可行的下一选择"，
 /// 绝不为了完成分配而破坏硬约束（宁可如实报告未分配）。
-pub fn place_sequence<F>(
-    model: &SlottingModel,
-    order: &[usize],
-    mut pick: F,
-) -> (Vec<i64>, usize)
+pub fn place_sequence<F>(model: &SlottingModel, order: &[usize], mut pick: F) -> (Vec<i64>, usize)
 where
     F: FnMut(&SlottingModel, usize, usize) -> Option<usize>, // (model, lu, attempt index) -> location
 {
@@ -156,7 +159,8 @@ pub fn fixed(model: &SlottingModel) -> Vec<i64> {
 pub fn nearest_available(model: &SlottingModel, _reserved: bool) -> Vec<i64> {
     let order = by_abc_then_flow(model);
     let ranked: Vec<usize> = model.order_by_cost.clone();
-    let (assignment, _) = place_sequence(model, &order, |_m, _lu, round| ranked.get(round).copied());
+    let (assignment, _) =
+        place_sequence(model, &order, |_m, _lu, round| ranked.get(round).copied());
     assignment
 }
 
@@ -176,7 +180,9 @@ pub fn abc_class(model: &SlottingModel) -> Vec<i64> {
     let shares = [('A', 0.5f64), ('B', 0.3), ('C', 0.2)];
     let mut cursor = 0usize;
     for (class, share) in shares {
-        let Some(list) = classes.get(&class) else { continue };
+        let Some(list) = classes.get(&class) else {
+            continue;
+        };
         let mut reserved = (ranked.len() as f64 * share).round() as usize;
         reserved = reserved.max(list.len().min(ranked.len().saturating_sub(cursor)));
         reserved = reserved.min(ranked.len().saturating_sub(cursor));
@@ -227,10 +233,15 @@ pub fn turnover(model: &SlottingModel) -> Vec<i64> {
         model.unit_flow[*b]
             .partial_cmp(&model.unit_flow[*a])
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| model.problem.inventory[*a].id.cmp(&model.problem.inventory[*b].id))
+            .then_with(|| {
+                model.problem.inventory[*a]
+                    .id
+                    .cmp(&model.problem.inventory[*b].id)
+            })
     });
     let ranked = model.order_by_cost.clone();
-    let (assignment, _) = place_sequence(model, &order, |_m, _lu, round| ranked.get(round).copied());
+    let (assignment, _) =
+        place_sequence(model, &order, |_m, _lu, round| ranked.get(round).copied());
     assignment
 }
 
@@ -248,11 +259,16 @@ pub fn coi(model: &SlottingModel) -> Vec<i64> {
     scores.sort_by(|a, b| {
         a.1.partial_cmp(&b.1)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| model.problem.inventory[a.0].id.cmp(&model.problem.inventory[b.0].id))
+            .then_with(|| {
+                model.problem.inventory[a.0]
+                    .id
+                    .cmp(&model.problem.inventory[b.0].id)
+            })
     });
     let order: Vec<usize> = scores.into_iter().map(|(lu, _)| lu).collect();
     let ranked = model.order_by_cost.clone();
-    let (assignment, _) = place_sequence(model, &order, |_m, _lu, round| ranked.get(round).copied());
+    let (assignment, _) =
+        place_sequence(model, &order, |_m, _lu, round| ranked.get(round).copied());
     assignment
 }
 
@@ -275,7 +291,8 @@ pub fn class_based(model: &SlottingModel) -> Vec<i64> {
         let Some(list) = classes.get(&zone.chars().next().unwrap()) else {
             continue;
         };
-        let window_end = ((cursor as f64 + ranked.len() as f64 * share).round() as usize).min(ranked.len());
+        let window_end =
+            ((cursor as f64 + ranked.len() as f64 * share).round() as usize).min(ranked.len());
         // 分区容量 = 窗口内可放置且满足体积限制的库位数量
         let capacity: usize = ranked[cursor..window_end]
             .iter()
@@ -318,7 +335,11 @@ pub fn dispersion(model: &SlottingModel, _seed: u64) -> Vec<i64> {
         model.unit_flow[*b]
             .partial_cmp(&model.unit_flow[*a])
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| model.problem.inventory[*a].id.cmp(&model.problem.inventory[*b].id))
+            .then_with(|| {
+                model.problem.inventory[*a]
+                    .id
+                    .cmp(&model.problem.inventory[*b].id)
+            })
     });
     let ranked: Vec<usize> = model.order_by_cost.clone();
     for lu in order {
@@ -326,14 +347,11 @@ pub fn dispersion(model: &SlottingModel, _seed: u64) -> Vec<i64> {
         let previous = last_aisle.get(&sku).copied();
         // 第一轮：只接受"与同一 SKU 上一次落位不同巷道"的候选（抗巷道故障）；
         // 第二轮：容量紧张时退回全局代价最优候选，保证不会因分散规则而漏放。
-        let mut chosen = ranked
-            .iter()
-            .copied()
-            .find(|index| {
-                !occupied[*index]
-                    && can_place(model, lu, *index).is_ok()
-                    && previous != Some(model.costs[*index].aisle_index)
-            });
+        let mut chosen = ranked.iter().copied().find(|index| {
+            !occupied[*index]
+                && can_place(model, lu, *index).is_ok()
+                && previous != Some(model.costs[*index].aisle_index)
+        });
         if chosen.is_none() {
             chosen = ranked
                 .iter()
@@ -350,14 +368,20 @@ pub fn dispersion(model: &SlottingModel, _seed: u64) -> Vec<i64> {
 }
 
 /// 分区占用统计（供面板展示"分区容量分级到底把哪些 SKU 放在哪个分区"）。
-pub fn zone_summary(model: &SlottingModel, assignment: &[i64]) -> BTreeMap<String, (usize, usize, f64)> {
+pub fn zone_summary(
+    model: &SlottingModel,
+    assignment: &[i64],
+) -> BTreeMap<String, (usize, usize, f64)> {
     let mut out: BTreeMap<String, (usize, usize, f64)> = BTreeMap::new();
     for (lu, loc) in assignment.iter().enumerate() {
         if *loc < 0 {
             continue;
         }
         let sku = model.lu_sku[lu];
-        let key = format!("{}-{}", model.skus[sku].abc, model.locations[*loc as usize].zone);
+        let key = format!(
+            "{}-{}",
+            model.skus[sku].abc, model.locations[*loc as usize].zone
+        );
         let entry = out.entry(key).or_insert((0, 0, 0.0));
         entry.0 += 1;
         entry.2 += model.unit_flow[lu];
@@ -396,14 +420,27 @@ pub fn compare_basics(
     cost_config: CostConfig,
 ) -> Vec<(String, f64, f64, f64, usize)> {
     let mut rows = Vec::new();
-    for algorithm in ["random", "fixed", "nearest-available", "abc-class", "turnover", "coi", "class-based", "dispersion"] {
+    for algorithm in [
+        "random",
+        "fixed",
+        "nearest-available",
+        "abc-class",
+        "turnover",
+        "coi",
+        "class-based",
+        "dispersion",
+    ] {
         let (mut model, assignment, seed) = solve_basic(problem, algorithm, cost_config.clone());
         let state = crate::slotting::SlottingState::rebuild(&mut model, &assignment);
         let objective = evaluate(&model, &state);
         let _ = seed;
         rows.push((
             algorithm.to_string(),
-            objective.values.get("expected-travel-time").copied().unwrap_or(0.0),
+            objective
+                .values
+                .get("expected-travel-time")
+                .copied()
+                .unwrap_or(0.0),
             average_pick_seconds(&model, &assignment),
             mean(&state.aisle_flow),
             state.unassigned,
@@ -419,7 +456,11 @@ pub fn greedy_flow_initial(model: &SlottingModel) -> Vec<i64> {
         model.unit_flow[*b]
             .partial_cmp(&model.unit_flow[*a])
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| model.problem.inventory[*a].id.cmp(&model.problem.inventory[*b].id))
+            .then_with(|| {
+                model.problem.inventory[*a]
+                    .id
+                    .cmp(&model.problem.inventory[*b].id)
+            })
     });
     let ranked: Vec<usize> = model.order_by_cost.clone();
     let mut assignment = vec![-1i64; model.lu_sku.len()];
@@ -428,7 +469,11 @@ pub fn greedy_flow_initial(model: &SlottingModel) -> Vec<i64> {
     let mut same_aisle_streak = 0usize;
     for lu in order {
         // 连续 2 件落同一巷道后强制换巷道，避免初始解把热点堆在一条巷道里
-        let avoid = if same_aisle_streak >= 2 { last_aisle } else { None };
+        let avoid = if same_aisle_streak >= 2 {
+            last_aisle
+        } else {
+            None
+        };
         let mut chosen = ranked.iter().copied().find(|index| {
             !occupied[*index]
                 && can_place(model, lu, *index).is_ok()

@@ -34,6 +34,10 @@ pub struct JointOptions {
     /// 联合目标的权重：吞吐（作业数/小时）与库位侧运行时间的相对重要性
     pub throughput_weight: f64,
     pub travel_weight: f64,
+    /// 调度段是否做单/双指令配对（透传给 `asrs::AsrsOptions`，实验室可切换对照）。
+    pub dual_command: bool,
+    /// 是否在结果里产出逐步骤时间线（关掉能显著减小输出；两万任务下这一项是几百 MB）。
+    pub include_timeline: bool,
 }
 
 impl Default for JointOptions {
@@ -48,6 +52,8 @@ impl Default for JointOptions {
             verify: true,
             throughput_weight: 1.0,
             travel_weight: 1.0,
+            dual_command: true,
+            include_timeline: true,
         }
     }
 }
@@ -73,6 +79,12 @@ impl JointOptions {
         }
         if let Some(weight) = crate::contract::opt_f64(value, "travelWeight") {
             options.travel_weight = weight.max(0.0);
+        }
+        if let Some(dual) = crate::contract::opt_bool(value, "dualCommand") {
+            options.dual_command = dual;
+        }
+        if let Some(include) = crate::contract::opt_bool(value, "includeTimeline") {
+            options.include_timeline = include;
         }
         if let Some(verify) = crate::contract::opt_bool(value, "verify") {
             options.verify = verify;
@@ -172,6 +184,8 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         vec![options.algorithm.clone()]
     };
     let mut records: Vec<RoundRecord> = Vec::new();
+    // 最优轮的关联簇归属（三维叠加与解释共用；与库位侧同一份口径）。
+    let mut best_clusters = Json::Null;
     let mut best: Option<(RoundRecord, Json, Json, Option<Json>, Option<Json>)> = None;
     // 反馈通道：把调度侧观测到的拥堵回写到库位模型的成本参数上
     let mut congestion_feedback = 0.0f64;
@@ -180,10 +194,8 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         round_index += 1;
         let algorithm = algorithms[((round_index - 1) as usize) % algorithms.len()].clone();
         // —— A. 库位优化 ——
-        problem.cost_model.congestion_scale = Some(round(
-            (1.0 + congestion_feedback).clamp(0.2, 6.0),
-            4,
-        ));
+        problem.cost_model.congestion_scale =
+            Some(round((1.0 + congestion_feedback).clamp(0.2, 6.0), 4));
         problem.algorithm.algorithm = algorithm.clone();
         problem.algorithm.seed = options.seed + round_index;
         problem.algorithm.budget_ms = options.slotting_budget_ms;
@@ -215,15 +227,20 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
             seed: options.seed + round_index,
             budget_ms: options.asrs_budget_ms,
             verify: options.verify,
+            // 实验室的开关在这里生效：双指令配对、是否产出时间线（探针轮仍强制不产出）。
+            dual_command: options.dual_command,
+            include_timeline: options.include_timeline,
             ..Default::default()
         };
         let mut asrs_issues = Issues::new();
         let asrs_outcome = asrs::solve(&asrs_problem, &events, &asrs_options, &mut asrs_issues);
+        // 逐轮标记的是**调度段**是否通过独立核验（库位段在最优轮选定后再补一次，见函数末尾）。
+        // 关掉核验时这里必须是 false：把"没验"标成"验过了"是本项目最不能出现的一种谎。
         let verified = asrs_outcome
             .report
             .as_ref()
             .map(|report| report.ok)
-            .unwrap_or(!options.verify);
+            .unwrap_or(false);
         let asrs_metrics = asrs_outcome
             .report
             .as_ref()
@@ -233,9 +250,7 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         let record = RoundRecord {
             round: round_index,
             algorithm: algorithm.clone(),
-            slotting_travel_seconds_per_day: slotting_outcome
-                .metrics
-                .expected_pick_seconds
+            slotting_travel_seconds_per_day: slotting_outcome.metrics.expected_pick_seconds
                 * slotting_outcome.metrics.scale.load_units.max(1) as f64,
             slotting_congestion_seconds_per_day: slotting_outcome
                 .search
@@ -280,7 +295,8 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         record.joint_objective = round(joint_objective(&record, options), 3);
 
         // —— C. 反馈：调度侧冲突与等待越严重，库位侧越要把热点打散 ——
-        let conflict_pressure = (record.conflicts as f64 * 0.05 + record.mean_wait_s / 120.0).min(1.0);
+        let conflict_pressure =
+            (record.conflicts as f64 * 0.05 + record.mean_wait_s / 120.0).min(1.0);
         congestion_feedback = round(congestion_feedback * 0.4 + conflict_pressure * 0.6, 4);
 
         let better = best
@@ -304,11 +320,11 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
                         })
                         .collect(),
                 ),
-
                 crate::engine::slotting_metrics_json(&slotting_outcome),
                 asrs_outcome.timeline.clone(),
                 asrs_outcome.verification.clone(),
             ));
+            best_clusters = crate::engine::slotting_clusters_json(&slotting_outcome);
         }
         records.push(record);
         if crate::engine::cancel_requested() {
@@ -323,8 +339,49 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         };
     };
 
+    // —— 联合核验：两段各自过独立验证器，再合成一份结论 ——
+    // 调度段的报告在求解时已经算好（即使没有把时间线写进信封也照样核验过）；
+    // 库位段在这里用同一份契约（问题 + 方案）补一次独立核验。
+    // 只要有一段落不了地，信封里的 `verification.ok` 就是 false——不许拿"半段通过"当联合通过。
+    let slotting_verification = if options.verify {
+        let document = Json::obj(vec![
+            ("kind", Json::str("slotting")),
+            ("problem", slotting_json.clone()),
+            (
+                "solution",
+                Json::obj(vec![("assignment", assignment.clone())]),
+            ),
+        ]);
+        Some(crate::verify::verify_document(
+            &document,
+            false,
+            &mut Issues::new(),
+        ))
+    } else {
+        None
+    };
+    let verification = match (slotting_verification, verification) {
+        (Some(slotting_report), asrs_report) => Some(crate::verify::compose_joint_verification(
+            &slotting_report,
+            asrs_report.as_ref().unwrap_or(&Json::Null),
+        )),
+        // 用户关掉了核验：保持"未核验"（null），不补一份看起来通过的报告
+        (None, asrs_report) => asrs_report,
+    };
+
     // —— 对比矩阵：随机储位 / 仅库位优化 / 联合优化，全部在同一调度口径下评估 ——
     let comparison = build_comparison(&problem, &asrs_problem, &events, options, issues);
+
+    // —— Pareto 前沿（J09 等多目标联合场景要求）：权重网格 + 真实闭环评估 + 非支配筛选 ——
+    let (pareto, pareto_note) = build_pareto(
+        &problem,
+        &asrs_problem,
+        &events,
+        options,
+        &records,
+        congestion_feedback,
+        deadline,
+    );
 
     let status = if !best_record.verified {
         Status::InternalError
@@ -353,6 +410,7 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         ("kind", Json::str("joint")),
         ("algorithm", Json::str(options.algorithm.clone())),
         ("seed", Json::int(options.seed as i64)),
+        ("clusters", best_clusters.clone()),
         ("slottingAssignment", assignment),
         ("timeline", timeline.clone().unwrap_or(Json::Null)),
         ("verification", verification.clone().unwrap_or(Json::Null)),
@@ -384,6 +442,8 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
             ),
         ),
         ("comparison", comparison),
+        ("pareto", pareto),
+        ("paretoNote", Json::str(pareto_note)),
         (
             "explanation",
             Json::obj(vec![
@@ -420,6 +480,194 @@ pub fn solve(root: &Json, options: &JointOptions, issues: &mut Issues) -> JointO
         verification,
         rounds: records.len() as u64,
     }
+}
+
+/// 一次完整的闭环评估（库位 → 真实调度 → 指标），供 Pareto 权重扫描复用。
+fn evaluate_once(
+    problem: &SlottingProblem,
+    asrs_problem: &crate::contract::AsrsProblem,
+    events: &[crate::contract::DynamicEvent],
+    options: &JointOptions,
+    algorithm: &str,
+    round_index: u64,
+    congestion_scale: f64,
+) -> Option<(RoundRecord, Json, Json)> {
+    let mut probe = problem.clone();
+    probe.cost_model.congestion_scale = Some(round(congestion_scale.clamp(0.2, 6.0), 4));
+    probe.algorithm.algorithm = algorithm.to_string();
+    probe.algorithm.seed = options.seed + round_index;
+    probe.algorithm.budget_ms = options.slotting_budget_ms.min(1_500.0);
+    let slotting_options = SlottingSolveOptions {
+        algorithm: Some(algorithm.to_string()),
+        seed: Some(options.seed + round_index),
+        budget_ms: Some(probe.algorithm.budget_ms),
+        verify: false,
+        ..Default::default()
+    };
+    let slotting_outcome = search::run(&probe, &slotting_options);
+    let mut asrs_probe = asrs_problem.clone();
+    asrs_probe.slotting_plan = Some((
+        format!("SLT-PARETO-{round_index}"),
+        slotting_outcome
+            .assignment
+            .iter()
+            .map(|(unit, _sku, location, _qty)| (unit.clone(), location.clone()))
+            .collect(),
+    ));
+    let asrs_options = AsrsOptions {
+        algorithm: "priority-edd".to_string(),
+        seed: options.seed + round_index,
+        budget_ms: options.asrs_budget_ms.min(2_000.0),
+        verify: false,
+        include_timeline: false,
+        ..Default::default()
+    };
+    let mut probe_issues = Issues::new();
+    let asrs_outcome = asrs::solve(&asrs_probe, events, &asrs_options, &mut probe_issues);
+    let asrs_metrics = asrs_outcome
+        .report
+        .as_ref()
+        .map(|report| report.checked.clone())
+        .unwrap_or_default();
+    let make_span = asrs_outcome
+        .metrics
+        .get("makespan_s")
+        .and_then(|value| match value {
+            Json::Float(v) => Some(*v),
+            Json::Int(v) => Some(*v as f64),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+    let record = RoundRecord {
+        round: round_index,
+        algorithm: algorithm.to_string(),
+        slotting_travel_seconds_per_day: slotting_outcome.metrics.expected_pick_seconds
+            * slotting_outcome.metrics.scale.load_units.max(1) as f64,
+        slotting_congestion_seconds_per_day: slotting_outcome.metrics.congestion_index,
+        relocation_count: slotting_outcome.metrics.relocation_count,
+        asrs_tasks_done: asrs_metrics.tasks,
+        asrs_makespan_s: make_span,
+        throughput_per_hour: 0.0,
+        conflicts: asrs_metrics.lane_conflicts + asrs_metrics.shaft_conflicts,
+        mean_wait_s: 0.0,
+        relocation_tasks: 0,
+        joint_objective: 0.0,
+        verified: false,
+    };
+    Some((
+        record,
+        crate::engine::slotting_metrics_json(&slotting_outcome),
+        Json::Null,
+    ))
+}
+
+/// 三目标支配关系：(库位侧日运行时间, 调度完工时间, 冲突+倒垛综合代价)。
+fn dominates(a: &RoundRecord, b: &RoundRecord) -> bool {
+    let a3 = (
+        a.slotting_travel_seconds_per_day,
+        a.asrs_makespan_s,
+        a.conflicts as f64 + a.relocation_tasks as f64 * 5.0,
+    );
+    let b3 = (
+        b.slotting_travel_seconds_per_day,
+        b.asrs_makespan_s,
+        b.conflicts as f64 + b.relocation_tasks as f64 * 5.0,
+    );
+    let le = a3.0 <= b3.0 + 1e-9 && a3.1 <= b3.1 + 1e-9 && a3.2 <= b3.2 + 1e-9;
+    let lt = a3.0 < b3.0 - 1e-9 || a3.1 < b3.1 - 1e-9 || a3.2 < b3.2 - 1e-9;
+    le && lt
+}
+
+/// Pareto 前沿：在**真实闭环评估**下扫描若干权重取向，再取非支配点（不做穷举，如实标注）。
+fn build_pareto(
+    problem: &SlottingProblem,
+    asrs_problem: &crate::contract::AsrsProblem,
+    events: &[crate::contract::DynamicEvent],
+    options: &JointOptions,
+    records: &[RoundRecord],
+    congestion_feedback: f64,
+    deadline: f64,
+) -> (Json, String) {
+    let grid: Vec<(f64, f64)> = vec![(2.0, 0.2), (1.0, 1.0), (0.5, 2.0), (0.2, 3.0)];
+    let mut points: Vec<(JointOptions, RoundRecord, u64, bool)> = Vec::new();
+    for (index, (travel_weight, throughput_weight)) in grid.iter().enumerate() {
+        let mut weights = options.clone();
+        weights.travel_weight = *travel_weight;
+        weights.throughput_weight = *throughput_weight;
+        for record in records {
+            let mut clone = record.clone();
+            clone.joint_objective = round(joint_objective(&clone, &weights), 3);
+            let chosen = (options.travel_weight - *travel_weight).abs() < 1e-9
+                && (options.throughput_weight - *throughput_weight).abs() < 1e-9;
+            points.push((weights.clone(), clone, 0, chosen));
+        }
+        if crate::engine::now_ms() > deadline - 2_500.0 {
+            break;
+        }
+        let probe_round = 100 + index as u64;
+        let Some((mut record, _metrics, _)) = evaluate_once(
+            problem,
+            asrs_problem,
+            events,
+            options,
+            "alns",
+            probe_round,
+            congestion_feedback,
+        ) else {
+            continue;
+        };
+        record.joint_objective = round(joint_objective(&record, &weights), 3);
+        points.push((weights.clone(), record, probe_round, false));
+    }
+    // 非支配筛选（按 (库位日运行时间, 完工时间, 冲突+倒垛) 三目标）
+    let mut front: Vec<(JointOptions, RoundRecord, u64, bool)> = Vec::new();
+    for (weights, record, probe_round, chosen) in points.iter().cloned() {
+        let dominated = points
+            .iter()
+            .any(|(_, other, _, _)| dominates(other, &record));
+        if !dominated {
+            front.push((weights, record, probe_round, chosen));
+        }
+    }
+    if front.is_empty() {
+        return (Json::Arr(Vec::new()), "无可行采样点".to_string());
+    }
+    let note = format!(
+        "权重网格采样 {} 组 × 真实闭环评估，筛出 {} 个非支配点（不是穷举前沿）",
+        grid.len(),
+        front.len()
+    );
+    let list: Vec<Json> = front
+        .iter()
+        .map(|(weights, record, probe_round, chosen)| {
+            Json::obj(vec![
+                (
+                    "weights",
+                    Json::obj(vec![
+                        ("travelWeight", Json::Float(weights.travel_weight)),
+                        ("throughputWeight", Json::Float(weights.throughput_weight)),
+                    ]),
+                ),
+                ("round", Json::int(*probe_round as i64)),
+                (
+                    "metrics",
+                    Json::obj(vec![
+                        (
+                            "slottingTravelSecondsPerDay",
+                            Json::Float(record.slotting_travel_seconds_per_day),
+                        ),
+                        ("makespan_s", Json::Float(record.asrs_makespan_s)),
+                        ("conflicts", Json::int(record.conflicts as i64)),
+                        ("relocationTasks", Json::int(record.relocation_tasks as i64)),
+                        ("tasksDone", Json::int(record.asrs_tasks_done as i64)),
+                    ]),
+                ),
+                ("jointObjective", Json::Float(record.joint_objective)),
+                ("chosen", Json::Bool(*chosen)),
+            ])
+        })
+        .collect();
+    (Json::Arr(list), note)
 }
 
 /// 对比矩阵：把"随机储位 / 仅库位优化 / 联合优化"放在**同一调度器**下比较。
@@ -498,7 +746,10 @@ fn build_comparison(
                         * outcome.metrics.scale.load_units.max(1) as f64,
                 ),
             ),
-            ("relocationCount", Json::int(outcome.metrics.relocation_count as i64)),
+            (
+                "relocationCount",
+                Json::int(outcome.metrics.relocation_count as i64),
+            ),
             ("tasksDone", Json::int(solved)),
             ("makespan_s", Json::Float(checked.replayed_horizon_s)),
             ("throughputPerHour", Json::Float(throughput)),
@@ -506,7 +757,10 @@ fn build_comparison(
                 "conflicts",
                 Json::int((checked.lane_conflicts + checked.shaft_conflicts) as i64),
             ),
-            ("verified", Json::Bool(asrs_outcome.report.as_ref().map(|r| r.ok).unwrap_or(false))),
+            (
+                "verified",
+                Json::Bool(asrs_outcome.report.as_ref().map(|r| r.ok).unwrap_or(false)),
+            ),
         ]));
     }
     // 对比说明：指出真正被比较的量，避免"看起来更好"的错觉

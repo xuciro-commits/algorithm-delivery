@@ -22,7 +22,7 @@
 | 想了解 | 读这个 |
 | --- | --- |
 | 项目全貌与本地跑通 | 本文件 + [lab/README.md](lab/README.md) |
-| 算法需求（规格） | [aps/APS-SRS.md](aps/APS-SRS.md)、[mapf/MAPF-SRS.md](mapf/MAPF-SRS.md)、[agv/AGV-SRS.md](agv/AGV-SRS.md) |
+| 算法需求（规格） | [aps/APS-SRS.md](aps/APS-SRS.md)、[mapf/MAPF-SRS.md](mapf/MAPF-SRS.md)、[agv/AGV-SRS.md](agv/AGV-SRS.md)、[warehouse/WAREHOUSE-SRS.md](warehouse/WAREHOUSE-SRS.md) |
 | 引擎怎么用、怎么集成 | `*/rust/docs/USAGE.md`、`*/rust/docs/INTEGRATION.md`、`*/rust/docs/CONFORMANCE.md` |
 | 实验室怎么接新算法 | [lab/README.md §7](lab/README.md) |
 | 常用命令（该跑什么） | 根目录 `make help` |
@@ -53,9 +53,17 @@
 - Rust 引擎（native CLI + WebAssembly）：[agv/rust/](agv/rust/)（复用 aps-engine 基础设施与 mapf-engine 联合路径内核，零第三方依赖）
 - 交付包说明：[agv/README.md](agv/README.md)
 
+### 仓储优化套件（库位优化 + 密集立库调度 + 联合优化）
+
+- 需求说明：[WAREHOUSE-SRS.md](warehouse/WAREHOUSE-SRS.md)
+- 契约与 Mock：[warehouse/contracts/](warehouse/contracts/)（problem/solve-result/verification/capabilities）、[warehouse/mock/](warehouse/mock/)（4 个可直接求解的问题文档）
+- Rust 引擎（native CLI + WebAssembly）：[warehouse/rust/](warehouse/rust/)（零第三方依赖，复用 `aps/rust` 的契约无关基础设施）
+- 交付与验证现状（含未完成项）：[warehouse/README.md](warehouse/README.md)、[DELIVERY.md](warehouse/rust/docs/DELIVERY.md)
+- 两个实验室模块：`lab/src/modules/slotting/**`（库位优化）、`lab/src/modules/dense-asrs/**`（密集立库调度与联合优化）
+
 ### 统一算法实验室（Lab）
 
-`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 **APS 排程**、**MAPF 路径规划（Visual Lab：地图优先编辑器 + 时空回放 + 动态事件 + 运行对比）**、**AGV 调度（地图编辑 + 任务相位回放 + 工作站容量 + 动态重调度汇总）** 与 **三维实验室（`#art-lab`：英雄设备 / 透明厂房 / 算法观察三个实验室，模式 A 工业原貌 / B 工业科技艺术化 / C 算法观察）** 四个模块可运行；库位优化和密集立库会先以“待接入”标记展示，不显示虚构结果。
+`lab/` 是预览、交互验证和比较各种算法的统一 Web 入口。每个算法保留自己的输入结构、计算引擎和可视化，不要求套用同一数学模型。目前 **APS 排程**、**MAPF 路径规划（Visual Lab：地图优先编辑器 + 时空回放 + 动态事件 + 运行对比）**、**AGV 调度（地图编辑 + 任务相位回放 + 工作站容量 + 动态重调度汇总）**、**库位优化（`#slotting`：热力图 + 关联簇 + 多深位剖面 + 搬迁轨迹 + 目标/对照表）**、**密集立库调度（`#dense-asrs`：设备时间线回放 + 冲突/倒垛留痕 + 联合闭环轮次 + Pareto）** 与 **三维实验室（`#art-lab`：英雄设备 / 透明厂房 / 算法观察三个实验室，模式 A 工业原貌 / B 工业科技艺术化 / C 算法观察）** 六个模块可运行（没有"待接入"模块）。
 
 三维实验室建立在**已上传的工业模型**之上（`lab/design/assets/**` 只读，禁止覆盖），
 通过 `npm run sync:assets` 同步 43 件入选模型到运行时目录；艺术化只改材质、可见性与分层透明，
@@ -94,6 +102,18 @@ cargo test --release --test acceptance_suite -- --ignored  # S01–S08
 python3 scripts/check_contracts.py
 bash scripts/build_wasm.sh
 node scripts/test_worker_cancel.mjs
+```
+
+单独验证仓储引擎（库位优化 / 密集立库调度 / 联合优化）：
+
+```bash
+cd warehouse/rust
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --release --locked                    # 端到端集成测试（生成→求解→独立核验→契约语义）
+./target/release/warehouse acceptance --out /tmp/warehouse-acceptance.json   # 86 个标准场景
+python3 scripts/check_contracts.py
+bash scripts/build_wasm.sh                       # 末尾自动跑 ABI 冒烟（三域求解 + 对抗样例）
 ```
 
 单独验证 MAPF 引擎：
@@ -167,9 +187,11 @@ npm run test:all
 - [mapf-quality.yml](.github/workflows/mapf-quality.yml)：格式、Clippy、Rust 测试、M01–M12 验收、契约、基准快跑、WASM 与 Worker 取消回归。
 - [agv-rust.yml](.github/workflows/agv-rust.yml)：AGV 代码变更时运行可复用 Rust 质量门。
 - [agv-quality.yml](.github/workflows/agv-quality.yml)：格式、Clippy、Rust 测试、A01–A16 验收、45 项契约符合性、B01–B03 基准、WASM 与 Worker 取消回归。
-- [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 三个引擎质量门 → 构建/测试 Lab（Node 24）→ 部署 Pages。PR 与迭代分支只做构建与检查（不上传预览产物、不跑浏览器验收）；main 与手动触发才跑视觉验收。
+- [warehouse-rust.yml](.github/workflows/warehouse-rust.yml)：仓储引擎代码变更时运行可复用 Rust 质量门。
+- [warehouse-quality.yml](.github/workflows/warehouse-quality.yml)：格式、Clippy、Rust 测试（含端到端集成测试）、86 个标准场景**按族**验收、契约符合性、三维基准冒烟、WASM 构建与 ABI 冒烟。
+- [lab.yml](.github/workflows/lab.yml)：唯一主链路 —— 四个引擎质量门 → 构建/测试 Lab（Node 24）→ 部署 Pages。PR 与迭代分支只做构建与检查（不上传预览产物、不跑浏览器验收）；main 与手动触发才跑视觉验收。
 - [lab-visual-acceptance.yml](.github/workflows/lab-visual-acceptance.yml)：独立 Ubuntu/Playwright Chromium 视觉验收（仅 main 与手动触发），消费同一次 production build，采集 APS/MAPF/AGV WebGL 截图、console 日志和实际引擎状态（30 天 Artifact，浏览器缓存复用）。
-- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。
+- [release.yml](.github/workflows/release.yml)：推送 `v*` 标签后构建正式多平台产物（APS/MAPF/AGV/Warehouse 的 CLI 与 WASM），所有目标成功后才创建 Release，并附 SHA-256 校验文件。
 
 ### 创建正式 Release
 

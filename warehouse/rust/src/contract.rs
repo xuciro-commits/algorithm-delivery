@@ -71,7 +71,11 @@ pub fn req_str(obj: &Json, key: &str, path: &str, issues: &mut Issues) -> String
             String::new()
         }
         None => {
-            issues.error(codes::MISSING_FIELD, format!("{path}.{key}"), "缺少必填字段");
+            issues.error(
+                codes::MISSING_FIELD,
+                format!("{path}.{key}"),
+                "缺少必填字段",
+            );
             String::new()
         }
     }
@@ -81,7 +85,11 @@ pub fn req_f64(obj: &Json, key: &str, path: &str, issues: &mut Issues) -> f64 {
     match field(obj, key).and_then(as_f64) {
         Some(v) => v,
         None => {
-            issues.error(codes::MISSING_FIELD, format!("{path}.{key}"), "缺少数值字段或以非数值给出");
+            issues.error(
+                codes::MISSING_FIELD,
+                format!("{path}.{key}"),
+                "缺少数值字段或以非数值给出",
+            );
             0.0
         }
     }
@@ -91,7 +99,11 @@ pub fn req_i64(obj: &Json, key: &str, path: &str, issues: &mut Issues) -> i64 {
     match field(obj, key).and_then(as_i64) {
         Some(v) => v,
         None => {
-            issues.error(codes::MISSING_FIELD, format!("{path}.{key}"), "缺少整数字段或以非整数给出");
+            issues.error(
+                codes::MISSING_FIELD,
+                format!("{path}.{key}"),
+                "缺少整数字段或以非整数给出",
+            );
             0
         }
     }
@@ -116,7 +128,13 @@ pub fn opt_bool(obj: &Json, key: &str) -> Option<bool> {
 pub fn str_array(obj: &Json, key: &str) -> Vec<String> {
     field(obj, key)
         .and_then(as_arr)
-        .map(|items| items.iter().filter_map(as_str).map(|s| s.to_string()).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -416,7 +434,11 @@ impl MotionProfile {
     pub fn parse(obj: &Json, path: &str, issues: &mut Issues) -> MotionProfile {
         let profile = MotionProfile {
             speed_mps: opt_f64(obj, "speed_mps").unwrap_or_else(|| {
-                issues.error(codes::MISSING_FIELD, format!("{path}.speed_mps"), "缺少速度");
+                issues.error(
+                    codes::MISSING_FIELD,
+                    format!("{path}.speed_mps"),
+                    "缺少速度",
+                );
                 1.0
             }),
             accel_mps2: opt_f64(obj, "accel_mps2").unwrap_or(0.8),
@@ -426,10 +448,18 @@ impl MotionProfile {
             loaded_speed_factor: opt_f64(obj, "loaded_speed_factor").unwrap_or(1.0),
         };
         if profile.speed_mps <= 0.0 {
-            issues.error(codes::VALUE_RANGE, format!("{path}.speed_mps"), "速度必须为正");
+            issues.error(
+                codes::VALUE_RANGE,
+                format!("{path}.speed_mps"),
+                "速度必须为正",
+            );
         }
         if profile.accel_mps2 <= 0.0 {
-            issues.error(codes::VALUE_RANGE, format!("{path}.accel_mps2"), "加速度必须为正");
+            issues.error(
+                codes::VALUE_RANGE,
+                format!("{path}.accel_mps2"),
+                "加速度必须为正",
+            );
         }
         profile
     }
@@ -493,10 +523,16 @@ impl Topology {
         self.racks.iter().find(|r| r.id == id)
     }
     pub fn outbound_stations(&self) -> Vec<&StationSpec> {
-        self.stations.iter().filter(|s| s.direction.outbound()).collect()
+        self.stations
+            .iter()
+            .filter(|s| s.direction.outbound())
+            .collect()
     }
     pub fn inbound_stations(&self) -> Vec<&StationSpec> {
-        self.stations.iter().filter(|s| s.direction.inbound()).collect()
+        self.stations
+            .iter()
+            .filter(|s| s.direction.inbound())
+            .collect()
     }
 }
 
@@ -547,20 +583,32 @@ pub fn parse_topology(obj: &Json, path: &str, issues: &mut Issues) -> Topology {
             })
             .collect();
         if levels.is_empty() {
-            issues.error(codes::MISSING_FIELD, format!("{p}.levels"), "货架必须至少有一层");
+            issues.error(
+                codes::MISSING_FIELD,
+                format!("{p}.levels"),
+                "货架必须至少有一层",
+            );
         }
         let size = vec3(rack, "locationSize").unwrap_or([1.3, 1.1, 1.8]);
         // 契约里 locationSize 的字段名是 width/depth/height 语义：x=宽度、y=高度、z=深度
         let size = [
-            field(rack, "locationSize").and_then(|s| opt_f64(s, "width_m")).unwrap_or(size[0]),
-            field(rack, "locationSize").and_then(|s| opt_f64(s, "height_m")).unwrap_or(size[2]),
-            field(rack, "locationSize").and_then(|s| opt_f64(s, "depth_m")).unwrap_or(size[1]),
+            field(rack, "locationSize")
+                .and_then(|s| opt_f64(s, "width_m"))
+                .unwrap_or(size[0]),
+            field(rack, "locationSize")
+                .and_then(|s| opt_f64(s, "height_m"))
+                .unwrap_or(size[2]),
+            field(rack, "locationSize")
+                .and_then(|s| opt_f64(s, "depth_m"))
+                .unwrap_or(size[1]),
         ];
         topology.racks.push(RackSpec {
             id: req_str(rack, "id", &p, issues),
             area_id: opt_str(rack, "areaId").unwrap_or_default(),
             aisle_id: req_str(rack, "aisleId", &p, issues),
-            kind: RackKind::parse(&opt_str(rack, "kind").unwrap_or_else(|| "single-deep".to_string())),
+            kind: RackKind::parse(
+                &opt_str(rack, "kind").unwrap_or_else(|| "single-deep".to_string()),
+            ),
             bays: req_i64(rack, "bays", &p, issues) as i32,
             depths: req_i64(rack, "depths", &p, issues) as i32,
             levels,
@@ -657,7 +705,11 @@ pub fn parse_topology(obj: &Json, path: &str, issues: &mut Issues) -> Topology {
         let p = format!("{path}.devices[{i}]");
         let motion_json = field(device, "motion").unwrap_or(&Json::Null);
         let motion = MotionProfile::parse(
-            if matches!(motion_json, Json::Null) { device } else { motion_json },
+            if matches!(motion_json, Json::Null) {
+                device
+            } else {
+                motion_json
+            },
             &p,
             issues,
         );
@@ -666,7 +718,9 @@ pub fn parse_topology(obj: &Json, path: &str, issues: &mut Issues) -> Topology {
         let energy_json = field(device, "energy").unwrap_or(&Json::Null);
         topology.devices.push(DeviceSpec {
             id: req_str(device, "id", &p, issues),
-            kind: DeviceKind::parse(&opt_str(device, "kind").unwrap_or_else(|| "aisle-shuttle".to_string())),
+            kind: DeviceKind::parse(
+                &opt_str(device, "kind").unwrap_or_else(|| "aisle-shuttle".to_string()),
+            ),
             name: opt_str(device, "name").unwrap_or_default(),
             home_node_id: req_str(device, "homeNodeId", &p, issues),
             capability: DeviceCapability {
@@ -706,7 +760,11 @@ pub fn validate_topology(topology: &Topology, path: &str, issues: &mut Issues) {
     let mut seen: BTreeSet<&str> = BTreeSet::new();
     for rack in &topology.racks {
         if !seen.insert(rack.id.as_str()) {
-            issues.error(codes::DUPLICATE_ID, format!("{path}.racks.{}.id", rack.id), "货架 id 重复");
+            issues.error(
+                codes::DUPLICATE_ID,
+                format!("{path}.racks.{}.id", rack.id),
+                "货架 id 重复",
+            );
         }
         if !aisle_ids.contains(rack.aisle_id.as_str()) {
             issues.error(
@@ -906,7 +964,11 @@ pub fn parse_skus(obj: &Json, path: &str, issues: &mut Issues) -> Vec<SkuSpec> {
         let p = format!("{path}.skus[{i}]");
         let id = req_str(sku, "id", &p, issues);
         if !seen.insert(id.clone()) {
-            issues.error(codes::DUPLICATE_ID, format!("{p}.id"), format!("SKU id 重复：{id}"));
+            issues.error(
+                codes::DUPLICATE_ID,
+                format!("{p}.id"),
+                format!("SKU id 重复：{id}"),
+            );
         }
         let unit_size = field(sku, "unitSize").unwrap_or(&Json::Null);
         let volume = opt_f64(unit_size, "unitVolume_m3").or_else(|| opt_f64(sku, "unitVolume_m3"));
@@ -923,8 +985,12 @@ pub fn parse_skus(obj: &Json, path: &str, issues: &mut Issues) -> Vec<SkuSpec> {
             load_unit: opt_str(sku, "loadUnit").unwrap_or_else(|| "pallet".to_string()),
             unit_weight_kg: opt_f64(sku, "unitWeight_kg").unwrap_or(20.0),
             unit_volume_m3: volume,
-            abc: opt_str(sku, "abc").and_then(|s| s.chars().next()).unwrap_or('C'),
-            xyz: opt_str(sku, "xyz").and_then(|s| s.chars().next()).unwrap_or('Y'),
+            abc: opt_str(sku, "abc")
+                .and_then(|s| s.chars().next())
+                .unwrap_or('C'),
+            xyz: opt_str(sku, "xyz")
+                .and_then(|s| s.chars().next())
+                .unwrap_or('Y'),
             mean_daily_demand: opt_f64(sku, "meanDailyDemand").unwrap_or(1.0),
             demand_cv: opt_f64(sku, "demandCv").unwrap_or(0.4),
             allowed_zones: str_array(sku, "allowedZones"),
@@ -1153,7 +1219,9 @@ impl SlottingAlgorithmConfig {
             .map(|v| v.max(0.0) as u64)
             .collect();
         config.exact_when_small = opt_bool(algorithm, "exactWhenSmall").unwrap_or(true);
-        config.exact_max_units = opt_i64(algorithm, "exactMaxUnits").unwrap_or(48).clamp(1, 400) as usize;
+        config.exact_max_units = opt_i64(algorithm, "exactMaxUnits")
+            .unwrap_or(48)
+            .clamp(1, 400) as usize;
         config
     }
 }
@@ -1234,7 +1302,11 @@ pub fn parse_slotting_problem(root: &Json, issues: &mut Issues) -> SlottingProbl
     let topology = parse_topology(topology_json, "problem.topology", issues);
     let skus = parse_skus(root, path, issues);
     if skus.is_empty() {
-        issues.warn(codes::EMPTY_INPUT, "problem.skus", "商品目录为空（库位优化将没有可选对象）");
+        issues.warn(
+            codes::EMPTY_INPUT,
+            "problem.skus",
+            "商品目录为空（库位优化将没有可选对象）",
+        );
     }
     let inventory = parse_inventory(root, path, issues);
     for unit in &inventory {
@@ -1249,7 +1321,11 @@ pub fn parse_slotting_problem(root: &Json, issues: &mut Issues) -> SlottingProbl
     let objectives = {
         let list = parse_objectives(root, "objectives");
         if list.is_empty() {
-            issues.error(codes::MISSING_FIELD, "problem.objectives", "至少需要一个优化目标");
+            issues.error(
+                codes::MISSING_FIELD,
+                "problem.objectives",
+                "至少需要一个优化目标",
+            );
         }
         list
     };
@@ -1367,12 +1443,18 @@ pub fn parse_dynamic_events(obj: &Json) -> Vec<DynamicEvent> {
             };
             let mut sink = Issues::new();
             for task in arr(event, "tasks") {
-                parsed.tasks.push(parse_task(task, "event.tasks[]", &mut sink));
+                parsed
+                    .tasks
+                    .push(parse_task(task, "event.tasks[]", &mut sink));
             }
             parsed
         })
         .collect();
-    events.sort_by(|a, b| a.at_s.partial_cmp(&b.at_s).unwrap_or(std::cmp::Ordering::Equal));
+    events.sort_by(|a, b| {
+        a.at_s
+            .partial_cmp(&b.at_s)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     events
 }
 
@@ -1462,7 +1544,11 @@ pub fn parse_asrs_problem(root: &Json, issues: &mut Issues) -> AsrsProblem {
     let mut seen: BTreeSet<String> = BTreeSet::new();
     for task in &tasks {
         if !seen.insert(task.id.clone()) {
-            issues.error(codes::DUPLICATE_ID, format!("{path}.tasks.{}", task.id), "任务 id 重复");
+            issues.error(
+                codes::DUPLICATE_ID,
+                format!("{path}.tasks.{}", task.id),
+                "任务 id 重复",
+            );
         }
         for dep in &task.depends_on {
             if !tasks.iter().any(|t| &t.id == dep) {
@@ -1482,7 +1568,9 @@ pub fn parse_asrs_problem(root: &Json, issues: &mut Issues) -> AsrsProblem {
             Some(id) => {
                 let map: BTreeMap<String, String> = arr(plan, "assignment")
                     .iter()
-                    .filter_map(|entry| Some((opt_str(entry, "loadUnitId")?, opt_str(entry, "locationId")?)))
+                    .filter_map(|entry| {
+                        Some((opt_str(entry, "loadUnitId")?, opt_str(entry, "locationId")?))
+                    })
                     .collect();
                 Some((id, map))
             }

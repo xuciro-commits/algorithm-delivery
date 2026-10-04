@@ -8,9 +8,11 @@ on:
       - "aps/**"
       - "mapf/**"
       - "agv/**"
+      - "warehouse/**"
       - ".github/workflows/aps-quality.yml"
       - ".github/workflows/mapf-quality.yml"
       - ".github/workflows/agv-quality.yml"
+      - ".github/workflows/warehouse-quality.yml"
       - ".github/workflows/lab.yml"
       - ".github/workflows/lab-visual-acceptance.yml"
   pull_request:
@@ -19,9 +21,11 @@ on:
       - "aps/**"
       - "mapf/**"
       - "agv/**"
+      - "warehouse/**"
       - ".github/workflows/aps-quality.yml"
       - ".github/workflows/mapf-quality.yml"
       - ".github/workflows/agv-quality.yml"
+      - ".github/workflows/warehouse-quality.yml"
       - ".github/workflows/lab.yml"
       - ".github/workflows/lab-visual-acceptance.yml"
   workflow_dispatch:
@@ -51,9 +55,13 @@ jobs:
     name: AGV 质量门
     uses: ./.github/workflows/agv-quality.yml
 
+  warehouse-quality:
+    name: 仓储引擎质量门
+    uses: ./.github/workflows/warehouse-quality.yml
+
   build-lab:
     name: 构建与验证 Lab
-    needs: [aps-quality, mapf-quality, agv-quality]
+    needs: [aps-quality, mapf-quality, agv-quality, warehouse-quality]
     outputs:
       production_ready: ${{ steps.upload-preview.outcome == 'success' }}
     runs-on: ubuntu-latest
@@ -66,6 +74,8 @@ jobs:
       LAB_BENCH_SIZES: 240,c48
       LAB_APS_BIN: ../aps/rust/target/release/aps
       MAPF_BIN: ../mapf/rust/target/release/mapf
+      # sync-warehouse.mjs 用原生 CLI 导出能力快照（算法/目标/档位）；缺了会退回 Cargo.toml。
+      WAREHOUSE_BIN: ../warehouse/rust/target/release/warehouse
     steps:
       - uses: actions/checkout@v5
 
@@ -116,6 +126,22 @@ jobs:
           fi
           test -s agv/rust/dist/agv_engine.wasm || { echo "未找到 agv_engine.wasm" >&2; ls -laR agv/rust; exit 1; }
           chmod +x agv/rust/target/release/agv 2>/dev/null || true
+
+      - name: 下载仓储引擎质量门产物
+        uses: actions/download-artifact@v8
+        with:
+          name: warehouse-engine-artifacts
+          path: warehouse/rust
+
+      - name: 整理仓储引擎产物路径
+        working-directory: .
+        run: |
+          mkdir -p warehouse/rust/dist warehouse/rust/target/release
+          if [ -d "warehouse/rust/warehouse/rust" ]; then
+            cp -r warehouse/rust/warehouse/rust/* warehouse/rust/
+          fi
+          test -s warehouse/rust/dist/warehouse_engine.wasm || { echo "未找到 warehouse_engine.wasm" >&2; ls -laR warehouse/rust; exit 1; }
+          chmod +x warehouse/rust/target/release/warehouse 2>/dev/null || true
 
       - name: 准备正式 Release 引擎（手动选择时）
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.engine_tag != '' }}
@@ -168,6 +194,23 @@ jobs:
             --pattern "agv-linux-x86_64-unknown-linux-gnu.tar.gz" \
             --pattern "agv-engine-wasm32-unknown-unknown.wasm" \
             --dir "$agv_dir" || true
+          warehouse_dir="$RUNNER_TEMP/lab-warehouse-release"
+          mkdir -p "$warehouse_dir"
+          gh release download "$ENGINE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "warehouse-linux-x86_64-unknown-linux-gnu.tar.gz" \
+            --pattern "warehouse-engine-wasm32-unknown-unknown.wasm" \
+            --dir "$warehouse_dir" || true
+          if [ -f "$warehouse_dir/warehouse-linux-x86_64-unknown-linux-gnu.tar.gz" ]; then
+            tar -xzf "$warehouse_dir/warehouse-linux-x86_64-unknown-linux-gnu.tar.gz" -C "$warehouse_dir"
+            test -x "$warehouse_dir/warehouse"
+            test -s "$warehouse_dir/warehouse-engine-wasm32-unknown-unknown.wasm"
+            {
+              echo "WAREHOUSE_BIN=$warehouse_dir/warehouse"
+              echo "WAREHOUSE_WASM=$warehouse_dir/warehouse-engine-wasm32-unknown-unknown.wasm"
+              echo "WAREHOUSE_SOURCE=release:$ENGINE_TAG"
+            } >> "$GITHUB_ENV"
+          fi
           if [ -f "$agv_dir/agv-linux-x86_64-unknown-linux-gnu.tar.gz" ]; then
             tar -xzf "$agv_dir/agv-linux-x86_64-unknown-linux-gnu.tar.gz" -C "$agv_dir"
             test -x "$agv_dir/agv"

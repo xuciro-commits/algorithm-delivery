@@ -35,6 +35,8 @@ pub struct AsrsOptions {
     pub max_iterations: u64,
     pub verify: bool,
     pub max_tasks: usize,
+    /// 是否把逐步骤时间线写进结果信封（2 万任务下这一项是几百 MB；批量验收/基准测试可关掉）
+    pub include_timeline: bool,
 }
 
 impl Default for AsrsOptions {
@@ -50,6 +52,7 @@ impl Default for AsrsOptions {
             max_iterations: 400,
             verify: true,
             max_tasks: 20_000,
+            include_timeline: true,
         }
     }
 }
@@ -82,8 +85,16 @@ impl AsrsOptions {
         if let Some(iterations) = crate::contract::opt_i64(value, "maxIterations") {
             options.max_iterations = iterations.max(1) as u64;
         }
+        if let Some(max_tasks) = crate::contract::opt_i64(value, "maxTasks") {
+            // 任务处理上限：默认 20 000；文档承诺"确需处理时可调"，所以这里真的读它。
+            // 上界与 `capabilities` 的 native 档一致（1M），避免手滑写出天文数字把内存打爆。
+            options.max_tasks = (max_tasks.max(1) as usize).min(1_000_000);
+        }
         if let Some(verify) = crate::contract::opt_bool(value, "verify") {
             options.verify = verify;
+        }
+        if let Some(include) = crate::contract::opt_bool(value, "includeTimeline") {
+            options.include_timeline = include;
         }
         options
     }
@@ -105,7 +116,9 @@ pub fn describe(policy: &str) -> &'static str {
         "priority-edd" => "优先级 + 最早交期（EDD）：兼顾紧急与交期",
         "nearest-device" => "最近设备优先：按设备空驶距离选择执行者",
         "dual-command" => "复合作业（双指令）：出库后顺路带回一个入库任务，减少空驶",
-        "joint-alns" => "联合搜索：在任务顺序与设备指派的组合空间里做邻域搜索（每次评估都真实重演）",
+        "joint-alns" => {
+            "联合搜索：在任务顺序与设备指派的组合空间里做邻域搜索（每次评估都真实重演）"
+        }
         _ => "未知策略",
     }
 }
@@ -124,6 +137,12 @@ pub struct World<'a> {
     pub load_location: BTreeMap<String, String>,
     /// 货物单元重量（用于设备载重检查）
     pub load_weight: BTreeMap<String, f64>,
+    /// 库位记录（只推导一次）与 (rack, bay, level) 列索引
+    pub records: Vec<crate::wh::topology::LocationRecord>,
+    pub record_index: BTreeMap<String, usize>,
+    pub column_index: BTreeMap<(String, i32, i32), Vec<usize>>,
+    /// (rack, level) → 该货架面同层全部库位下标（按 bay 排序）：倒垛落点可以选同层其他空位
+    pub face_index: BTreeMap<(String, i32), Vec<usize>>,
     /// 设备不可用时间窗 (start, end, 原因)
     pub outages: BTreeMap<String, Vec<(f64, f64, String)>>,
     /// 设备速度因子（降级用）
@@ -136,7 +155,32 @@ pub struct World<'a> {
 }
 
 impl<'a> World<'a> {
+    pub fn record(&self, id: &str) -> Option<&crate::wh::topology::LocationRecord> {
+        self.record_index.get(id).map(|index| &self.records[*index])
+    }
+
     pub fn build(problem: &'a AsrsProblem, events: &[DynamicEvent]) -> World<'a> {
+        let records = crate::wh::topology::derive_locations(&problem.topology);
+        let mut record_index = BTreeMap::new();
+        let mut column_index: BTreeMap<(String, i32, i32), Vec<usize>> = BTreeMap::new();
+        let mut face_index: BTreeMap<(String, i32), Vec<usize>> = BTreeMap::new();
+        for (index, record) in records.iter().enumerate() {
+            record_index.insert(record.id.clone(), index);
+            column_index
+                .entry((record.rack_id.clone(), record.bay, record.level))
+                .or_default()
+                .push(index);
+            face_index
+                .entry((record.rack_id.clone(), record.level))
+                .or_default()
+                .push(index);
+        }
+        for indexes in face_index.values_mut() {
+            indexes.sort_by_key(|index| (records[*index].bay, records[*index].depth));
+        }
+        for indexes in column_index.values_mut() {
+            indexes.sort_by_key(|index| records[*index].depth);
+        }
         let mut location_load = BTreeMap::new();
         let mut load_location = BTreeMap::new();
         let mut load_weight = BTreeMap::new();
@@ -152,7 +196,8 @@ impl<'a> World<'a> {
             }
             load_weight.insert(
                 unit.id.clone(),
-                sku_weight.get(unit.sku_id.as_str()).copied().unwrap_or(0.0) * unit.quantity.max(1.0),
+                sku_weight.get(unit.sku_id.as_str()).copied().unwrap_or(0.0)
+                    * unit.quantity.max(1.0),
             );
         }
         // 库位优化方案（若有）：把计划里的落位当作初始库存位置 —— 联合优化靠它闭环
@@ -165,6 +210,10 @@ impl<'a> World<'a> {
         let mut world = World {
             problem,
             events: events.to_vec(),
+            records,
+            record_index,
+            column_index,
+            face_index,
             location_load,
             load_location,
             load_weight,
@@ -185,17 +234,22 @@ impl<'a> World<'a> {
         for event in &events {
             match event.kind.as_str() {
                 "device-breakdown" | "fault" => {
-                    let repair = if event.value > 0.0 { event.value } else { 900.0 };
+                    let repair = if event.value > 0.0 {
+                        event.value
+                    } else {
+                        900.0
+                    };
                     let reason = if event.tasks.is_empty() {
                         "设备故障".to_string()
                     } else {
                         "设备故障（含现场指令）".to_string()
                     };
                     for device_id in device_targets(self.problem, event) {
-                        self.outages
-                            .entry(device_id.clone())
-                            .or_default()
-                            .push((event.at_s, event.at_s + repair, reason.clone()));
+                        self.outages.entry(device_id.clone()).or_default().push((
+                            event.at_s,
+                            event.at_s + repair,
+                            reason.clone(),
+                        ));
                         self.applied_events.push((
                             "device-breakdown".to_string(),
                             event.at_s,
@@ -204,7 +258,11 @@ impl<'a> World<'a> {
                     }
                 }
                 "speed-degradation" | "degraded-speed" => {
-                    let factor = if event.value > 0.0 { event.value.clamp(0.05, 1.0) } else { 0.5 };
+                    let factor = if event.value > 0.0 {
+                        event.value.clamp(0.05, 1.0)
+                    } else {
+                        0.5
+                    };
                     for device_id in device_targets(self.problem, event) {
                         self.speed_factor.insert(device_id.clone(), factor);
                         self.applied_events.push((
@@ -235,9 +293,14 @@ impl<'a> World<'a> {
                     ));
                 }
                 "buffer-loss" | "buffer-capacity-change" => {
-                    let capacity = if event.value > 0.0 { event.value as i32 } else { 0 };
+                    let capacity = if event.value > 0.0 {
+                        event.value as i32
+                    } else {
+                        0
+                    };
                     for buffer in &event.link_ids {
-                        self.buffer_capacity_override.insert(buffer.clone(), capacity);
+                        self.buffer_capacity_override
+                            .insert(buffer.clone(), capacity);
                         self.applied_events.push((
                             "buffer-loss".to_string(),
                             event.at_s,
@@ -293,7 +356,12 @@ impl<'a> World<'a> {
     }
 
     /// 设备在 [start, end] 内是否可用；返回最早可用时刻与原因。
-    pub fn device_available(&self, device_id: &str, start: f64, duration: f64) -> (f64, Option<String>) {
+    pub fn device_available(
+        &self,
+        device_id: &str,
+        start: f64,
+        duration: f64,
+    ) -> (f64, Option<String>) {
         let Some(windows) = self.outages.get(device_id) else {
             return (start, None);
         };
@@ -355,44 +423,60 @@ impl<'a> World<'a> {
         location_load: &BTreeMap<String, String>,
         target_location: &str,
     ) -> Vec<(String, String)> {
-        let records = self.blocker_records(target_location);
         let mut blockers = Vec::new();
-        for record in &records {
-            if let Some(load_unit) = location_load.get(&record.id) {
-                blockers.push((record.id.clone(), load_unit.clone()));
+        let Some(target) = self.record(target_location) else {
+            return blockers;
+        };
+        let key = (target.rack_id.clone(), target.bay, target.level);
+        let target_depth = target.depth;
+        if let Some(indexes) = self.column_index.get(&key) {
+            for index in indexes {
+                let record = &self.records[*index];
+                if record.depth >= target_depth {
+                    break;
+                }
+                if let Some(load_unit) = location_load.get(&record.id) {
+                    blockers.push((record.id.clone(), load_unit.clone()));
+                }
             }
         }
         blockers.sort();
         blockers
     }
 
-    fn blocker_records(&self, target_location: &str) -> Vec<crate::wh::topology::LocationRecord> {
-        let records = crate::wh::topology::derive_locations(&self.problem.topology);
-        let Some(target) = records.iter().find(|record| record.id == target_location) else {
-            return Vec::new();
-        };
-        records
+    /// 倒垛落点：同列（同 rack / bay / level）空位最优；没有就退到**同层同货架面最近空位**。
+    /// 双深位库只有 2 个深度，目标深位与阻挡位常常把整列占满 —— 只看同列会得出
+    /// "无处可倒"的错误结论（D04 的 relocationTasks 因此恒为 0）。
+    pub fn relocation_target(&self, location_id: &str) -> Option<String> {
+        if let Some(same_column) = self.same_column_free(location_id) {
+            return Some(same_column);
+        }
+        let target = self.record(location_id)?;
+        let key = (target.rack_id.clone(), target.level);
+        let indexes = self.face_index.get(&key)?;
+        let mut candidates: Vec<&crate::wh::topology::LocationRecord> = indexes
             .iter()
+            .map(|index| &self.records[*index])
             .filter(|record| {
-                record.rack_id == target.rack_id
-                    && record.bay == target.bay
-                    && record.level == target.level
-                    && record.depth < target.depth
+                record.depth == 1
+                    && !self.location_load.contains_key(&record.id)
+                    && !self.location_blocked(&record.id, &record.aisle_id)
             })
-            .cloned()
-            .collect()
+            .collect();
+        candidates.sort_by_key(|record| ((record.bay - target.bay).abs(), record.bay));
+        candidates.first().map(|record| record.id.clone())
     }
 
     /// 同列（同 rack / 同层）空闲且可用的库位：倒垛的落点优先选同列，代价最低。
     pub fn same_column_free(&self, location_id: &str) -> Option<String> {
-        let records = crate::wh::topology::derive_locations(&self.problem.topology);
-        let target = records.iter().find(|record| record.id == location_id)?;
-        let mut candidates: Vec<&crate::wh::topology::LocationRecord> = records
+        let target = self.record(location_id)?;
+        let key = (target.rack_id.clone(), target.bay, target.level);
+        let indexes = self.column_index.get(&key)?;
+        let mut candidates: Vec<&crate::wh::topology::LocationRecord> = indexes
             .iter()
+            .map(|index| &self.records[*index])
             .filter(|record| {
-                record.rack_id == target.rack_id
-                    && record.level == target.level
-                    && record.id != target.id
+                record.id != target.id
                     && !self.location_load.contains_key(&record.id)
                     && !self.location_blocked(&record.id, &record.aisle_id)
             })
@@ -497,8 +581,7 @@ fn initial_position(network: &RunNetwork, device: &DeviceSpec) -> DevicePosition
 }
 
 fn location_position(network: &RunNetwork, location_id: &str) -> DevicePosition {
-    let records = crate::wh::topology::derive_locations(network.topology);
-    if let Some(record) = records.iter().find(|record| record.id == location_id) {
+    if let Some(record) = network.location(location_id) {
         return DevicePosition {
             x: record.position[0],
             y: record.position[1],
@@ -538,7 +621,10 @@ fn commit_step(
 ) -> Step {
     // 几何下界：时间线绝不允许出现"物理上做不到"的时长 —— 独立验证器正是按步骤自身几何重算的。
     // 下界在预约**之前**生效，保证资源被占用的时间窗与真实运动时长一致（否则会出现假并行）。
-    if !matches!(step.kind.as_str(), "wait" | "idle" | "load" | "unload" | "handover") {
+    if !matches!(
+        step.kind.as_str(),
+        "wait" | "idle" | "load" | "unload" | "handover"
+    ) {
         let distance = ((step.to.x - step.from.x).powi(2)
             + (step.to.y - step.from.y).powi(2)
             + (step.to.z - step.from.z).powi(2))
@@ -556,6 +642,12 @@ fn commit_step(
             }
         }
     }
+    step.resources = resources
+        .iter()
+        .map(|(resource, _, _, _)| resource.clone())
+        .collect();
+    step.resources.sort();
+    step.resources.dedup();
     let mut start = step.start_s;
     let mut delayed = 0.0f64;
     let mut blocker: Option<String> = None;
@@ -572,7 +664,10 @@ fn commit_step(
         );
         if earliest > start + 1e-9 {
             if let Some(blocker_device) = &who {
-                if state.reservations.would_deadlock(&step.device_id, blocker_device) {
+                if state
+                    .reservations
+                    .would_deadlock(&step.device_id, blocker_device)
+                {
                     state.reservations.deadlocks_prevented += 1;
                 } else {
                     state.reservations.add_wait(&step.device_id, blocker_device);
@@ -591,15 +686,18 @@ fn commit_step(
     step.delayed_by_s = delayed;
     if delayed > 1e-6 {
         if let (Some(resource), Some(who)) = (blocked_resource, blocker.clone()) {
-            state.reservations.conflicts.push(crate::asrs::network::ConflictResolution {
-                resource_id: resource.clone(),
-                device_id: step.device_id.clone(),
-                delayed_by_s: round(delayed, 3),
-                blocked_by_device_id: blocker.clone(),
-                deadlock_prevented: false,
-                at_s: round(start, 3),
-                note: format!("{} 等待 {} 释放 {}", step.device_id, who, resource),
-            });
+            state
+                .reservations
+                .conflicts
+                .push(crate::asrs::network::ConflictResolution {
+                    resource_id: resource.clone(),
+                    device_id: step.device_id.clone(),
+                    delayed_by_s: round(delayed, 3),
+                    blocked_by_device_id: blocker.clone(),
+                    deadlock_prevented: false,
+                    at_s: round(start, 3),
+                    note: format!("{} 等待 {} 释放 {}", step.device_id, who, resource),
+                });
             state.conflicts.push(format!(
                 "{} 在 {:.0}s 等待 {} 释放 {}（推迟 {:.0}s）",
                 step.device_id, start, who, resource, delayed
@@ -619,7 +717,9 @@ fn commit_step(
         });
     }
     state.device_free.insert(step.device_id.clone(), step.end_s);
-    state.device_pos.insert(step.device_id.clone(), step.to.clone());
+    state
+        .device_pos
+        .insert(step.device_id.clone(), step.to.clone());
     step
 }
 
@@ -699,7 +799,11 @@ pub fn order_tasks(world: &World, tasks: &[WarehouseTask], policy: &str) -> Vec<
         "priority" => tasks.sort_by(|a, b| {
             b.priority
                 .cmp(&a.priority)
-                .then_with(|| a.release_s.partial_cmp(&b.release_s).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| {
+                    a.release_s
+                        .partial_cmp(&b.release_s)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| a.id.cmp(&b.id))
         }),
         "priority-edd" | "dual-command" | "joint-alns" => tasks.sort_by(|a, b| {
@@ -718,8 +822,18 @@ pub fn order_tasks(world: &World, tasks: &[WarehouseTask], policy: &str) -> Vec<
             key_a
                 .0
                 .cmp(&key_b.0)
-                .then_with(|| key_a.1.partial_cmp(&key_b.1).unwrap_or(std::cmp::Ordering::Equal))
-                .then_with(|| key_a.2.partial_cmp(&key_b.2).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| {
+                    key_a
+                        .1
+                        .partial_cmp(&key_b.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| {
+                    key_a
+                        .2
+                        .partial_cmp(&key_b.2)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| key_a.3.cmp(&key_b.3))
         }),
         _ => tasks.sort_by(|a, b| {
@@ -734,6 +848,17 @@ pub fn order_tasks(world: &World, tasks: &[WarehouseTask], policy: &str) -> Vec<
 }
 
 /// 一次完整的推演（确定性的：同输入 + 同顺序 → 同时间线）。
+pub static PROF_SELECT_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_TASK_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_BLOCK_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_TASKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn prof_ns(start: Option<std::time::Instant>) -> u64 {
+    start
+        .map(|clock| clock.elapsed().as_nanos() as u64)
+        .unwrap_or(0)
+}
+
 pub fn simulate(
     network: &mut RunNetwork,
     world: &World,
@@ -754,20 +879,42 @@ pub fn simulate(
     };
     // 资源容量：可会车的链接按 link.capacity，站台/缓冲由契约声明
     for link in &network.topology.links {
-        state
-            .reservations
-            .set_capacity(crate::asrs::network::link_resource(&link.id), link.capacity.max(1));
+        state.reservations.set_capacity(
+            crate::asrs::network::link_resource(&link.id),
+            link.capacity.max(1),
+        );
     }
     for station in &network.topology.stations {
-        state
-            .reservations
-            .set_capacity(station_resource(&station.id), station.buffer_capacity.max(1));
+        state.reservations.set_capacity(
+            station_resource(&station.id),
+            station.buffer_capacity.max(1),
+        );
     }
     for buffer in &network.topology.buffers {
         state.reservations.set_capacity(
             buffer_resource(&buffer.id),
             world.buffer_capacity(&buffer.id).max(1),
         );
+    }
+    // 走廊资源容量：同层横向通道可会车时按通道容量放行（否则所有地面运输会被串成一条线）
+    {
+        let aisles: Vec<String> = network
+            .topology
+            .aisles
+            .iter()
+            .map(|aisle| aisle.id.clone())
+            .collect();
+        let levels: BTreeSet<i32> = network.aisle_axis.keys().map(|(_, level)| *level).collect();
+        for level in levels {
+            let capacity = network.corridor_capacity.get(&level).copied().unwrap_or(1);
+            for (i, a) in aisles.iter().enumerate() {
+                for b in aisles.iter().skip(i) {
+                    state
+                        .reservations
+                        .set_capacity(corridor_resource(level, a, b), capacity);
+                }
+            }
+        }
     }
     // 设备初始姿态
     for device in &network.topology.devices {
@@ -812,12 +959,13 @@ pub fn simulate(
         }
         let (target_location, aisle_id, level) = task_target(network, task, &kind);
         // 倒垛前置：目标深位被前排货物挡住
+        let prof_block = crate::engine::prof_now();
         if let Some(location_id) = &target_location {
             let blockers = world.blockers_with(&location_load, location_id);
             if !blockers.is_empty() {
                 blocked_moves += 1;
                 for (blocked_location, load_unit) in blockers {
-                    if let Some(free) = world.same_column_free(&blocked_location) {
+                    if let Some(free) = world.relocation_target(&blocked_location) {
                         relocation_tasks += 1;
                         let shift = WarehouseTask {
                             id: format!("{}-shift-{}", task.id, relocation_tasks),
@@ -873,6 +1021,12 @@ pub fn simulate(
                 }
             }
         }
+        if crate::engine::profile_enabled() {
+            use std::sync::atomic::Ordering;
+            PROF_BLOCK_NS.fetch_add(prof_ns(prof_block), Ordering::Relaxed);
+            PROF_TASKS.fetch_add(1, Ordering::Relaxed);
+        }
+        let prof_task = crate::engine::prof_now();
         let trace = run_task(
             network,
             world,
@@ -885,7 +1039,10 @@ pub fn simulate(
             &options.algorithm,
             &mut rng,
         );
-        let _ = (aisle_id, level);
+        if crate::engine::profile_enabled() {
+            PROF_TASK_NS.fetch_add(prof_ns(prof_task), std::sync::atomic::Ordering::Relaxed);
+        }
+        let _ = (aisle_id, level, trace);
     }
 
     // —— 双指令复合作业：出库 + 顺路入库 ——
@@ -935,8 +1092,7 @@ pub fn simulate(
                 if let Some(deadline) = trace.deadline_s {
                     if trace.end_s > deadline {
                         metrics.late_tasks += 1;
-                        metrics.max_lateness_s =
-                            metrics.max_lateness_s.max(trace.end_s - deadline);
+                        metrics.max_lateness_s = metrics.max_lateness_s.max(trace.end_s - deadline);
                     }
                 }
             }
@@ -965,8 +1121,12 @@ pub fn simulate(
     let utilization = timeline.device_utilization();
     let horizon = metrics.makespan_s.max(1.0);
     for (device_id, (busy, _total, _meters)) in utilization {
-        metrics.device_busy.insert(device_id.clone(), round(busy, 3));
-        metrics.device_utilization.insert(device_id, round(busy / horizon, 4));
+        metrics
+            .device_busy
+            .insert(device_id.clone(), round(busy, 3));
+        metrics
+            .device_utilization
+            .insert(device_id, round(busy / horizon, 4));
     }
     // 缓冲峰值：直接从时间线的缓冲状态取峰值（验证器可复算，不依赖内部计数器）
     for record in &timeline.buffer_states {
@@ -1038,75 +1198,97 @@ fn run_task(
     let mut used_station: Option<String> = None;
 
     // 1) 巷道内设备（穿梭车 / 四向车 / 层穿梭车）
-    let records = crate::wh::topology::derive_locations(&world.problem.topology);
     let target_record = target_location
         .as_ref()
-        .and_then(|id| records.iter().find(|record| record.id == *id).cloned());
+        .and_then(|id| world.record(id).cloned());
     let (Some(record), Some(location_id)) = (target_record.clone(), target_location.clone()) else {
-        return record_trace(timeline, TaskTrace {
-            task_id: task.id.clone(),
-            kind: kind.to_string(),
-            priority: task.priority,
-            release_s: task.release_s,
-            deadline_s: task.deadline_s,
-            start_s: task.release_s,
-            end_s: task.release_s,
-            device_ids,
-            step_ids,
-            dual_command: false,
-            status: "invalid".to_string(),
-            lateness_s: 0.0,
-            wait_s: 0.0,
-            note: "任务缺少可用库位".to_string(),
-        });
+        return record_trace(
+            timeline,
+            TaskTrace {
+                task_id: task.id.clone(),
+                kind: kind.to_string(),
+                priority: task.priority,
+                release_s: task.release_s,
+                deadline_s: task.deadline_s,
+                start_s: task.release_s,
+                end_s: task.release_s,
+                device_ids,
+                step_ids,
+                dual_command: false,
+                status: "invalid".to_string(),
+                lateness_s: 0.0,
+                wait_s: 0.0,
+                note: "任务缺少可用库位".to_string(),
+            },
+        );
     };
     if world.location_blocked(&location_id, &record.aisle_id) {
-        return record_trace(timeline, TaskTrace {
-            task_id: task.id.clone(),
-            kind: kind.to_string(),
-            priority: task.priority,
-            release_s: task.release_s,
-            deadline_s: task.deadline_s,
-            start_s: task.release_s,
-            end_s: task.release_s,
-            device_ids,
-            step_ids,
-            dual_command: false,
-            status: "blocked".to_string(),
-            lateness_s: 0.0,
-            wait_s: 0.0,
-            note: format!("库位 {location_id} 被冻结或所在巷道已关闭"),
-        });
+        return record_trace(
+            timeline,
+            TaskTrace {
+                task_id: task.id.clone(),
+                kind: kind.to_string(),
+                priority: task.priority,
+                release_s: task.release_s,
+                deadline_s: task.deadline_s,
+                start_s: task.release_s,
+                end_s: task.release_s,
+                device_ids,
+                step_ids,
+                dual_command: false,
+                status: "blocked".to_string(),
+                lateness_s: 0.0,
+                wait_s: 0.0,
+                note: format!("库位 {location_id} 被冻结或所在巷道已关闭"),
+            },
+        );
     }
-    let Some(shuttle_id) = select_device(
+    let prof_select = crate::engine::prof_now();
+    let shuttle_pick = select_device(
         network,
         world,
         state,
         task,
-        if kind == "inbound" { "inbound" } else { "outbound" },
+        if kind == "inbound" {
+            "inbound"
+        } else {
+            "outbound"
+        },
         Some(&record.aisle_id),
         record.level,
         policy,
         rng,
-    ) else {
-        return record_trace(timeline, TaskTrace {
-            task_id: task.id.clone(),
-            kind: kind.to_string(),
-            priority: task.priority,
-            release_s: task.release_s,
-            deadline_s: task.deadline_s,
-            start_s: task.release_s,
-            end_s: task.release_s,
-            device_ids,
-            step_ids,
-            dual_command: false,
-            status: "unserved".to_string(),
-            lateness_s: 0.0,
-            wait_s: 0.0,
-            note: "没有能力匹配的巷道设备".to_string(),
-        });
+    );
+    if crate::engine::profile_enabled() {
+        PROF_SELECT_NS.fetch_add(prof_ns(prof_select), std::sync::atomic::Ordering::Relaxed);
+    }
+    let Some(shuttle_id) = shuttle_pick else {
+        return record_trace(
+            timeline,
+            TaskTrace {
+                task_id: task.id.clone(),
+                kind: kind.to_string(),
+                priority: task.priority,
+                release_s: task.release_s,
+                deadline_s: task.deadline_s,
+                start_s: task.release_s,
+                end_s: task.release_s,
+                device_ids,
+                step_ids,
+                dual_command: false,
+                status: "unserved".to_string(),
+                lateness_s: 0.0,
+                wait_s: 0.0,
+                note: "没有能力匹配的巷道设备".to_string(),
+            },
+        );
     };
     let shuttle = network.topology.device(&shuttle_id).cloned().unwrap();
+    // 提升类设备（货物提升机 / 巷道提升机）占竖井资源：跨层作业必须串行，且必须计入互斥
+    let is_lift_device = matches!(
+        shuttle.kind,
+        crate::contract::DeviceKind::PalletLift | crate::contract::DeviceKind::AisleLift
+    );
     let speed_factor = world.device_speed_factor(&shuttle_id);
     let mut motion = shuttle.motion.clone();
     motion.speed_mps *= speed_factor;
@@ -1135,73 +1317,160 @@ fn run_task(
         node_id: None,
         location_id: Some(record.id.clone()),
     };
-    let (deadhead_seconds, deadhead_meters) = if cursor.aisle_id.as_deref() == Some(record.aisle_id.as_str())
-        && cursor.level == record.level
-    {
-        network.in_aisle_seconds(
+    // 空驶路径：跨巷道 / 跨层时**拆成多段**，每段只占用一条资源
+    // （本巷道 → 走廊 / 竖井 → 目标巷道）。不拆分的话，验证器看到的一步会横跨两条巷道，
+    // 既无法精确复核互斥，也没法在三维里如实画出车怎么拐弯。
+    let same_lane = cursor.aisle_id.as_deref() == Some(record.aisle_id.as_str())
+        && cursor.level == record.level;
+    let mut segments: Vec<(
+        DevicePosition,
+        Option<String>,
+        DevicePosition,
+        Option<String>,
+        String,
+        bool,
+    )> = Vec::new();
+    if same_lane {
+        segments.push((
+            cursor.clone(),
+            cursor.node_id.clone(),
+            target_pos.clone(),
+            None,
+            lane_resource(&record.aisle_id, record.level),
+            true,
+        ));
+    } else {
+        // A) 本巷道内走到最近的巷道端头
+        let mut head = (cursor.clone(), cursor.node_id.clone());
+        if let Some(source_aisle) = cursor.aisle_id.clone() {
+            if let Some((node_id, position)) =
+                nearest_aisle_end(network, &source_aisle, cursor.level, cursor.x, cursor.z)
+            {
+                segments.push((
+                    cursor.clone(),
+                    cursor.node_id.clone(),
+                    position.clone(),
+                    Some(node_id.clone()),
+                    lane_resource(&source_aisle, cursor.level),
+                    true,
+                ));
+                head = (position, Some(node_id));
+            }
+        }
+        // B) 走廊 / 竖井：从本巷道端头到目标巷道端头
+        if let Some((node_id, position)) = nearest_aisle_end(
+            network,
             &record.aisle_id,
             record.level,
-            cursor.x,
-            cursor.z,
             target_pos.x,
             target_pos.z,
-            &motion,
-            false,
-        )
-    } else {
-        // 跨巷道 / 跨层空驶：先走骨架到目标层的巷道端头
-        let end_node = format!("N-{}-L{}-W", record.aisle_id, record.level);
-        match &cursor.node_id {
-            Some(node) => {
-                let (seconds, meters) = network.node_seconds(node, &end_node, &motion);
-                (seconds, meters)
-            }
-            None => (0.0, 0.0),
+        ) {
+            let resource = if cursor.level == record.level {
+                corridor_resource(
+                    record.level,
+                    cursor.aisle_id.as_deref().unwrap_or(""),
+                    &record.aisle_id,
+                )
+            } else {
+                shaft_resource(&shuttle)
+            };
+            segments.push((
+                head.0.clone(),
+                head.1.clone(),
+                position.clone(),
+                Some(node_id.clone()),
+                resource,
+                true,
+            ));
+            head = (position, Some(node_id));
         }
-    };
-
-    let deadhead = Step {
-        id: format!("S{}", state.step_counter + 1),
-        device_id: shuttle_id.clone(),
-        task_id: Some(task.id.clone()),
-        kind: "travel".to_string(),
-        from: cursor.clone(),
-        to: target_pos.clone(),
-        start_s: clock,
-        end_s: clock + deadhead_seconds,
-        loaded: false,
-        distance_m: deadhead_meters,
-        energy_kwh: deadhead_meters * shuttle.energy_kwh_per_meter + shuttle.energy_kwh_per_move,
-        note: if deadhead_seconds > 0.0 {
-            format!("空驶到 {}（{}）", location_id, kind)
-        } else {
-            "设备已在目标位置".to_string()
-        },
-        resource_id: Some(lane_resource(&record.aisle_id, record.level)),
-        delayed_by_s: 0.0,
-    };
-    let lane_pos = network.along(&record.aisle_id, record.level, target_pos.x, target_pos.z);
-    let from_lane_pos = network.along(&record.aisle_id, record.level, cursor.x, cursor.z);
-    let committed = commit_step(
-        state,
-        deadhead,
-        vec![(
+        // C) 目标巷道内到货位
+        segments.push((
+            head.0.clone(),
+            head.1.clone(),
+            target_pos.clone(),
+            None,
             lane_resource(&record.aisle_id, record.level),
-            from_lane_pos,
-            lane_pos,
             true,
-        )],
-        task.priority,
-        &shuttle.motion,
-    );
-    state.step_counter += 1;
-    wait_s += committed.delayed_by_s;
-    start_s = start_s.min(committed.start_s);
-    end_s = end_s.max(committed.end_s);
-    step_ids.push(committed.id.clone());
-    timeline.push_step(committed.clone());
-    cursor = committed.to.clone();
-    clock = committed.end_s;
+        ));
+    }
+
+    let mut cursor = cursor;
+    let mut lane_pos = network.along(&record.aisle_id, record.level, target_pos.x, target_pos.z);
+    for (from, from_node, to, to_node, resource, allow_meeting) in segments {
+        let (seconds, meters) = if from.aisle_id.as_deref() == Some(record.aisle_id.as_str())
+            && to.aisle_id.as_deref() == Some(record.aisle_id.as_str())
+            && from.level == to.level
+        {
+            network.in_aisle_seconds(
+                &record.aisle_id,
+                to.level,
+                from.x,
+                from.z,
+                to.x,
+                to.z,
+                &motion,
+                false,
+            )
+        } else if let (Some(a), Some(b)) = (from_node.as_deref(), to_node.as_deref()) {
+            network.node_seconds(a, b, &motion)
+        } else {
+            let distance =
+                ((to.x - from.x).powi(2) + (to.y - from.y).powi(2) + (to.z - from.z).powi(2))
+                    .sqrt();
+            (
+                crate::wh::routing::travel_time(distance, motion.speed_mps, motion.accel_mps2),
+                distance,
+            )
+        };
+        let step = Step {
+            id: format!("S{}", state.step_counter + 1),
+            device_id: shuttle_id.clone(),
+            task_id: Some(task.id.clone()),
+            kind: "travel".to_string(),
+            from: from.clone(),
+            to: to.clone(),
+            start_s: clock,
+            end_s: clock + seconds,
+            loaded: false,
+            distance_m: meters,
+            energy_kwh: meters * shuttle.energy_kwh_per_meter + shuttle.energy_kwh_per_move,
+            note: format!("空驶到 {}（{}）", location_id, kind),
+            resource_id: Some(resource.clone()),
+            resources: Vec::new(),
+            delayed_by_s: 0.0,
+        };
+        let from_lane = network.along(
+            from.aisle_id.as_deref().unwrap_or(&record.aisle_id),
+            from.level,
+            from.x,
+            from.z,
+        );
+        let to_lane = network.along(
+            to.aisle_id.as_deref().unwrap_or(&record.aisle_id),
+            to.level,
+            to.x,
+            to.z,
+        );
+        let mut resources = vec![(resource, from_lane, to_lane, allow_meeting)];
+        if is_lift_device {
+            resources.push((shaft_resource(&shuttle), 0.0, 0.0, false));
+        }
+        let committed = commit_step(state, step, resources, task.priority, &shuttle.motion);
+        state.step_counter += 1;
+        wait_s += committed.delayed_by_s;
+        start_s = start_s.min(committed.start_s);
+        end_s = end_s.max(committed.end_s);
+        step_ids.push(committed.id.clone());
+        timeline.push_step(committed.clone());
+        cursor = committed.to.clone();
+        clock = committed.end_s;
+    }
+    // 目标巷道的车道坐标（供后续载货段使用）
+    if same_lane {
+        // 保持在巷道内的解析坐标
+        lane_pos = network.along(&record.aisle_id, record.level, target_pos.x, target_pos.z);
+    }
 
     // 3) 取货 / 放货（装载动作）
     let load_action = if kind == "inbound" { "unload" } else { "load" };
@@ -1217,8 +1486,17 @@ fn run_task(
         loaded: kind != "inbound",
         distance_m: 0.0,
         energy_kwh: shuttle.energy_kwh_per_move * 0.2,
-        note: format!("{} {}", if kind == "inbound" { "放货到" } else { "从" }, location_id),
+        note: format!(
+            "{} {}",
+            if kind == "inbound" {
+                "放货到"
+            } else {
+                "从"
+            },
+            location_id
+        ),
         resource_id: Some(lane_resource(&record.aisle_id, record.level)),
+        resources: Vec::new(),
         delayed_by_s: 0.0,
     };
     let committed = commit_step(
@@ -1291,17 +1569,24 @@ fn run_task(
         energy_kwh: to_end_meters * shuttle.energy_kwh_per_meter,
         note: format!("载货运行到交接点 {end_node}"),
         resource_id: Some(lane_resource(&record.aisle_id, record.level)),
+        resources: Vec::new(),
         delayed_by_s: 0.0,
     };
     let committed = commit_step(
         state,
         haul,
-        vec![(
-            lane_resource(&record.aisle_id, record.level),
-            lane_pos,
-            network.along(&record.aisle_id, record.level, end_pos.x, end_pos.z),
-            true,
-        )],
+        {
+            let mut resources = vec![(
+                lane_resource(&record.aisle_id, record.level),
+                lane_pos,
+                network.along(&record.aisle_id, record.level, end_pos.x, end_pos.z),
+                true,
+            )];
+            if is_lift_device {
+                resources.push((shaft_resource(&shuttle), 0.0, 0.0, false));
+            }
+            resources
+        },
         task.priority,
         &shuttle.motion,
     );
@@ -1318,9 +1603,7 @@ fn run_task(
         .topology
         .stations
         .iter()
-        .find(|station| {
-            station.served_by.is_empty() || station.served_by.contains(&shuttle_id)
-        })
+        .find(|station| station.served_by.is_empty() || station.served_by.contains(&shuttle_id))
         .or_else(|| world.problem.topology.stations.first())
         .cloned();
     if let Some(station) = station {
@@ -1340,7 +1623,12 @@ fn run_task(
                     .get(&lift_id)
                     .cloned()
                     .unwrap_or_else(|| initial_position(network, &lift));
-                let lift_start = state.device_free.get(&lift_id).copied().unwrap_or(0.0).max(clock);
+                let lift_start = state
+                    .device_free
+                    .get(&lift_id)
+                    .copied()
+                    .unwrap_or(0.0)
+                    .max(clock);
                 let (available_at, outage) =
                     world.device_available(&lift_id, lift_start, lift_motion.change_level_s + 30.0);
                 if let Some(reason) = &outage {
@@ -1372,6 +1660,7 @@ fn run_task(
                         record.level, station_pos.level, station.id
                     ),
                     resource_id: Some(shaft_resource(&lift)),
+                    resources: Vec::new(),
                     delayed_by_s: 0.0,
                 };
                 if !device_ids.contains(&lift_id) {
@@ -1415,6 +1704,7 @@ fn run_task(
                 energy_kwh: 0.01,
                 note: format!("同层交接：{} → 站台 {}", end_node, station.id),
                 resource_id: Some(station_resource(&station.id)),
+                resources: Vec::new(),
                 delayed_by_s: 0.0,
             };
             let committed = commit_step(
@@ -1451,7 +1741,11 @@ fn run_task(
     }
     let _ = explicit_target;
 
-    let status = if !ok { "partial".to_string() } else { "done".to_string() };
+    let status = if !ok {
+        "partial".to_string()
+    } else {
+        "done".to_string()
+    };
     let lateness = match task.deadline_s {
         Some(deadline) if end_s > deadline => end_s - deadline,
         _ => 0.0,
@@ -1462,19 +1756,21 @@ fn run_task(
         priority: task.priority,
         release_s: task.release_s,
         deadline_s: task.deadline_s,
-        start_s: if start_s.is_finite() { start_s } else { task.release_s },
+        start_s: if start_s.is_finite() {
+            start_s
+        } else {
+            task.release_s
+        },
         end_s,
         device_ids,
         step_ids,
-        dual_command: task.dual_command_eligible && (end_s - start_s) > 0.0 && matches!(kind, "outbound" | "inbound"),
+        dual_command: task.dual_command_eligible
+            && (end_s - start_s) > 0.0
+            && matches!(kind, "outbound" | "inbound"),
         status,
         lateness_s: round(lateness, 3),
         wait_s: round(wait_s, 3),
-        note: if note.is_empty() {
-            String::new()
-        } else {
-            note
-        },
+        note: if note.is_empty() { String::new() } else { note },
     };
     let _ = step_start;
     // 站台/缓冲占用在任务结束时释放（真实仓库里货物离开站台即释放，不能只增不减）
@@ -1496,6 +1792,74 @@ fn run_task(
     trace
 }
 
+/// 巷道端头节点（同层）里离给定坐标最近的一个：跨巷道移动必须经由端头/走廊。
+fn nearest_aisle_end(
+    network: &RunNetwork,
+    aisle_id: &str,
+    level: i32,
+    x: f64,
+    z: f64,
+) -> Option<(String, DevicePosition)> {
+    let aisle = network
+        .topology
+        .aisles
+        .iter()
+        .find(|aisle| aisle.id == aisle_id)?;
+    let mut best: Option<(f64, String, DevicePosition)> = None;
+    for node_id in &aisle.end_node_ids {
+        // 端头节点按层命名（N-{aisle}-L{level}-{W|E}）
+        let candidate_id = if node_id.contains("-L") {
+            node_id.clone()
+        } else {
+            format!("{node_id}")
+        };
+        let node = network.topology.node(&candidate_id).or_else(|| {
+            let with_level = format!(
+                "{}-L{level}-{}",
+                candidate_id,
+                if candidate_id.ends_with('W') {
+                    "W"
+                } else {
+                    "E"
+                }
+            );
+            network.topology.node(&with_level)
+        });
+        let Some(node) = node else { continue };
+        if node.level.unwrap_or(1) != level {
+            continue;
+        }
+        let distance = (node.position[0] - x).powi(2) + (node.position[2] - z).powi(2);
+        let position = DevicePosition {
+            x: node.position[0],
+            y: node.position[1],
+            z: node.position[2],
+            level: node.level.unwrap_or(level),
+            aisle_id: Some(aisle_id.to_string()),
+            node_id: Some(node.id.clone()),
+            location_id: None,
+        };
+        let better = best
+            .as_ref()
+            .map(|(current, _, _)| distance < *current)
+            .unwrap_or(true);
+        if better {
+            best = Some((distance, node.id.clone(), position));
+        }
+    }
+    best.map(|(_, id, position)| (id, position))
+}
+
+/// 层内走廊资源（同层跨巷道移动共用；命名与方向无关，保证双向互斥）。
+pub fn corridor_resource(level: i32, from_aisle: &str, to_aisle: &str) -> String {
+    let (a, b) = if from_aisle <= to_aisle {
+        (from_aisle, to_aisle)
+    } else {
+        (to_aisle, from_aisle)
+    };
+    format!("CORRIDOR:L{level}:{a}-{b}")
+}
+
 fn task_kind(task: &WarehouseTask) -> String {
     if !task.kind.is_empty() {
         return task.kind.clone();
@@ -1514,13 +1878,12 @@ fn task_target(
     task: &WarehouseTask,
     kind: &str,
 ) -> (Option<String>, Option<String>, i32) {
-    let records = crate::wh::topology::derive_locations(network.topology);
     let wanted = match kind {
         "inbound" | "relocate" => task.to_location_id.clone(),
         _ => task.from_location_id.clone(),
     };
     if let Some(location_id) = wanted {
-        if let Some(record) = records.iter().find(|record| record.id == location_id) {
+        if let Some(record) = network.location(&location_id) {
             return (
                 Some(location_id),
                 Some(record.aisle_id.clone()),
@@ -1529,11 +1892,7 @@ fn task_target(
         }
         return (Some(location_id), None, 1);
     }
-    (
-        None,
-        None,
-        1,
-    )
+    (None, None, 1)
 }
 
 /// 策略搜索：在任务顺序空间里做邻域搜索（每次评估都真实重演，不用代理指标）。
@@ -1541,6 +1900,16 @@ pub fn solve(network: &mut RunNetwork, world: &World, options: &AsrsOptions) -> 
     let tasks = world.tasks();
     let mut order = order_tasks(world, &tasks, &options.algorithm);
     let mut best = simulate(network, world, &order, options);
+    if crate::engine::profile_enabled() {
+        use std::sync::atomic::Ordering;
+        eprintln!(
+            "[prof] tasks={} select={}ms run_task={}ms blockers={}ms",
+            PROF_TASKS.load(Ordering::Relaxed),
+            PROF_SELECT_NS.load(Ordering::Relaxed) / 1_000_000,
+            PROF_TASK_NS.load(Ordering::Relaxed) / 1_000_000,
+            PROF_BLOCK_NS.load(Ordering::Relaxed) / 1_000_000
+        );
+    }
     if options.algorithm != "joint-alns" || order.len() < 3 {
         return best;
     }
@@ -1575,11 +1944,16 @@ pub fn solve(network: &mut RunNetwork, world: &World, options: &AsrsOptions) -> 
                 candidate[lo..=hi].reverse();
             }
         }
-        let result = simulate(network, world, &candidate, &AsrsOptions {
-            algorithm: options.algorithm.clone(),
-            max_iterations: 1,
-            ..options.clone()
-        });
+        let result = simulate(
+            network,
+            world,
+            &candidate,
+            &AsrsOptions {
+                algorithm: options.algorithm.clone(),
+                max_iterations: 1,
+                ..options.clone()
+            },
+        );
         let value = score(&result.metrics);
         if value < best_score - 1e-9 {
             best_score = value;
@@ -1615,8 +1989,14 @@ pub fn device_roles(network: &RunNetwork) -> Vec<(String, String, Vec<String>)> 
         .iter()
         .map(|device| {
             let kinds = match device.kind {
-                DeviceKind::AisleShuttle | DeviceKind::LayerShuttle | DeviceKind::FourWayShuttle => {
-                    vec!["inbound".to_string(), "outbound".to_string(), "relocate".to_string()]
+                DeviceKind::AisleShuttle
+                | DeviceKind::LayerShuttle
+                | DeviceKind::FourWayShuttle => {
+                    vec![
+                        "inbound".to_string(),
+                        "outbound".to_string(),
+                        "relocate".to_string(),
+                    ]
                 }
                 DeviceKind::PalletLift | DeviceKind::AisleLift => {
                     vec!["cross-level".to_string(), "transfer".to_string()]
@@ -1647,27 +2027,39 @@ pub fn lane_exclusivity_violations(timeline: &Timeline) -> Vec<String> {
             by_resource.entry(resource.clone()).or_default().push(step);
         }
     }
-    for (resource, steps) in by_resource {
-        for (index, a) in steps.iter().enumerate() {
-            for b in steps.iter().skip(index + 1) {
-                if a.device_id == b.device_id {
+    // 扫描线：按开始时间排序 + 活动窗口，避免 2 万任务规模下的 O(n²) 两两比较。
+    for (resource, mut steps) in by_resource {
+        steps.sort_by(|a, b| {
+            a.start_s
+                .partial_cmp(&b.start_s)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut active: Vec<&Step> = Vec::new();
+        for step in steps {
+            active.retain(|other| other.end_s > step.start_s + 1e-9);
+            for other in &active {
+                if other.device_id == step.device_id {
                     continue;
                 }
-                if a.end_s <= b.start_s + 1e-9 || b.end_s <= a.start_s + 1e-9 {
-                    continue;
-                }
-                let lo = a.from.x.min(a.to.x);
-                let hi = a.from.x.max(a.to.x);
-                let lo_b = b.from.x.min(b.to.x);
-                let hi_b = b.from.x.max(b.to.x);
+                let lo = other.from.x.min(other.to.x);
+                let hi = other.from.x.max(other.to.x);
+                let lo_b = step.from.x.min(step.to.x);
+                let hi_b = step.from.x.max(step.to.x);
                 if hi < lo_b - 1e-6 || hi_b < lo - 1e-6 {
                     continue;
                 }
+                if out.len() >= 200 {
+                    return out;
+                }
                 out.push(format!(
                     "资源 {resource} 上 {} 与 {} 在 [{:.1}, {:.1}] 重叠",
-                    a.device_id, b.device_id, a.start_s.max(b.start_s), a.end_s.min(b.end_s)
+                    other.device_id,
+                    step.device_id,
+                    other.start_s.max(step.start_s),
+                    other.end_s.min(step.end_s)
                 ));
             }
+            active.push(step);
         }
     }
     out
@@ -1676,7 +2068,8 @@ pub fn lane_exclusivity_violations(timeline: &Timeline) -> Vec<String> {
 /// 无冲突检查的快速判据（用于 acceptance 自检）。
 pub fn schedule_is_consistent(schedule: &Schedule) -> bool {
     lane_exclusivity_violations(&schedule.timeline).is_empty()
-        && schedule.metrics.tasks_done + schedule.metrics.tasks_unserved == schedule.metrics.tasks_total
+        && schedule.metrics.tasks_done + schedule.metrics.tasks_unserved
+            == schedule.metrics.tasks_total
 }
 
 /// 供联合优化使用：把调度指标压成一个可比较的标量（单位写在结果里）。

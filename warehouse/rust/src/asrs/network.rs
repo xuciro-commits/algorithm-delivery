@@ -88,10 +88,30 @@ pub fn buffer_resource(buffer_id: &str) -> String {
     format!("BUFFER:{buffer_id}")
 }
 
+/// 位置桶宽度（米）：把"线段占用"离散成桶，用来把预约查询从
+/// "扫描该资源全部历史预约" 降到 "只看覆盖到的几十个桶"。
+/// D16（6000 任务）/D17（20000 任务）在此前是 O(步数 × 历史预约数) 的平方复杂度，直接卡死。
+const POS_BUCKET_M: f64 = 0.25;
+
+/// 桶内只保留"最晚释放时刻"与占用者，查询取区间内最大值即为最早可开始时刻。
+#[derive(Debug, Clone)]
+pub struct BucketEntry {
+    pub to_s: f64,
+    pub device: u32,
+}
+
+fn bucket_index(pos: f64) -> i64 {
+    (pos / POS_BUCKET_M).floor() as i64
+}
+
 /// 时空预约表：按资源聚合，插入前检查重叠；冲突给出"推迟到何时"与阻塞者。
 #[derive(Debug, Default)]
 pub struct ReservationTable {
     pub by_resource: BTreeMap<String, Vec<Reservation>>,
+    /// 资源 -> 位置桶 -> 桶内最晚释放。仅为查询加速，语义与 by_resource 一致。
+    buckets: BTreeMap<String, BTreeMap<i64, BucketEntry>>,
+    device_names: Vec<String>,
+    device_slots: BTreeMap<String, u32>,
     pub conflicts: Vec<ConflictResolution>,
     pub wait_edges: BTreeMap<String, BTreeSet<String>>,
     pub deadlocks_prevented: u64,
@@ -127,44 +147,113 @@ impl ReservationTable {
             return (from_s, None);
         };
         let capacity = self.capacity_of(resource_id);
+        if allow_meeting && capacity > 1 {
+            return (from_s, None);
+        }
+        // 区间**必须按 min/max 归一**：车可以朝任意方向走，直接用 (from_pos, to_pos)
+        // 比较会把"从 15.3 开到 0.0"这种行程判成"完全在 11.4 的左边"，从而放过真实冲突。
         let low = from_pos.min(to_pos) - 1e-6;
         let high = from_pos.max(to_pos) + 1e-6;
         let mut start = from_s;
         let mut blocker: Option<String> = None;
-        // 位区间重叠的占用才构成冲突；可会车资源（双车道）按容量放行
-        let mut overlapping: Vec<&Reservation> = list
-            .iter()
-            .filter(|entry| {
-                entry.device_id != device_id
-                    && entry.to_s > from_s + 1e-9
-                    && !(allow_meeting && capacity > 1)
-                    && !(entry.to_pos + 1e-6 < low || entry.from_pos - 1e-6 > high)
-            })
-            .collect();
-        if overlapping.is_empty() {
+        let Some(buckets) = self.buckets.get(resource_id) else {
             return (start, None);
-        }
-        overlapping.sort_by(|a, b| a.from_s.partial_cmp(&b.from_s).unwrap_or(std::cmp::Ordering::Equal));
-        for entry in overlapping {
-            if entry.to_s > start {
-                start = entry.to_s;
-                blocker = Some(entry.device_id.clone());
+        };
+        // 桶区间可能比查询线段略宽（桶宽 0.25 m），因此只会"保守多等一点"，不会漏冲突。
+        for (_, entry) in buckets.range(bucket_index(low)..=bucket_index(high)) {
+            if entry.to_s > start + 1e-9 {
+                let name = self
+                    .device_names
+                    .get(entry.device as usize)
+                    .cloned()
+                    .unwrap_or_default();
+                if name != device_id {
+                    start = entry.to_s;
+                    blocker = Some(name);
+                }
             }
         }
-        let _ = duration_s;
+        let _ = (duration_s, list);
         (start, blocker)
     }
 
+    fn device_slot(&mut self, device_id: &str) -> u32 {
+        if let Some(slot) = self.device_slots.get(device_id) {
+            return *slot;
+        }
+        let slot = self.device_names.len() as u32;
+        self.device_names.push(device_id.to_string());
+        self.device_slots.insert(device_id.to_string(), slot);
+        slot
+    }
+
     pub fn reserve(&mut self, entry: Reservation) {
-        let slot = self.by_resource.entry(entry.resource_id.clone()).or_default();
-        slot.push(entry);
-        slot.sort_by(|a, b| a.from_s.partial_cmp(&b.from_s).unwrap_or(std::cmp::Ordering::Equal));
+        // by_resource 保留完整历史（可审计、可释放）；buckets 只做加速索引。
+        let slot = self
+            .by_resource
+            .entry(entry.resource_id.clone())
+            .or_default();
+        slot.push(entry.clone());
+        let device = self.device_slot(&entry.device_id);
+        let low = bucket_index(entry.from_pos.min(entry.to_pos) - 1e-6);
+        let high = bucket_index(entry.from_pos.max(entry.to_pos) + 1e-6);
+        let buckets = self.buckets.entry(entry.resource_id.clone()).or_default();
+        for index in low..=high {
+            let replace = match buckets.get(&index) {
+                Some(current) => entry.to_s > current.to_s,
+                None => true,
+            };
+            if replace {
+                buckets.insert(
+                    index,
+                    BucketEntry {
+                        to_s: entry.to_s,
+                        device,
+                    },
+                );
+            }
+        }
     }
 
     /// 释放某设备在 from_s 之后的预约（动态事件触发重排时使用）。
     pub fn release_after(&mut self, device_id: &str, from_s: f64) {
-        for list in self.by_resource.values_mut() {
+        let mut touched: Vec<String> = Vec::new();
+        for (resource_id, list) in self.by_resource.iter_mut() {
+            let before = list.len();
             list.retain(|entry| !(entry.device_id == device_id && entry.from_s >= from_s - 1e-9));
+            if list.len() != before {
+                touched.push(resource_id.clone());
+            }
+        }
+        // 索引按剩余历史重建（释放是低频操作）
+        for resource_id in touched {
+            let entries = self
+                .by_resource
+                .get(&resource_id)
+                .cloned()
+                .unwrap_or_default();
+            self.buckets.remove(&resource_id);
+            for entry in entries {
+                let device = self.device_slot(&entry.device_id);
+                let low = bucket_index(entry.from_pos.min(entry.to_pos) - 1e-6);
+                let high = bucket_index(entry.from_pos.max(entry.to_pos) + 1e-6);
+                let buckets = self.buckets.entry(entry.resource_id.clone()).or_default();
+                for index in low..=high {
+                    let replace = match buckets.get(&index) {
+                        Some(current) => entry.to_s > current.to_s,
+                        None => true,
+                    };
+                    if replace {
+                        buckets.insert(
+                            index,
+                            BucketEntry {
+                                to_s: entry.to_s,
+                                device,
+                            },
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -230,12 +319,46 @@ pub struct RunNetwork<'a> {
     pub device_aisles: BTreeMap<String, BTreeSet<String>>,
     /// 巷道 → 可用提升设备
     pub aisle_lifts: BTreeMap<String, Vec<String>>,
+    /// 库位记录只推导一次（D16/D17 的卡死根因就是在任务循环里反复 derive_locations）
+    pub locations: Vec<crate::wh::topology::LocationRecord>,
+    pub location_index: BTreeMap<String, usize>,
+    /// (rack, bay, level) → 按 depth 升序的库位下标，用于密集立库遮挡判定
+    pub column_index: BTreeMap<(String, i32, i32), Vec<usize>>,
+    /// 各层的"横向通道"容量（地面主通道 / 横巷）：决定走廊资源是单车道互斥还是会车放行
+    pub corridor_capacity: BTreeMap<i32, i32>,
 }
 
 impl<'a> RunNetwork<'a> {
     pub fn build(topology: &'a Topology) -> RunNetwork<'a> {
         let locations = crate::wh::topology::derive_locations(topology);
-        let route = RouteModel::build(topology, locations);
+        let mut location_index = BTreeMap::new();
+        let mut column_index: BTreeMap<(String, i32, i32), Vec<usize>> = BTreeMap::new();
+        for (index, record) in locations.iter().enumerate() {
+            location_index.insert(record.id.clone(), index);
+            column_index
+                .entry((record.rack_id.clone(), record.bay, record.level))
+                .or_default()
+                .push(index);
+        }
+        for indexes in column_index.values_mut() {
+            indexes.sort_by_key(|index| locations[*index].depth);
+        }
+        // 横向通道容量：按从属节点的层号统计（提升井除外，井道是设备专用资源）
+        let node_level: BTreeMap<&str, i32> = topology
+            .nodes
+            .iter()
+            .map(|node| (node.id.as_str(), node.level.unwrap_or(1)))
+            .collect();
+        let mut corridor_capacity: BTreeMap<i32, i32> = BTreeMap::new();
+        for link in &topology.links {
+            if matches!(link.mode, crate::contract::LinkMode::LiftShaft) {
+                continue;
+            }
+            let level = node_level.get(link.from.as_str()).copied().unwrap_or(1);
+            let entry = corridor_capacity.entry(level).or_insert(1);
+            *entry = (*entry).max(link.capacity.max(1));
+        }
+        let route = RouteModel::build(topology, locations.clone());
         // 巷道轴：由 topology.aisles + 节点位置推导
         let mut aisle_axis: BTreeMap<(String, i32), AisleAxis> = BTreeMap::new();
         let mut level_y: BTreeMap<(String, i32), f64> = BTreeMap::new();
@@ -320,11 +443,22 @@ impl<'a> RunNetwork<'a> {
             level_y,
             device_aisles,
             aisle_lifts,
+            locations,
+            location_index,
+            column_index,
+            corridor_capacity,
         }
     }
 
     pub fn device(&self, id: &str) -> Option<&DeviceSpec> {
         self.topology.device(id)
+    }
+
+    /// 库位记录（O(log n) 查表，不重新推导拓扑）
+    pub fn location(&self, id: &str) -> Option<&crate::wh::topology::LocationRecord> {
+        self.location_index
+            .get(id)
+            .map(|index| &self.locations[*index])
     }
 
     /// 沿巷道轴的米坐标（用于单车道互斥判定）。
@@ -349,13 +483,22 @@ impl<'a> RunNetwork<'a> {
     ) -> (f64, f64) {
         let distance = ((to_x - from_x).powi(2) + (to_z - from_z).powi(2)).sqrt();
         let speed = motion.speed_mps
-            * if loaded { motion.loaded_speed_factor.max(0.1) } else { 1.0 };
+            * if loaded {
+                motion.loaded_speed_factor.max(0.1)
+            } else {
+                1.0
+            };
         let _ = (aisle_id, level);
         (travel_time(distance, speed, motion.accel_mps2), distance)
     }
 
     /// 层间提升时间（提升机）。跨层必须经提升设备 —— 这里只算时间，合法性由调度层保证。
-    pub fn level_seconds(&self, from_level: i32, to_level: i32, motion: &MotionProfile) -> (f64, f64) {
+    pub fn level_seconds(
+        &self,
+        from_level: i32,
+        to_level: i32,
+        motion: &MotionProfile,
+    ) -> (f64, f64) {
         let y_from = self
             .level_y
             .iter()
@@ -414,10 +557,8 @@ impl<'a> RunNetwork<'a> {
         let meters = if from_id == to_id {
             0.0
         } else {
-            self.route.node_meters(
-                &format!("LOC:{from_id}"),
-                &format!("LOC:{to_id}"),
-            )
+            self.route
+                .node_meters(&format!("LOC:{from_id}"), &format!("LOC:{to_id}"))
         };
         (seconds, meters)
     }
@@ -438,13 +579,11 @@ impl<'a> RunNetwork<'a> {
         if device.capability.levels.contains(&level) {
             return true;
         }
-        // 立体提升设备（提升机 / 四向穿梭车）可以跨层，条带层穿梭车不可以
+        // 只有提升类设备能跨层：四向穿梭车在"某一层的网格"里跑，跨层要靠提升机搬运
+        // （早期实现把四向车当成可跨层，导致同一车道资源被不同层的车同时占用 —— 那是假的"无冲突"）。
         matches!(
             device.kind,
-            DeviceKind::PalletLift
-                | DeviceKind::AisleLift
-                | DeviceKind::FourWayShuttle
-                | DeviceKind::TransferCar
+            DeviceKind::PalletLift | DeviceKind::AisleLift | DeviceKind::TransferCar
         )
     }
 
@@ -525,11 +664,7 @@ pub fn link_seconds(link: &crate::contract::LinkSpec, motion: &MotionProfile) ->
 }
 
 /// 载重体积 / 重量是否超出设备能力（硬约束，验证器也会独立复核）。
-pub fn device_can_carry(
-    device: &DeviceSpec,
-    weight_kg: f64,
-    _volume_m3: f64,
-) -> bool {
+pub fn device_can_carry(device: &DeviceSpec, weight_kg: f64, _volume_m3: f64) -> bool {
     device.capability.capacity_kg <= 0.0 || weight_kg <= device.capability.capacity_kg + 1e-9
 }
 

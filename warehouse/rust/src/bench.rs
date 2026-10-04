@@ -22,16 +22,76 @@ pub struct BenchCase {
 
 /// 基准用例表：覆盖两个算法域的主要规模档位。
 pub const CASES: &[BenchCase] = &[
-    BenchCase { name: "slotting-tiny", scale: "tiny", domain: "slotting", scenario: "S01", note: "小规模端到端（含精确解路径）" },
-    BenchCase { name: "slotting-small", scale: "small", domain: "slotting", scenario: "S01", note: "常规小仓" },
-    BenchCase { name: "slotting-medium", scale: "medium", domain: "slotting", scenario: "S03", note: "中型仓（多深位 + 关联簇）" },
-    BenchCase { name: "slotting-large", scale: "large", domain: "slotting", scenario: "S01", note: "大型仓（如实报告是否在预算内完成）" },
-    BenchCase { name: "asrs-tiny", scale: "tiny", domain: "asrs", scenario: "D01", note: "最小调度闭环" },
-    BenchCase { name: "asrs-small", scale: "small", domain: "asrs", scenario: "D03", note: "多巷道并行" },
-    BenchCase { name: "asrs-medium", scale: "medium", domain: "asrs", scenario: "D16", note: "任务流压力" },
-    BenchCase { name: "asrs-large", scale: "large", domain: "asrs", scenario: "D16", note: "大规模任务流" },
-    BenchCase { name: "joint-small", scale: "small", domain: "joint", scenario: "J01", note: "联合闭环" },
-    BenchCase { name: "joint-medium", scale: "medium", domain: "joint", scenario: "J05", note: "联合闭环（中规模）" },
+    BenchCase {
+        name: "slotting-tiny",
+        scale: "tiny",
+        domain: "slotting",
+        scenario: "S01",
+        note: "小规模端到端（含精确解路径）",
+    },
+    BenchCase {
+        name: "slotting-small",
+        scale: "small",
+        domain: "slotting",
+        scenario: "S01",
+        note: "常规小仓",
+    },
+    BenchCase {
+        name: "slotting-medium",
+        scale: "medium",
+        domain: "slotting",
+        scenario: "S03",
+        note: "中型仓（多深位 + 关联簇）",
+    },
+    BenchCase {
+        name: "slotting-large",
+        scale: "large",
+        domain: "slotting",
+        scenario: "S01",
+        note: "大型仓（如实报告是否在预算内完成）",
+    },
+    BenchCase {
+        name: "asrs-tiny",
+        scale: "tiny",
+        domain: "asrs",
+        scenario: "D01",
+        note: "最小调度闭环",
+    },
+    BenchCase {
+        name: "asrs-small",
+        scale: "small",
+        domain: "asrs",
+        scenario: "D03",
+        note: "多巷道并行",
+    },
+    BenchCase {
+        name: "asrs-medium",
+        scale: "medium",
+        domain: "asrs",
+        scenario: "D16",
+        note: "任务流压力",
+    },
+    BenchCase {
+        name: "asrs-large",
+        scale: "large",
+        domain: "asrs",
+        scenario: "D16",
+        note: "大规模任务流",
+    },
+    BenchCase {
+        name: "joint-small",
+        scale: "small",
+        domain: "joint",
+        scenario: "J01",
+        note: "联合闭环",
+    },
+    BenchCase {
+        name: "joint-medium",
+        scale: "medium",
+        domain: "joint",
+        scenario: "J05",
+        note: "联合闭环（中规模）",
+    },
 ];
 
 #[derive(Debug, Clone)]
@@ -52,6 +112,20 @@ pub struct BenchRow {
     pub note: String,
 }
 
+/// 基准的硬门（与 `acceptance` 同一口径，避免"bench 永远退 0"这种假闸门）：
+///
+/// * 报了有解（`OPTIMAL_PROVEN` / `FEASIBLE_WITH_BOUND` / `FEASIBLE` / `CANCELLED`）⇒ 必须核验通过；
+/// * `UNSUPPORTED` 是如实报告"超出档位"（例如在 wasm-light 档跑极端规模），不计失败；
+/// * 其余状态（`INTERNAL_ERROR` / `INVALID_INPUT` / `NO_SOLUTION_FOUND` / `INFEASIBLE_PROVEN` /
+///   `BUDGET_EXCEEDED`）在基准用例里都算失败——基准用例都是在档规模内的。
+pub fn row_is_pass(row: &BenchRow) -> bool {
+    match row.status.as_str() {
+        "OPTIMAL_PROVEN" | "FEASIBLE_WITH_BOUND" | "FEASIBLE" | "CANCELLED" => row.verification_ok,
+        "UNSUPPORTED" => true,
+        _ => false,
+    }
+}
+
 impl BenchRow {
     pub fn to_json(&self) -> Json {
         Json::obj(vec![
@@ -68,6 +142,7 @@ impl BenchRow {
             ("peakMemoryBytes", Json::int(self.peak_memory_bytes)),
             ("objective", Json::Float(self.objective)),
             ("verificationOk", Json::Bool(self.verification_ok)),
+            ("pass", Json::Bool(row_is_pass(self))),
             ("note", Json::str(self.note.clone())),
         ])
     }
@@ -86,7 +161,11 @@ impl BenchRow {
             self.tasks,
             self.peak_memory_bytes as f64 / 1_048_576.0,
             self.status,
-            if self.verification_ok { "验证通过" } else { "验证未通过/未验证" },
+            if row_is_pass(self) {
+                "验证通过"
+            } else {
+                "验证未通过/未验证"
+            },
         )
     }
 }
@@ -195,7 +274,14 @@ pub fn run_case(case: &BenchCase, tier: crate::capabilities::TierLimits) -> Benc
                     _ => None,
                 })
                 .unwrap_or(0);
-            (status, parsed, objective, iterations, true)
+            // 诚实性：核验结论必须来自引擎自己产出的 verification 块，
+            // 不允许"因为求解没报错就填 true"（那会让 bench 的硬闸门变成摆设）。
+            let verification_ok = parsed
+                .get("verification")
+                .and_then(|value| value.get("ok"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            (status, parsed, objective, iterations, verification_ok)
         }
     };
     let runtime_ms = crate::engine::now_ms() - started;
@@ -262,6 +348,15 @@ pub fn summary_json(rows: &[BenchRow], tier: &str) -> Json {
 pub fn header() -> String {
     format!(
         "{:<16} {:<9} {:<8} {:>10} {:>9} {:>9} {:>9} {:>8} {:>11} {:>10}",
-        "case", "domain", "scale", "runtime", "locations", "skus", "loadUnits", "tasks", "peakMem", "status"
+        "case",
+        "domain",
+        "scale",
+        "runtime",
+        "locations",
+        "skus",
+        "loadUnits",
+        "tasks",
+        "peakMem",
+        "status"
     )
 }

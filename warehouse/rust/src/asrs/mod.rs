@@ -18,9 +18,11 @@ pub mod verify;
 
 use aps_engine::json::Json;
 
+use crate::asrs::solver::ScheduleMetrics;
 use crate::contract::{AsrsProblem, DynamicEvent};
 use crate::errors::{codes, constraints, Issues, Status};
 use crate::util::round;
+use std::collections::BTreeMap;
 
 pub use network::RunNetwork;
 pub use solver::{describe, simulate, AsrsOptions, POLICIES};
@@ -63,6 +65,121 @@ pub fn solve(
     solve_with_verification(problem, events, options, issues)
 }
 
+/// 调度策略**支持矩阵**：契约里出现的旋钮必须真的起作用。
+///
+/// 立场（SRS §1.5）：引擎只实现了"时空预约 + 允许中途等待 + 动态事件先落地"这一套；
+/// 契约里却带有 `conflictPolicy / allowYield / reschedulePolicy / crossLevelTransfer /
+/// rollingHorizon_s / simulationHorizon_s` 这些策略位。给出**未实现的取值**时，
+/// 引擎显式返回 `UNSUPPORTED` 并指出字段路径，而不是静默按默认策略求解——
+/// 静默忽略会让"我配了 yield 策略"变成一句空话。
+///
+/// 返回被拒绝的字段数（>0 表示本次请求不可按声明语义执行）。
+pub fn unsupported_policy_requests(
+    problem: &AsrsProblem,
+    options: &AsrsOptions,
+    issues: &mut Issues,
+) -> usize {
+    const CONFLICT_POLICY: &str = "reservation";
+    const RESCHEDULE_POLICY: &str = "preserve";
+    const DEFAULT_ROLLING_HORIZON_S: f64 = 900.0;
+    let mut bad = 0usize;
+    let reject = |issues: &mut Issues, path: &str, value: String, supported: &str| {
+        issues.error(
+            codes::UNSUPPORTED_FEATURE,
+            path,
+            format!("引擎未实现该取值（{value}）；当前实现只支持 {supported}，请改用受支持取值或留空用默认值"),
+        );
+    };
+    let dispatch = &problem.dispatch;
+    if dispatch.conflict_policy != CONFLICT_POLICY {
+        reject(
+            issues,
+            "problem.dispatch.conflictPolicy",
+            format!("{:?}", dispatch.conflict_policy),
+            CONFLICT_POLICY,
+        );
+        bad += 1;
+    }
+    if !dispatch.allow_yield {
+        reject(
+            issues,
+            "problem.dispatch.allowYield",
+            "false".to_string(),
+            "true（允许设备在互斥资源前等待/让行）",
+        );
+        bad += 1;
+    }
+    if dispatch.reschedule_policy != RESCHEDULE_POLICY {
+        reject(
+            issues,
+            "problem.dispatch.reschedulePolicy",
+            format!("{:?}", dispatch.reschedule_policy),
+            RESCHEDULE_POLICY,
+        );
+        bad += 1;
+    }
+    if !dispatch.cross_level_transfer {
+        reject(
+            issues,
+            "problem.dispatch.crossLevelTransfer",
+            "false".to_string(),
+            "true（跨层搬运经提升井道，禁止会把多层拓扑变成不可达）",
+        );
+        bad += 1;
+    }
+    if (dispatch.rolling_horizon_s - DEFAULT_ROLLING_HORIZON_S).abs() > 1e-9 {
+        let supported = format!(
+            "{}（当前是一次性全量推演，不做滚动时域重排）",
+            DEFAULT_ROLLING_HORIZON_S
+        );
+        reject(
+            issues,
+            "problem.dispatch.rollingHorizon_s",
+            format!("{}", dispatch.rolling_horizon_s),
+            &supported,
+        );
+        bad += 1;
+    }
+    if dispatch.simulation_horizon_s.abs() > 1e-9 {
+        reject(
+            issues,
+            "problem.dispatch.simulationHorizon_s",
+            format!("{}", dispatch.simulation_horizon_s),
+            "0（不截断仿真时域；截断时域会让指标失去可比性）",
+        );
+        bad += 1;
+    }
+    // 求解选项侧的覆盖值（CLI `--options` / wasm `wh_solve_with_options` / 实验室）同口径处理。
+    if options.horizon_s.abs() > 1e-9 {
+        reject(
+            issues,
+            "options.horizonSeconds",
+            format!("{}", options.horizon_s),
+            "0（引擎总是把所有在册任务推演到结束；截断时域会让 makespan / 吞吐失去可比性）",
+        );
+        bad += 1;
+    }
+    if options.conflict_policy != CONFLICT_POLICY {
+        reject(
+            issues,
+            "options.conflictPolicy",
+            format!("{:?}", options.conflict_policy),
+            CONFLICT_POLICY,
+        );
+        bad += 1;
+    }
+    if !options.allow_yield {
+        reject(
+            issues,
+            "options.allowYield",
+            "false".to_string(),
+            "true（允许设备在互斥资源前等待/让行）",
+        );
+        bad += 1;
+    }
+    bad
+}
+
 /// 顶层入口：求解 + （可选）独立验证。
 pub fn solve_with_verification(
     problem: &AsrsProblem,
@@ -70,6 +187,13 @@ pub fn solve_with_verification(
     options: &AsrsOptions,
     issues: &mut Issues,
 ) -> AsrsOutcome {
+    // 策略位不支持 → 直接 UNSUPPORTED（在花时间推演之前就拒绝，并带字段路径）
+    if unsupported_policy_requests(problem, options, issues) > 0 {
+        return AsrsOutcome {
+            status: Status::Unsupported,
+            ..Default::default()
+        };
+    }
     if problem.tasks.len() > options.max_tasks {
         issues.error(
             codes::SCALE_TOO_LARGE,
@@ -87,27 +211,53 @@ pub fn solve_with_verification(
     }
     let mut network = RunNetwork::build(&problem.topology);
     let world = solver::World::build(problem, events);
+    let prof_solver = crate::engine::prof_now();
     let schedule = solver::solve(&mut network, &world, options);
-    let metrics = schedule.metrics.clone();
-    let timeline = schedule.timeline.clone();
+    if crate::engine::profile_enabled() {
+        eprintln!(
+            "[t] solver::solve {:?}",
+            prof_solver.map(|clock| clock.elapsed())
+        );
+    }
+    // 直接搬走（时间线在 2 万任务下是百万级步骤，clone 一次就是几百 MB 的复制）
+    let solver::Schedule {
+        metrics,
+        timeline,
+        status: solver_status,
+        order_notes,
+    } = schedule;
 
     // 内部自检：单车道互斥（求解器自己也要过一遍，早发现早暴露）
     let internal_conflicts = solver::lane_exclusivity_violations(&timeline);
-    for conflict in &internal_conflicts {
+    for conflict in internal_conflicts.iter().take(20) {
         issues.warn(
             constraints::LANE_MUTUAL_EXCLUSION,
             "schedule",
             format!("求解器自检发现潜在冲突：{conflict}"),
         );
     }
+    if internal_conflicts.len() > 20 {
+        issues.warn(
+            constraints::LANE_MUTUAL_EXCLUSION,
+            "schedule",
+            format!(
+                "求解器自检共发现 {} 处潜在冲突（仅列出前 20 条）",
+                internal_conflicts.len()
+            ),
+        );
+    }
 
+    let prof_verify = crate::engine::prof_now();
     let verification = if options.verify {
         let report = verify::verify_schedule(problem, events, &timeline, options);
+        if crate::engine::profile_enabled() {
+            eprintln!("[t] verify {:?}", prof_verify.map(|clock| clock.elapsed()));
+        }
         Some(report)
     } else {
         None
     };
-    let mut status = schedule.status;
+    let mut status = solver_status;
     if let Some(report) = &verification {
         if !report.ok {
             let errors = report
@@ -132,15 +282,46 @@ pub fn solve_with_verification(
     AsrsOutcome {
         status,
         objective,
-        result: solution_json(&schedule, options),
+        result: solution_json(&metrics, &timeline, &order_notes, options),
         metrics: metrics_json(&metrics),
-        timeline: Some(timeline.to_json()),
-        verification: verification.as_ref().map(|report| verification_json(report)),
+        timeline: if options.include_timeline {
+            Some(timeline.to_json())
+        } else {
+            None
+        },
+        verification: verification
+            .as_ref()
+            .map(|report| verification_json(report)),
         report: verification,
     }
 }
 
-fn solution_json(schedule: &solver::Schedule, options: &AsrsOptions) -> Json {
+/// 每台设备的作业量汇总：步数 / 忙时 / 行驶米数 / 首末时刻（由同一条时间线推导）。
+fn device_plan_summary(timeline: &Timeline) -> Vec<(String, usize, f64, f64, f64, f64)> {
+    let mut table: BTreeMap<String, (usize, f64, f64, f64, f64)> = BTreeMap::new();
+    for step in &timeline.steps {
+        let entry =
+            table
+                .entry(step.device_id.clone())
+                .or_insert((0, 0.0, 0.0, step.start_s, step.end_s));
+        entry.0 += 1;
+        entry.1 += (step.end_s - step.start_s).max(0.0);
+        entry.2 += step.distance_m;
+        entry.3 = entry.3.min(step.start_s);
+        entry.4 = entry.4.max(step.end_s);
+    }
+    table
+        .into_iter()
+        .map(|(id, (steps, busy, meters, first, last))| (id, steps, busy, meters, first, last))
+        .collect()
+}
+
+fn solution_json(
+    metrics: &ScheduleMetrics,
+    timeline: &Timeline,
+    order_notes: &[String],
+    options: &AsrsOptions,
+) -> Json {
     Json::obj(vec![
         ("kind", Json::str("asrs")),
         ("algorithm", Json::str(options.algorithm.clone())),
@@ -149,8 +330,7 @@ fn solution_json(schedule: &solver::Schedule, options: &AsrsOptions) -> Json {
         (
             "taskStates",
             Json::Arr(
-                schedule
-                    .timeline
+                timeline
                     .tasks
                     .iter()
                     .map(|trace| {
@@ -172,32 +352,81 @@ fn solution_json(schedule: &solver::Schedule, options: &AsrsOptions) -> Json {
         (
             "servicePlan",
             Json::obj(vec![
+                // 明细只在 timeline.devices[].steps 里出现一次；
+                // 这里给每台设备的作业量汇总（同一条时间线推导，不是另算一套数）。
                 (
-                    "steps",
+                    "devices",
                     Json::Arr(
-                        schedule
-                            .timeline
-                            .steps
-                            .iter()
-                            .map(|step| step.to_json())
+                        device_plan_summary(timeline)
+                            .into_iter()
+                            .map(|entry| {
+                                Json::obj(vec![
+                                    ("deviceId", Json::str(entry.0)),
+                                    ("steps", Json::int(entry.1 as i64)),
+                                    ("busySeconds", Json::Float(round(entry.2, 3))),
+                                    ("travelMeters", Json::Float(round(entry.3, 3))),
+                                    ("firstStart_s", Json::Float(round(entry.4, 3))),
+                                    ("lastEnd_s", Json::Float(round(entry.5, 3))),
+                                ])
+                            })
                             .collect(),
                     ),
                 ),
+                ("stepCount", Json::int(timeline.steps.len() as i64)),
                 (
-                    "stepCount",
-                    Json::int(schedule.timeline.steps.len() as i64),
+                    "note",
+                    Json::str("逐步骤明细见 timeline.devices[].steps（含资源占用与推迟原因）"),
                 ),
             ]),
         ),
         (
             "conflicts",
             Json::Arr(
-                schedule
-                    .order_notes
+                order_notes
                     .iter()
                     .map(|note| Json::str(note.clone()))
                     .collect(),
             ),
+        ),
+        (
+            "note",
+            Json::str("完整逐步骤时间线见 envelope.timeline；此处只保留任务状态与设备作业汇总"),
+        ),
+        (
+            // 三条必答问题里的"为什么设备按这个顺序运行"：与库位侧/联合侧同形状，
+            // 面板因此能用同一个渲染分支（数值全部来自本次真实推演，不是模板话术）。
+            "explanation",
+            Json::obj(vec![
+                (
+                    "dispatch",
+                    Json::str(format!(
+                        "按 {} 策略生成任务顺序与设备指派：{} 个输入任务完成 {} 个，完工 {:.1}s、\
+                     吞吐 {:.1} 件/小时；冲突推迟 {} 次、死锁预防 {} 次、倒垛派生任务 {} 件、\
+                     双指令配对 {} 对；每一步都写了时空预约（共 {} 条），可在 \
+                     timeline.devices[].steps 里逐段复核",
+                        describe(&options.algorithm),
+                        metrics.tasks_total,
+                        metrics.tasks_done,
+                        metrics.makespan_s,
+                        metrics.throughput_per_hour,
+                        metrics.conflicts,
+                        metrics.deadlocks_prevented,
+                        metrics.relocation_tasks,
+                        metrics.dual_command_pairs,
+                        metrics.reservations
+                    )),
+                ),
+                (
+                    "reasons",
+                    Json::strings(order_notes.iter().take(6).cloned().collect()),
+                ),
+                (
+                    "note",
+                    Json::str(
+                        "完整冲突/推迟原因清单见 result.conflicts；指标口径与独立验证器重算一致",
+                    ),
+                ),
+            ]),
         ),
     ])
 }
@@ -222,10 +451,16 @@ pub fn metrics_json(metrics: &solver::ScheduleMetrics) -> Json {
         ("reservations", Json::int(metrics.reservations as i64)),
         ("travelMeters", Json::Float(round(metrics.travel_meters, 3))),
         ("energyKwh", Json::Float(round(metrics.energy_kwh, 6))),
-        ("relocationTasks", Json::int(metrics.relocation_tasks as i64)),
+        (
+            "relocationTasks",
+            Json::int(metrics.relocation_tasks as i64),
+        ),
         ("blockedMoves", Json::int(metrics.blocked_moves as i64)),
         ("lateTasks", Json::int(metrics.late_tasks as i64)),
-        ("maxLateness_s", Json::Float(round(metrics.max_lateness_s, 3))),
+        (
+            "maxLateness_s",
+            Json::Float(round(metrics.max_lateness_s, 3)),
+        ),
         (
             "dualCommandPairs",
             Json::int(metrics.dual_command_pairs as i64),

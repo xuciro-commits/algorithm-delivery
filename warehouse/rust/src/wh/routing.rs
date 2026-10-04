@@ -61,6 +61,9 @@ pub struct RouteModel {
     pub aisle_axis: BTreeMap<(String, i32), AisleAxis>,
     /// 站点节点 → (每个骨架节点的时间, 距离)；按需计算并缓存。
     pub sources: BTreeMap<String, (Vec<f64>, Vec<f64>)>,
+    /// 点对缓存：(from, to) → (秒, 米)。任务循环里反复查的是同一批端点，
+    /// 逐对缓存比"每次重新 Dijkstra"便宜得多。
+    pub pair_cache: BTreeMap<(String, String), (f64, f64)>,
     /// 库位 → 出库 / 入库站台的物理秒数缓存（不含交接）。
     pub station_seconds_cache: BTreeMap<String, BTreeMap<String, f64>>,
     /// 巷道 id → 下标（负载聚合）
@@ -99,6 +102,7 @@ impl RouteModel {
             loc_index,
             aisle_axis,
             sources: BTreeMap::new(),
+            pair_cache: BTreeMap::new(),
             station_seconds_cache: BTreeMap::new(),
             aisle_ids: topology.aisles.iter().map(|a| a.id.clone()).collect(),
         }
@@ -110,6 +114,10 @@ impl RouteModel {
 
     /// 从某节点出发的最短路（秒, 米），带缓存。
     pub fn from_source(&mut self, node_id: &str) -> &(Vec<f64>, Vec<f64>) {
+        // 缓存上限：任务循环里起点会随设备位置不断变化，不能无限增长
+        if self.sources.len() > 64 && !self.sources.contains_key(node_id) {
+            self.sources.clear();
+        }
         if !self.sources.contains_key(node_id) {
             let result = dijkstra(&self.graph, node_id);
             self.sources.insert(node_id.to_string(), result);
@@ -117,28 +125,31 @@ impl RouteModel {
         self.sources.get(node_id).unwrap()
     }
 
+    /// 点对最短路（秒, 米），带缓存 + 目标确定即停。
+    pub fn node_pair(&mut self, from: &str, to: &str) -> (f64, f64) {
+        if from == to {
+            return (0.0, 0.0);
+        }
+        let key = (from.to_string(), to.to_string());
+        if let Some(hit) = self.pair_cache.get(&key) {
+            return *hit;
+        }
+        let value = crate::wh::topology::dijkstra_until(&self.graph, from, to);
+        if self.pair_cache.len() > 200_000 {
+            self.pair_cache.clear();
+        }
+        self.pair_cache.insert(key, value);
+        value
+    }
+
     /// 节点 → 节点的时间（秒）。不可达返回 `f64::INFINITY`。
     pub fn node_seconds(&mut self, from: &str, to: &str) -> f64 {
-        if from == to {
-            return 0.0;
-        }
-        let Some(&target) = self.graph.index.get(to) else {
-            return f64::INFINITY;
-        };
-        let (seconds, _) = self.from_source(from);
-        seconds[target]
+        self.node_pair(from, to).0
     }
 
     /// 节点 → 节点的距离（米）。
     pub fn node_meters(&mut self, from: &str, to: &str) -> f64 {
-        if from == to {
-            return 0.0;
-        }
-        let Some(&target) = self.graph.index.get(to) else {
-            return f64::INFINITY;
-        };
-        let (_, meters) = self.from_source(from);
-        meters[target]
+        self.node_pair(from, to).1
     }
 
     /// 巷道内水平运行时间（解析式，梯形曲线）。
@@ -171,8 +182,11 @@ impl RouteModel {
             return 0.0;
         }
         let moves = (location.depth - 1) as f64;
-        travel_time(moves * location.size[2], motion.speed_mps, motion.accel_mps2)
-            + moves * motion.transfer_s
+        travel_time(
+            moves * location.size[2],
+            motion.speed_mps,
+            motion.accel_mps2,
+        ) + moves * motion.transfer_s
     }
 
     /// 从某节点到某个库位的**物理运行时间**（秒；不含交接时间与取放，它们由调用方按语义加）。
@@ -253,13 +267,16 @@ impl RouteModel {
         to_id: &str,
         motion: &MotionProfile,
     ) -> f64 {
-        let (Some(from), Some(to)) = (self.location(from_id).cloned(), self.location(to_id).cloned())
-        else {
+        let (Some(from), Some(to)) = (
+            self.location(from_id).cloned(),
+            self.location(to_id).cloned(),
+        ) else {
             return f64::INFINITY;
         };
         if from.rack_id == to.rack_id && from.level == to.level {
             let distance = (from.depth - to.depth).unsigned_abs() as f64 * from.size[2];
-            return travel_time(distance, motion.speed_mps, motion.accel_mps2) + motion.transfer_s * 2.0;
+            return travel_time(distance, motion.speed_mps, motion.accel_mps2)
+                + motion.transfer_s * 2.0;
         }
         let mut best = f64::INFINITY;
         for end_a in ["W", "E"] {
@@ -289,8 +306,22 @@ impl RouteModel {
                     .map(|i| self.graph.positions[*i][0])
                     .unwrap_or(to.position[0]);
                 let total = skeleton
-                    + self.in_aisle_seconds(&from.aisle_id, from.level, end_a_x, from.position[0], motion, true)
-                    + self.in_aisle_seconds(&to.aisle_id, to.level, end_b_x, to.position[0], motion, true)
+                    + self.in_aisle_seconds(
+                        &from.aisle_id,
+                        from.level,
+                        end_a_x,
+                        from.position[0],
+                        motion,
+                        true,
+                    )
+                    + self.in_aisle_seconds(
+                        &to.aisle_id,
+                        to.level,
+                        end_b_x,
+                        to.position[0],
+                        motion,
+                        true,
+                    )
                     + self.depth_penalty(&to, motion);
                 if total < best {
                     best = total;
@@ -540,7 +571,9 @@ pub fn location_costs(
 
 /// 设备能力 → 是否可服务该库位（可达性 + 能力判定；调度与验证共用同一规则）。
 pub fn can_serve_location(device: &DeviceSpec, location: &LocationRecord) -> Result<(), String> {
-    if !device.capability.aisles.is_empty() && !device.capability.aisles.contains(&location.aisle_id) {
+    if !device.capability.aisles.is_empty()
+        && !device.capability.aisles.contains(&location.aisle_id)
+    {
         return Err(format!(
             "设备 {} 的服务范围不含巷道 {}",
             device.id, location.aisle_id
@@ -553,7 +586,10 @@ pub fn can_serve_location(device: &DeviceSpec, location: &LocationRecord) -> Res
         ));
     }
     if !device.capability.areas.is_empty() && !device.capability.areas.contains(&location.area_id) {
-        return Err(format!("设备 {} 不在区域 {} 作业", device.id, location.area_id));
+        return Err(format!(
+            "设备 {} 不在区域 {} 作业",
+            device.id, location.area_id
+        ));
     }
     Ok(())
 }

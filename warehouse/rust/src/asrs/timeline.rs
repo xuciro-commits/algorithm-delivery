@@ -30,6 +30,9 @@ pub struct Step {
     pub note: String,
     /// 时空预约的资源（供验证器复核互斥）
     pub resource_id: Option<String>,
+    /// 本步**实际占用**的全部资源（跨巷道/跨层移动会同时占用多条车道与竖井）；
+    /// 验证器按这个集合复核互斥，并复核每条资源声明与几何是否自洽。
+    pub resources: Vec<String>,
     /// 被推迟的秒数（>0 表示这次动作真的等了）
     pub delayed_by_s: f64,
 }
@@ -77,6 +80,14 @@ impl Step {
             ("note", Json::str(self.note.clone())),
             ("delayedBy_s", Json::Float(round(self.delayed_by_s, 3))),
             ("resourceId", Json::opt_str(self.resource_id.clone())),
+            (
+                "resources",
+                Json::strings(if self.resources.is_empty() {
+                    self.resource_id.clone().into_iter().collect()
+                } else {
+                    self.resources.clone()
+                }),
+            ),
         ])
     }
 }
@@ -107,7 +118,10 @@ impl TaskTrace {
             ("kind", Json::str(self.kind.clone())),
             ("priority", Json::int(self.priority)),
             ("release_s", Json::Float(round(self.release_s, 3))),
-            ("deadline_s", Json::opt_str(self.deadline_s.map(|v| round(v, 3).to_string()))),
+            (
+                "deadline_s",
+                Json::opt_str(self.deadline_s.map(|v| round(v, 3).to_string())),
+            ),
             ("start_s", Json::Float(round(self.start_s, 3))),
             ("end_s", Json::Float(round(self.end_s, 3))),
             ("devices", Json::strings(self.device_ids.clone())),
@@ -179,7 +193,11 @@ impl Timeline {
         let mut out: BTreeMap<String, (f64, f64, f64)> = BTreeMap::new();
         for step in &self.steps {
             let entry = out.entry(step.device_id.clone()).or_insert((0.0, 0.0, 0.0));
-            let busy = if step.kind == "wait" || step.kind == "idle" { 0.0 } else { step.duration() };
+            let busy = if step.kind == "wait" || step.kind == "idle" {
+                0.0
+            } else {
+                step.duration()
+            };
             entry.0 += busy;
             entry.1 += step.duration();
             entry.2 += step.distance_m;

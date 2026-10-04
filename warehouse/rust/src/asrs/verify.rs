@@ -64,9 +64,18 @@ pub fn verify_schedule(
     for event in events {
         match event.kind.as_str() {
             "device-breakdown" | "fault" => {
-                let repair = if event.value > 0.0 { event.value } else { 900.0 };
+                let repair = if event.value > 0.0 {
+                    event.value
+                } else {
+                    900.0
+                };
                 let targets: Vec<String> = if event.device_ids.is_empty() {
-                    problem.topology.devices.iter().map(|d| d.id.clone()).collect()
+                    problem
+                        .topology
+                        .devices
+                        .iter()
+                        .map(|d| d.id.clone())
+                        .collect()
                 } else {
                     event.device_ids.clone()
                 };
@@ -78,7 +87,11 @@ pub fn verify_schedule(
                 }
             }
             "speed-degradation" | "degraded-speed" => {
-                let factor = if event.value > 0.0 { event.value.clamp(0.05, 1.0) } else { 0.5 };
+                let factor = if event.value > 0.0 {
+                    event.value.clamp(0.05, 1.0)
+                } else {
+                    0.5
+                };
                 for device in &event.device_ids {
                     slow.insert(device.clone(), factor);
                 }
@@ -90,10 +103,16 @@ pub fn verify_schedule(
     }
 
     let locations = crate::wh::topology::derive_locations(&problem.topology);
-    let location_of: BTreeMap<&str, &crate::wh::topology::LocationRecord> =
-        locations.iter().map(|record| (record.id.as_str(), record)).collect();
-    let device_by_id: BTreeMap<&str, &crate::contract::DeviceSpec> =
-        problem.topology.devices.iter().map(|device| (device.id.as_str(), device)).collect();
+    let location_of: BTreeMap<&str, &crate::wh::topology::LocationRecord> = locations
+        .iter()
+        .map(|record| (record.id.as_str(), record))
+        .collect();
+    let device_by_id: BTreeMap<&str, &crate::contract::DeviceSpec> = problem
+        .topology
+        .devices
+        .iter()
+        .map(|device| (device.id.as_str(), device))
+        .collect();
 
     facts.steps = timeline.steps.len();
     facts.tasks = timeline.tasks.len();
@@ -103,7 +122,10 @@ pub fn verify_schedule(
     // ---- 1) 逐设备重放：时间单调、动作时长与几何一致、设备不重叠 ----
     let mut per_device: BTreeMap<String, Vec<&crate::asrs::timeline::Step>> = BTreeMap::new();
     for step in &timeline.steps {
-        per_device.entry(step.device_id.clone()).or_default().push(step);
+        per_device
+            .entry(step.device_id.clone())
+            .or_default()
+            .push(step);
     }
     for (device_id, steps) in &per_device {
         let Some(device) = device_by_id.get(device_id.as_str()) else {
@@ -152,7 +174,8 @@ pub fn verify_schedule(
                 );
             }
             clock = clock.max(step.end_s);
-            facts.device_busy_seconds
+            facts
+                .device_busy_seconds
                 .entry(device_id.clone())
                 .and_modify(|value| *value += (step.end_s - step.start_s).max(0.0))
                 .or_insert((step.end_s - step.start_s).max(0.0));
@@ -163,13 +186,17 @@ pub fn verify_schedule(
             .sqrt();
             facts.total_motion_meters += distance;
             facts.total_motion_seconds += (step.end_s - step.start_s).max(0.0);
-            let expected = crate::wh::routing::travel_time(distance, speed, device.motion.accel_mps2);
+            let expected =
+                crate::wh::routing::travel_time(distance, speed, device.motion.accel_mps2);
             let allowed = expected * 1.35
                 + device.motion.transfer_s
                 + device.motion.handover_s
                 + device.motion.change_level_s;
             let declared = step.end_s - step.start_s;
-            if distance > 1e-6 && declared > allowed.max(0.5) && !matches!(step.kind.as_str(), "wait" | "idle") {
+            if distance > 1e-6
+                && declared > allowed.max(0.5)
+                && !matches!(step.kind.as_str(), "wait" | "idle")
+            {
                 facts.time_violations += 1;
                 result.violations.push(
                     Violation::new(
@@ -187,8 +214,14 @@ pub fn verify_schedule(
                     .position([step.from.x, step.from.y, step.from.z]),
                 );
             }
-            if distance > 0.0 && declared + 1e-6 < crate::wh::routing::travel_time(distance, speed, device.motion.accel_mps2) * 0.85
-                && !matches!(step.kind.as_str(), "wait" | "idle" | "load" | "unload" | "handover")
+            if distance > 0.0
+                && declared + 1e-6
+                    < crate::wh::routing::travel_time(distance, speed, device.motion.accel_mps2)
+                        * 0.85
+                && !matches!(
+                    step.kind.as_str(),
+                    "wait" | "idle" | "load" | "unload" | "handover"
+                )
             {
                 facts.time_violations += 1;
                 result.violations.push(
@@ -232,23 +265,56 @@ pub fn verify_schedule(
     }
 
     // ---- 2) 单车道 / 竖井互斥（独立复核，不读求解器预约表）----
+    // 资源集合以求解器**声明**的 `resources` 为准（跨巷道/跨层移动会声明多条资源），
+    // 验证器独立复核两件事：(1) 每条声明与几何自洽；(2) 同一资源上不允许两台设备同时占用。
     let mut lane_steps: BTreeMap<String, Vec<&crate::asrs::timeline::Step>> = BTreeMap::new();
     for step in &timeline.steps {
-        if let (Some(aisle), Some(_)) = (&step.from.aisle_id, &step.to.aisle_id) {
-            if step.from.level == step.to.level {
-                lane_steps
-                    .entry(crate::asrs::network::lane_resource(aisle, step.from.level))
-                    .or_default()
-                    .push(step);
+        let mut declared: Vec<String> = if step.resources.is_empty() {
+            step.resource_id.clone().into_iter().collect()
+        } else {
+            step.resources.clone()
+        };
+        if declared.is_empty() {
+            if let (Some(aisle), Some(_)) = (&step.from.aisle_id, &step.to.aisle_id) {
+                if step.from.level == step.to.level {
+                    declared.push(crate::asrs::network::lane_resource(aisle, step.from.level));
+                }
             }
         }
         if step.kind == "lift" {
             if let Some(device) = device_by_id.get(step.device_id.as_str()) {
-                lane_steps
-                    .entry(crate::asrs::network::shaft_resource(device))
-                    .or_default()
-                    .push(step);
+                declared.push(crate::asrs::network::shaft_resource(device));
             }
+        }
+        for resource in declared {
+            if let Some(spec) = resource.strip_prefix("LANE:") {
+                // 资源声明必须与本步几何自洽（该步至少一端位于这条车道所在巷道与层）
+                let mut parts = spec.rsplitn(2, ":L");
+                let level: i32 = parts
+                    .next()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(-1);
+                let aisle = parts.next().unwrap_or("");
+                let touches = [&step.from, &step.to].iter().any(|position| {
+                    position.aisle_id.as_deref() == Some(aisle) && position.level == level
+                });
+                if !touches {
+                    result.violations.push(
+                        Violation::new(
+                            constraints::TIME_CONSISTENCY,
+                            Severity::Warning,
+                            format!(
+                                "步骤 {} 声明占用 {resource}，但两端位置都不在该车道（资源声明与几何不一致）",
+                                step.id
+                            ),
+                        )
+                        .soft()
+                        .device(step.device_id.clone())
+                        .at(step.start_s),
+                    );
+                }
+            }
+            lane_steps.entry(resource).or_default().push(step);
         }
     }
     for (resource, steps) in &lane_steps {
@@ -328,7 +394,9 @@ pub fn verify_schedule(
             );
         }
         if let Some(deadline) = task.deadline_s {
-            if trace.status == "done" && trace.end_s > deadline + 1e-6 && hard(problem, constraints::TASK_DEADLINE)
+            if trace.status == "done"
+                && trace.end_s > deadline + 1e-6
+                && hard(problem, constraints::TASK_DEADLINE)
             {
                 facts.service_violations += 1;
                 result.violations.push(
@@ -345,7 +413,10 @@ pub fn verify_schedule(
                     )
                     .task(task.id.clone())
                     .at(trace.end_s)
-                    .expected_actual(round(deadline, 2).to_string(), round(trace.end_s, 2).to_string()),
+                    .expected_actual(
+                        round(deadline, 2).to_string(),
+                        round(trace.end_s, 2).to_string(),
+                    ),
                 );
             }
         }
@@ -386,7 +457,8 @@ pub fn verify_schedule(
                 // 每个执行设备必须真的能服务这个巷道 / 层
                 for device_id in &trace.device_ids {
                     if let Some(device) = device_by_id.get(device_id.as_str()) {
-                        let is_lift = matches!(device.kind, DeviceKind::PalletLift | DeviceKind::AisleLift);
+                        let is_lift =
+                            matches!(device.kind, DeviceKind::PalletLift | DeviceKind::AisleLift);
                         if is_lift {
                             continue;
                         }
@@ -425,9 +497,10 @@ pub fn verify_schedule(
         .collect();
     for task in &problem.tasks {
         for dependency in &task.depends_on {
-            if let (Some(end_dep), Some(end_task)) =
-                (end_of.get(dependency.as_str()), end_of.get(task.id.as_str()))
-            {
+            if let (Some(end_dep), Some(end_task)) = (
+                end_of.get(dependency.as_str()),
+                end_of.get(task.id.as_str()),
+            ) {
                 if end_task + 1e-6 < *end_dep {
                     facts.dependency_violations += 1;
                     result.violations.push(
@@ -450,7 +523,11 @@ pub fn verify_schedule(
     let mut occupancy: BTreeMap<String, i32> = BTreeMap::new();
     let mut events_sorted: Vec<&crate::asrs::timeline::BufferState> =
         timeline.buffer_states.iter().collect();
-    events_sorted.sort_by(|a, b| a.at_s.partial_cmp(&b.at_s).unwrap_or(std::cmp::Ordering::Equal));
+    events_sorted.sort_by(|a, b| {
+        a.at_s
+            .partial_cmp(&b.at_s)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     for state in events_sorted {
         let entry = occupancy.entry(state.buffer_id.clone()).or_insert(0);
         *entry = state.occupancy;

@@ -9,7 +9,9 @@
 use crate::contract::DynamicEvent;
 use crate::errors::Status;
 use crate::slotting::search::{self, SearchOutcomeInternal, SearchStats, Weights};
-use crate::slotting::{relocation_contribution, SlottingModel, SlottingSolveOptions, SlottingState};
+use crate::slotting::{
+    relocation_contribution, SlottingModel, SlottingSolveOptions, SlottingState,
+};
 use crate::util::{mean, round, seed_from, Rng};
 
 /// 一个需求 / 能力情景。
@@ -97,7 +99,10 @@ pub fn build_scenarios(model: &SlottingModel, count: usize, seed: u64) -> Vec<Sc
             aisle_capacity: capacity,
             lift_capacity: vec![1.0; model.lift_ids.len()],
             weight: 1.0,
-            description: format!("巷道 {} 失效：该巷道能力降到 8%，需求必须由其它巷道承担", model.aisle_ids[failed]),
+            description: format!(
+                "巷道 {} 失效：该巷道能力降到 8%，需求必须由其它巷道承担",
+                model.aisle_ids[failed]
+            ),
         });
     }
     // 6) 提升机降速（立库最常见的退化场景）
@@ -111,7 +116,10 @@ pub fn build_scenarios(model: &SlottingModel, count: usize, seed: u64) -> Vec<Sc
             aisle_capacity: vec![1.0; model.aisle_ids.len()],
             lift_capacity: capacity,
             weight: 1.0,
-            description: format!("提升机 {} 降速 50%：高层库位的真实代价上升", model.lift_ids[degraded]),
+            description: format!(
+                "提升机 {} 降速 50%：高层库位的真实代价上升",
+                model.lift_ids[degraded]
+            ),
         });
     }
     // 7..N) 结构化随机情景（逐 SKU 偏移，保持整簇相关性）
@@ -138,7 +146,10 @@ pub fn build_scenarios(model: &SlottingModel, count: usize, seed: u64) -> Vec<Sc
             aisle_capacity: capacity,
             lift_capacity: vec![1.0; model.lift_ids.len()],
             weight: 1.0,
-            description: format!("结构性随机情景（σ={:.2}）：逐 SKU 相关偏移 + 可能的巷道降级", sigma),
+            description: format!(
+                "结构性随机情景（σ={:.2}）：逐 SKU 相关偏移 + 可能的巷道降级",
+                sigma
+            ),
         });
     }
     scenarios
@@ -165,7 +176,8 @@ pub fn scenario_seconds(model: &SlottingModel, state: &SlottingState, scenario: 
     }
     let mut congestion = 0.0;
     for (index, demand_flow) in aisle_demand.iter().enumerate() {
-        let capacity = model.aisle_capacity[index] * scenario.aisle_capacity.get(index).copied().unwrap_or(1.0);
+        let capacity = model.aisle_capacity[index]
+            * scenario.aisle_capacity.get(index).copied().unwrap_or(1.0);
         congestion += search::aisle_congestion(
             *demand_flow,
             capacity,
@@ -210,7 +222,11 @@ pub fn evaluate_robust(
     for scenario in scenarios {
         let value = scenario_seconds(model, state, scenario);
         values.push(value);
-        per_scenario.push((scenario.name.clone(), round(value, 3), scenario.description.clone()));
+        per_scenario.push((
+            scenario.name.clone(),
+            round(value, 3),
+            scenario.description.clone(),
+        ));
     }
     let mean_value = mean(&values);
     let worst = values.iter().copied().fold(f64::MIN, f64::max);
@@ -270,7 +286,10 @@ pub fn robust(
     let deadline = started + budget_ms.max(50.0) * 0.9;
     let mut iterations = 0u64;
     let trace_every = 25u64;
-    while crate::engine::now_ms() < deadline && !crate::engine::cancel_requested() && iterations < 2_000_000 {
+    while crate::engine::now_ms() < deadline
+        && !crate::engine::cancel_requested()
+        && iterations < 2_000_000
+    {
         iterations += 1;
         stats.iterations = iterations;
         let Some(candidate_move) = search::random_move_public(model, &state, &mut rng) else {
@@ -341,10 +360,7 @@ pub fn event_impact(model: &SlottingModel, events: &[DynamicEvent]) -> Vec<(Stri
         .iter()
         .map(|event| {
             let detail = match event.kind.as_str() {
-                "demand-shift" => format!(
-                    "需求整体偏移 {:.0}%",
-                    (event.value - 1.0) * 100.0
-                ),
+                "demand-shift" => format!("需求整体偏移 {:.0}%", (event.value - 1.0) * 100.0),
                 "urgent-inbound" => format!("{} 个货物单元临时入库", event.tasks.len().max(1)),
                 "aisle-closure" | "location-freeze" => format!(
                     "冻结/关闭 {} 个库位或巷道",
@@ -353,11 +369,7 @@ pub fn event_impact(model: &SlottingModel, events: &[DynamicEvent]) -> Vec<(Stri
                 "device-breakdown" => format!("设备故障：{}", event.device_ids.join(",")),
                 other => format!("事件 {other}"),
             };
-            (
-                event.kind.clone(),
-                detail,
-                round(event.at_s, 1),
-            )
+            (event.kind.clone(), detail, round(event.at_s, 1))
         })
         .collect()
 }

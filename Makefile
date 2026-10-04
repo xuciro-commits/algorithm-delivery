@@ -18,7 +18,7 @@ CARGO_TARGETS := wasm32-unknown-unknown
 
 .DEFAULT_GOAL := help
 .PHONY: help static static-docs static-art static-perf dev build test test-engines \
-        engine-aps engine-mapf engine-agv sync sync-assets audit-models audit-perf \
+        engine-aps engine-mapf engine-agv engine-warehouse sync sync-assets audit-models audit-perf \
         check-docs check-workflows ci clean
 
 help: ## 显示全部命令
@@ -52,10 +52,11 @@ build: ## 同步引擎产物 + 类型检查 + 打包
 test: ## 全量：构建 + 静态检查 + 集成测试（需要 Rust WASM 产物）
 	cd $(LAB) && npm run test:all
 
-test-engines: ## 三个 Rust 引擎的质量门（native + WASM + 验收 + 契约）
+test-engines: ## 四个 Rust 引擎的质量门（native + WASM + 验收 + 契约）
 	cd aps/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && ./target/release/aps acceptance
 	cd mapf/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && ./target/release/mapf acceptance
 	cd agv/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && ./target/release/agv acceptance
+	cd warehouse/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && ./target/release/warehouse acceptance --out /tmp/warehouse-acceptance.json
 
 engine-aps: ## 只验 APS 引擎
 	cd aps/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && python3 scripts/check_contracts.py && bash scripts/build_wasm.sh
@@ -66,8 +67,11 @@ engine-mapf: ## 只验 MAPF 引擎
 engine-agv: ## 只验 AGV 引擎
 	cd agv/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && ./target/release/agv acceptance && python3 scripts/check_contracts.py && bash scripts/build_wasm.sh
 
+engine-warehouse: ## 只验仓储引擎（库位优化 / 密集立库调度 / 联合优化）
+	cd warehouse/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --release --locked && ./target/release/warehouse acceptance --out /tmp/warehouse-acceptance.json && python3 scripts/check_contracts.py && bash scripts/build_wasm.sh
+
 # ------------------------------------------------------------------ 数据与资产
-sync: ## 同步三引擎产物 + 上传模型到 lab/public
+sync: ## 同步四引擎产物 + 上传模型到 lab/public
 	cd $(LAB) && npm run sync
 
 sync-assets: ## 只同步三维实验室用到的上传模型

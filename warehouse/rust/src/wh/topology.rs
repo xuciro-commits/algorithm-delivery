@@ -17,9 +17,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use aps_engine::json::Json;
 
 use crate::contract::{
-    AisleSpec, AreaSpec, Availability, BufferSpec, DeviceCapability, DeviceKind, DeviceSpec, LevelSpec,
-    LinkMode, LinkSpec, MotionProfile, NodeSpec, RackKind, RackSpec, StationDirection, StationSpec,
-    Topology,
+    AisleSpec, AreaSpec, Availability, BufferSpec, DeviceCapability, DeviceKind, DeviceSpec,
+    LevelSpec, LinkMode, LinkSpec, MotionProfile, NodeSpec, RackKind, RackSpec, StationDirection,
+    StationSpec, Topology,
 };
 
 /// 拓扑模板：每个模板对应一种真实工业形态（不是"同一套结构换个数量参数"）。
@@ -284,7 +284,10 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
         name: "自动化立库区".to_string(),
         kind: "asrs".to_string(),
         center: [aisle_length / 2.0, total_z / 2.0],
-        size: [aisle_length + p.cross_aisle_width_m * 2.0, lanes as f64 * aisle_pitch],
+        size: [
+            aisle_length + p.cross_aisle_width_m * 2.0,
+            lanes as f64 * aisle_pitch,
+        ],
         height_m: p.levels as f64 * p.level_height_m + 1.2,
     };
     if is_asrs {
@@ -298,7 +301,10 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             -(p.cross_aisle_width_m / 2.0 + p.station_depth_m / 2.0 + 1.0),
             asrs_area.center[1],
         ],
-        size: [p.station_depth_m, (lanes as f64 * aisle_pitch * 0.6).max(6.0)],
+        size: [
+            p.station_depth_m,
+            (lanes as f64 * aisle_pitch * 0.6).max(6.0),
+        ],
         height_m: 5.5,
     };
     let outbound_area = AreaSpec {
@@ -309,7 +315,10 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             aisle_length + p.cross_aisle_width_m / 2.0 + p.station_depth_m / 2.0 + 1.0,
             asrs_area.center[1],
         ],
-        size: [p.station_depth_m, (lanes as f64 * aisle_pitch * 0.6).max(6.0)],
+        size: [
+            p.station_depth_m,
+            (lanes as f64 * aisle_pitch * 0.6).max(6.0),
+        ],
         height_m: 5.5,
     };
     areas.push(inbound_area.clone());
@@ -320,7 +329,10 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             id: "AREA-MANUAL".to_string(),
             name: "人工拣选区".to_string(),
             kind: "picking".to_string(),
-            center: [aisle_length / 2.0, -(lanes as f64 * aisle_pitch) / 2.0 - 8.0],
+            center: [
+                aisle_length / 2.0,
+                -(lanes as f64 * aisle_pitch) / 2.0 - 8.0,
+            ],
             size: [aisle_length, 12.0],
             height_m: 3.6,
         };
@@ -377,10 +389,7 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
         aisles.push(AisleSpec {
             id: aisle_id.clone(),
             area_id: asrs_area.id.clone(),
-            end_node_ids: [
-                format!("N-{aisle_id}-L1-W"),
-                format!("N-{aisle_id}-L1-E"),
-            ],
+            end_node_ids: [format!("N-{aisle_id}-L1-W"), format!("N-{aisle_id}-L1-E")],
             axis: [1.0, 0.0],
             length_m: aisle_length,
             bidirectional: true,
@@ -398,19 +407,17 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             bays: p.manual_bays,
             depths: 1,
             levels: vec![
-                LevelSpec {
-                    level: 1,
-                    y_m: 0.0,
-                },
-                LevelSpec {
-                    level: 2,
-                    y_m: 1.6,
-                },
+                LevelSpec { level: 1, y_m: 0.0 },
+                LevelSpec { level: 2, y_m: 1.6 },
             ],
             size: [0.8, 1.6, 0.6],
             max_weight_kg: 120.0,
             max_volume_m3: 0.25,
-            origin: [manual.center[0] - manual.size[0] / 2.0 + 0.6, 0.0, manual.center[1]],
+            origin: [
+                manual.center[0] - manual.size[0] / 2.0 + 0.6,
+                0.0,
+                manual.center[1],
+            ],
             bay_axis: [1.0, 0.0],
             depth_axis: [0.0, 1.0],
         });
@@ -434,9 +441,19 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
     let node_positions: BTreeMap<String, [f64; 3]> = BTreeMap::new();
     let mut positions = node_positions;
 
-    let mut add_link = |links: &mut Vec<LinkSpec>, positions: &BTreeMap<String, [f64; 3]>, id: String, from: String, to: String, bidirectional: bool, mode: LinkMode, capacity: i32, allow_meeting: bool| {
+    let mut add_link = |links: &mut Vec<LinkSpec>,
+                        positions: &BTreeMap<String, [f64; 3]>,
+                        id: String,
+                        from: String,
+                        to: String,
+                        bidirectional: bool,
+                        mode: LinkMode,
+                        capacity: i32,
+                        allow_meeting: bool| {
         let length = match (positions.get(&from), positions.get(&to)) {
-            (Some(a), Some(b)) => ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt(),
+            (Some(a), Some(b)) => {
+                ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt()
+            }
             _ => 1.0,
         };
         links.push(LinkSpec {
@@ -454,10 +471,7 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
     let served_levels: Vec<LevelSpec> = if is_asrs {
         levels.clone()
     } else {
-        vec![LevelSpec {
-            level: 1,
-            y_m: 0.0,
-        }]
+        vec![LevelSpec { level: 1, y_m: 0.0 }]
     };
 
     for a in 0..p.aisles {
@@ -582,7 +596,11 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
                         } else {
                             LinkMode::Road
                         },
-                        if p.template == TopologyTemplate::AsrsTwoBlock { 1 } else { 2 },
+                        if p.template == TopologyTemplate::AsrsTwoBlock {
+                            1
+                        } else {
+                            2
+                        },
                         p.template != TopologyTemplate::AsrsTwoBlock,
                     );
                 }
@@ -600,7 +618,10 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
                         .map(|l| l.y_m)
                         .unwrap_or(0.0);
                     let id = format!("N-X{a:02}-L{lvl}-{suffix}");
-                    positions.insert(id.clone(), [round4(x), round4(y), round4((a - 1) as f64 * aisle_pitch)]);
+                    positions.insert(
+                        id.clone(),
+                        [round4(x), round4(y), round4((a - 1) as f64 * aisle_pitch)],
+                    );
                     push_node(NodeSpec {
                         id: id.clone(),
                         position: [round4(x), round4(y), round4((a - 1) as f64 * aisle_pitch)],
@@ -686,7 +707,11 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             let shaft_x = block_right_x + 1.6;
             let shaft_z = (head_number - 1) as f64 * aisle_pitch;
             for i in 0..p.lifts_per_block {
-                let suffix = if i == 0 { String::new() } else { format!("{}", i + 1) };
+                let suffix = if i == 0 {
+                    String::new()
+                } else {
+                    format!("{}", i + 1)
+                };
                 if wants_pallet {
                     let id = format!("PL-{:02}{suffix}", blk + 1);
                     pallet_lift_ids.push(id.clone());
@@ -861,6 +886,9 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
     let station_z = |count: i32, index: i32| -> f64 {
         total_z / 2.0 + (index as f64 - (count as f64 - 1.0) / 2.0) * 4.0
     };
+    // 站台节点收集：地面通道必须把所有站台与**每一座提升机底座**连起来，
+    // 否则跨提升机分组的任务在图上不可达（node_seconds 会给出 inf）。
+    let mut station_node_ids: Vec<String> = Vec::new();
     for i in 0..p.inbound_stations {
         let id = format!("ST-IN-{:02}", i + 1);
         let node_id = format!("N-{id}");
@@ -875,6 +903,7 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             aisle_id: None,
             level: Some(1),
         });
+        station_node_ids.push(node_id.clone());
         for a in 1..=p.aisles.min(4) {
             add_link(
                 &mut links,
@@ -896,7 +925,7 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             direction: StationDirection::Inbound,
             buffer_capacity: p.station_buffer,
             handover_s: p.handover_s,
-            served_by: pallet_lift_ids.iter().take(2).cloned().collect(),
+            served_by: pallet_lift_ids.clone(),
         });
         buffers.push(BufferSpec {
             id: format!("BUF-{id}"),
@@ -920,6 +949,7 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             aisle_id: None,
             level: Some(1),
         });
+        station_node_ids.push(node_id.clone());
         for a in 1..=p.aisles.min(4) {
             add_link(
                 &mut links,
@@ -941,7 +971,7 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
             direction: StationDirection::Outbound,
             buffer_capacity: p.station_buffer,
             handover_s: p.handover_s,
-            served_by: pallet_lift_ids.iter().take(2).cloned().collect(),
+            served_by: pallet_lift_ids.clone(),
         });
         buffers.push(BufferSpec {
             id: format!("BUF-{id}"),
@@ -952,19 +982,41 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
         });
     }
 
+    // 地面通道主干：站台 ↔ 每座货物提升机底座（同层、可会车）。
+    // 单深库只有横巷时（template != four-way）没有连接各分组的横巷，
+    // 靠这条主干才能让"入到 A15"这样的跨分组任务在图上可达。
+    for node in &station_node_ids {
+        for lift in &pallet_lift_ids {
+            let base = format!("N-{lift}-L1");
+            if !positions.contains_key(&base) {
+                continue;
+            }
+            add_link(
+                &mut links,
+                &positions,
+                format!("K-ROAD-{node}-{lift}"),
+                node.clone(),
+                base,
+                true,
+                LinkMode::Road,
+                2,
+                true,
+            );
+        }
+    }
+
     /* ---------------- 穿梭车 ---------------- */
     if is_asrs {
         for a in 1..=p.aisles {
             let aisle_id = format!("A{a:02}");
             for s in 1..=p.shuttles_per_aisle {
-                let shuttle_levels: Vec<i32> = if p.lift_mode == "shuttle"
-                    || p.template == TopologyTemplate::AsrsFourWay
-                {
-                    (1..=p.levels).collect()
-                } else {
-                    // 货物提升机形态：穿梭车只在底层服务，货物靠提升机上下（真实拓扑）
-                    vec![1]
-                };
+                let shuttle_levels: Vec<i32> =
+                    if p.lift_mode == "shuttle" || p.template == TopologyTemplate::AsrsFourWay {
+                        (1..=p.levels).collect()
+                    } else {
+                        // 货物提升机形态：穿梭车只在底层服务，货物靠提升机上下（真实拓扑）
+                        vec![1]
+                    };
                 for lvl in shuttle_levels {
                     let id = format!("SH-{aisle_id}-{s}-L{lvl}");
                     let four_way = p.template == TopologyTemplate::AsrsFourWay;
@@ -1125,7 +1177,12 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
         .iter()
         .filter(|r| r.kind != RackKind::Shelving)
         .map(|r| {
-            r.bays as f64 * r.depths as f64 * r.levels.len() as f64 * r.size[0] * r.size[1] * r.size[2]
+            r.bays as f64
+                * r.depths as f64
+                * r.levels.len() as f64
+                * r.size[0]
+                * r.size[1]
+                * r.size[2]
         })
         .sum();
     let manual_locations: usize = topology
@@ -1136,7 +1193,10 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
         .sum();
     let stats = TopologyStats {
         locations: locations.len(),
-        available_locations: locations.iter().filter(|l| l.availability == Availability::Available).count(),
+        available_locations: locations
+            .iter()
+            .filter(|l| l.availability == Availability::Available)
+            .count(),
         aisles: topology.aisles.len(),
         levels: p.levels,
         bays: p.bays,
@@ -1293,9 +1353,13 @@ pub fn adjacency(topology: &Topology) -> BTreeMap<String, Vec<String>> {
         if topology.closed_links.contains(&link.id) {
             continue;
         }
-        out.entry(link.from.clone()).or_default().push(link.to.clone());
+        out.entry(link.from.clone())
+            .or_default()
+            .push(link.to.clone());
         if link.bidirectional {
-            out.entry(link.to.clone()).or_default().push(link.from.clone());
+            out.entry(link.to.clone())
+                .or_default()
+                .push(link.from.clone());
         }
     }
     out
@@ -1320,38 +1384,106 @@ pub fn bfs(adjacency: &BTreeMap<String, Vec<String>>, start: &str) -> BTreeSet<S
 
 /// Dijkstra（按时间的近似：`LinkMode::default_motion` 的梯形曲线）。
 /// 返回每个节点的时间（秒）与距离（米）。不可达为 `f64::INFINITY`。
+/// 二叉堆最小优先队列（`f64` 没有 `Ord`，按时间做惰性删除即可）。
+#[derive(PartialEq)]
+struct HeapItem {
+    seconds: f64,
+    index: usize,
+}
+
+impl Eq for HeapItem {}
+
+impl Ord for HeapItem {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .seconds
+            .partial_cmp(&self.seconds)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
+impl PartialOrd for HeapItem {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn relax(
+    graph: &NodeGraph,
+    seconds: &mut [f64],
+    meters: &mut [f64],
+    u: usize,
+    heap: &mut std::collections::BinaryHeap<HeapItem>,
+) {
+    for &(v, length, mode, _) in &graph.adj[u] {
+        let (speed, accel) = mode.default_motion();
+        let dt = crate::wh::routing::travel_time(length, speed, accel);
+        if seconds[u] + dt < seconds[v] - 1e-9 {
+            seconds[v] = seconds[u] + dt;
+            meters[v] = meters[u] + length;
+            heap.push(HeapItem {
+                seconds: seconds[v],
+                index: v,
+            });
+        }
+    }
+}
+
+/// 单源最短路（秒 / 米）。二叉堆 + 惰性删除：骨架节点数千、边数万，堆实现比 O(n²) 选择快两个数量级，
+/// 也避免了旧实现在 2 万任务规模下的平方级退化。
 pub fn dijkstra(graph: &NodeGraph, source: &str) -> (Vec<f64>, Vec<f64>) {
+    use std::collections::BinaryHeap;
     let n = graph.positions.len();
     let mut seconds = vec![f64::INFINITY; n];
     let mut meters = vec![f64::INFINITY; n];
-    let mut visited = vec![false; n];
     let Some(&src) = graph.index.get(source) else {
         return (seconds, meters);
     };
     seconds[src] = 0.0;
     meters[src] = 0.0;
-    for _ in 0..n {
-        // 线性选择：骨架节点数在千级，O(n²) 完全够用且实现最稳（无堆带来的不确定行为）
-        let mut current: Option<usize> = None;
-        let mut best = f64::INFINITY;
-        for i in 0..n {
-            if !visited[i] && seconds[i] < best {
-                best = seconds[i];
-                current = Some(i);
-            }
+    let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
+    heap.push(HeapItem {
+        seconds: 0.0,
+        index: src,
+    });
+    while let Some(item) = heap.pop() {
+        if item.seconds > seconds[item.index] + 1e-9 {
+            continue;
         }
-        let Some(u) = current else { break };
-        visited[u] = true;
-        for &(v, length, mode, _) in &graph.adj[u] {
-            let (speed, accel) = mode.default_motion();
-            let dt = crate::wh::routing::travel_time(length, speed, accel);
-            if seconds[u] + dt < seconds[v] - 1e-9 {
-                seconds[v] = seconds[u] + dt;
-                meters[v] = meters[u] + length;
-            }
-        }
+        relax(graph, &mut seconds, &mut meters, item.index, &mut heap);
     }
     (seconds, meters)
+}
+
+/// 单源单目标最短路：目标一确定就停，供热路径查询使用（无需预计算整张图）。
+pub fn dijkstra_until(graph: &NodeGraph, source: &str, target: &str) -> (f64, f64) {
+    use std::collections::BinaryHeap;
+    if source == target {
+        return (0.0, 0.0);
+    }
+    let n = graph.positions.len();
+    let (Some(&src), Some(&dst)) = (graph.index.get(source), graph.index.get(target)) else {
+        return (f64::INFINITY, f64::INFINITY);
+    };
+    let mut seconds = vec![f64::INFINITY; n];
+    let mut meters = vec![f64::INFINITY; n];
+    seconds[src] = 0.0;
+    meters[src] = 0.0;
+    let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
+    heap.push(HeapItem {
+        seconds: 0.0,
+        index: src,
+    });
+    while let Some(item) = heap.pop() {
+        if item.index == dst {
+            return (seconds[dst], meters[dst]);
+        }
+        if item.seconds > seconds[item.index] + 1e-9 {
+            continue;
+        }
+        relax(graph, &mut seconds, &mut meters, item.index, &mut heap);
+    }
+    (seconds[dst], meters[dst])
 }
 
 /// 生成 JSON：拓扑（供实验室与契约示例使用）。
@@ -1546,7 +1678,10 @@ pub fn topology_to_json(bundle: &TopologyBundle) -> Json {
                             ),
                         ),
                         ("areas", Json::strings(d.capability.areas.clone())),
-                        ("capacity_loads", Json::int(d.capability.capacity_loads as i64)),
+                        (
+                            "capacity_loads",
+                            Json::int(d.capability.capacity_loads as i64),
+                        ),
                         ("capacity_kg", Json::Float(d.capability.capacity_kg)),
                     ]),
                 ),
@@ -1558,14 +1693,23 @@ pub fn topology_to_json(bundle: &TopologyBundle) -> Json {
                         ("transfer_s", Json::Float(d.motion.transfer_s)),
                         ("handover_s", Json::Float(d.motion.handover_s)),
                         ("change_level_s", Json::Float(d.motion.change_level_s)),
-                        ("loaded_speed_factor", Json::Float(d.motion.loaded_speed_factor)),
+                        (
+                            "loaded_speed_factor",
+                            Json::Float(d.motion.loaded_speed_factor),
+                        ),
                     ]),
                 ),
                 (
                     "coupling",
                     Json::obj(vec![
-                        ("exclusiveResources", Json::strings(d.exclusive_resources.clone())),
-                        ("sharesSpaceWith", Json::strings(d.shares_space_with.clone())),
+                        (
+                            "exclusiveResources",
+                            Json::strings(d.exclusive_resources.clone()),
+                        ),
+                        (
+                            "sharesSpaceWith",
+                            Json::strings(d.shares_space_with.clone()),
+                        ),
                     ]),
                 ),
                 (
@@ -1597,7 +1741,10 @@ pub fn topology_to_json(bundle: &TopologyBundle) -> Json {
         ("stations", Json::Arr(stations)),
         ("buffers", Json::Arr(buffers)),
         ("devices", Json::Arr(devices)),
-        ("frozenLocations", Json::strings(t.frozen_locations.iter().cloned().collect::<Vec<_>>())),
+        (
+            "frozenLocations",
+            Json::strings(t.frozen_locations.iter().cloned().collect::<Vec<_>>()),
+        ),
         (
             "reservedLocations",
             Json::strings(t.reserved_locations.iter().cloned().collect::<Vec<_>>()),

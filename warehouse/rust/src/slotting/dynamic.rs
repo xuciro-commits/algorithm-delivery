@@ -57,7 +57,8 @@ pub fn apply_events(problem: &mut SlottingProblem, events: &[DynamicEvent]) -> V
                     .or_else(|| event.task_ids.first().cloned());
                 match sku_id {
                     Some(sku_id) => {
-                        let quantity = crate::contract::opt_f64(&event.payload, "quantity").unwrap_or(1.0);
+                        let quantity =
+                            crate::contract::opt_f64(&event.payload, "quantity").unwrap_or(1.0);
                         let id = format!("LU-DYN-{}", problem.inventory.len() + 1);
                         problem.inventory.push(crate::contract::InventoryUnit {
                             id: id.clone(),
@@ -108,7 +109,11 @@ pub fn apply_events(problem: &mut SlottingProblem, events: &[DynamicEvent]) -> V
                 )
             }
             "device-breakdown" | "speed-degradation" => {
-                let factor = if event.value > 0.0 { event.value.clamp(0.05, 1.0) } else { 0.5 };
+                let factor = if event.value > 0.0 {
+                    event.value.clamp(0.05, 1.0)
+                } else {
+                    0.5
+                };
                 let mut count = 0usize;
                 for device in problem.topology.devices.iter_mut() {
                     if event.device_ids.is_empty() || event.device_ids.contains(&device.id) {
@@ -121,7 +126,9 @@ pub fn apply_events(problem: &mut SlottingProblem, events: &[DynamicEvent]) -> V
             }
             "order-cancel" | "task-cancel" => {
                 let before = problem.history.len();
-                problem.history.retain(|order| !event.task_ids.contains(&order.id));
+                problem
+                    .history
+                    .retain(|order| !event.task_ids.contains(&order.id));
                 format!("取消 {} 张订单", before - problem.history.len())
             }
             other => format!("未识别的事件类型 {other}（已跳过，不会静默改变模型）"),
@@ -176,7 +183,9 @@ pub fn dynamic(
         let snapshot = state.clone_state();
         let relocation_before = state.relocation_count as f64;
         search::apply_move_public(model, &mut state, candidate_move);
-        if state.relocation_count as f64 > keep_ratio && state.relocation_count > snapshot.relocation_count {
+        if state.relocation_count as f64 > keep_ratio
+            && state.relocation_count > snapshot.relocation_count
+        {
             state = snapshot;
             continue;
         }
@@ -262,7 +271,10 @@ pub fn event_timeline(
         .collect();
     for action in migrations.iter().filter(|action| action.requires_dispatch) {
         items.push(Json::obj(vec![
-            ("at_s", Json::Float(action.trigger.as_ref().map(|t| t.1).unwrap_or(0.0))),
+            (
+                "at_s",
+                Json::Float(action.trigger.as_ref().map(|t| t.1).unwrap_or(0.0)),
+            ),
             ("kind", Json::str("migration")),
             (
                 "detail",
@@ -296,10 +308,7 @@ pub fn event_timeline(
         ]));
     }
     Json::obj(vec![
-        (
-            "items",
-            Json::Arr(items),
-        ),
+        ("items", Json::Arr(items)),
         ("eventCount", Json::int(applied.len() as i64)),
     ])
 }

@@ -15,8 +15,8 @@ pub mod dynamic;
 pub mod multiobj;
 pub mod robust;
 pub mod search;
-pub mod verify;
 pub mod strategies;
+pub mod verify;
 
 /// 缺省随机种子（所有结果都必须能凭 seed + 版本号复现）。
 pub const ALGORITHM_DEFAULT_SEED: u64 = 20_250_901;
@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use aps_engine::json::Json;
 
-use crate::contract::{SlottingConstraints, SlottingProblem, SkuSpec, Topology};
+use crate::contract::{SkuSpec, SlottingConstraints, SlottingProblem, Topology};
 use crate::errors::{codes, Issues};
 use crate::util::{cvar, gini, mean, round, seed_from, stddev, Rng};
 use crate::wh::routing::{self, LocationCost, RouteModel};
@@ -229,7 +229,8 @@ pub fn build_model<'a>(problem: &'a SlottingProblem, cost_config: CostConfig) ->
         .collect();
     if !problem.current_assignment.is_empty() {
         for (unit_id, location_id) in &problem.current_assignment {
-            if let (Some(&lu), Some(&loc)) = (lu_index.get(unit_id.as_str()), loc_index.get(location_id))
+            if let (Some(&lu), Some(&loc)) =
+                (lu_index.get(unit_id.as_str()), loc_index.get(location_id))
             {
                 current_loc[lu] = loc as i64;
             }
@@ -577,7 +578,9 @@ impl SlottingState {
             }
             let flow = model.unit_flow[lu];
             total += flow;
-            if model.costs[*loc as usize].pick_seconds * factor <= model.cost_config.timeliness_threshold_s {
+            if model.costs[*loc as usize].pick_seconds * factor
+                <= model.cost_config.timeliness_threshold_s
+            {
                 in_time += flow;
             }
         }
@@ -628,9 +631,11 @@ pub fn relocation_seconds(model: &mut SlottingModel, from: i64, to: usize) -> f6
         return *value;
     }
     let (shuttle, _) = routing::representative_motion(model.topology);
-    let seconds = model
-        .route_model
-        .seconds_between_locations(&model.locations[from].id, &model.locations[to].id, &shuttle);
+    let seconds = model.route_model.seconds_between_locations(
+        &model.locations[from].id,
+        &model.locations[to].id,
+        &shuttle,
+    );
     let value = if seconds.is_finite() {
         seconds + model.cost_config.relocation_overhead_s
     } else {
@@ -642,11 +647,7 @@ pub fn relocation_seconds(model: &mut SlottingModel, from: i64, to: usize) -> f6
 }
 
 /// 硬约束判定（独立函数：求解器用它剪枝，验证器用同一语义复核）。
-pub fn can_place(
-    model: &SlottingModel,
-    lu: usize,
-    loc: usize,
-) -> Result<(), (String, String)> {
+pub fn can_place(model: &SlottingModel, lu: usize, loc: usize) -> Result<(), (String, String)> {
     let location = &model.locations[loc];
     match location.availability {
         crate::contract::Availability::Frozen => {
@@ -730,17 +731,35 @@ pub fn evaluate(model: &SlottingModel, state: &SlottingState) -> ObjectiveVector
     let factor = state.congestion_factor(model);
     let assigned = model.lu_sku.len().saturating_sub(state.unassigned);
     let mut values: BTreeMap<String, f64> = BTreeMap::new();
-    values.insert("expected-travel-time".to_string(), round(state.base_seconds * factor, 3));
-    values.insert("device-travel-distance".to_string(), round(state.base_meters, 3));
+    values.insert(
+        "expected-travel-time".to_string(),
+        round(state.base_seconds * factor, 3),
+    );
+    values.insert(
+        "device-travel-distance".to_string(),
+        round(state.base_meters, 3),
+    );
     values.insert(
         "space-utilization".to_string(),
         round(assigned as f64 / model.available.len().max(1) as f64, 6),
     );
-    values.insert("relocation-count".to_string(), state.relocation_count as f64);
-    values.insert("relocation-cost".to_string(), round(state.relocation_seconds, 3));
-    values.insert("congestion".to_string(), round(state.congestion_seconds(model), 3));
+    values.insert(
+        "relocation-count".to_string(),
+        state.relocation_count as f64,
+    );
+    values.insert(
+        "relocation-cost".to_string(),
+        round(state.relocation_seconds, 3),
+    );
+    values.insert(
+        "congestion".to_string(),
+        round(state.congestion_seconds(model), 3),
+    );
     values.insert("load-balance".to_string(), round(state.aisle_gini(), 6));
-    values.insert("delivery-timeliness".to_string(), round(state.timeliness(model), 6));
+    values.insert(
+        "delivery-timeliness".to_string(),
+        round(state.timeliness(model), 6),
+    );
     values.insert(
         "energy".to_string(),
         round((state.base_meters / 1000.0) * 0.0016, 3),
@@ -752,7 +771,11 @@ pub fn evaluate(model: &SlottingModel, state: &SlottingState) -> ObjectiveVector
         let reference = objective
             .normalizer
             .unwrap_or_else(|| default_normalizer(&objective.id));
-        let normalized = if reference > 0.0 { raw / reference } else { raw };
+        let normalized = if reference > 0.0 {
+            raw / reference
+        } else {
+            raw
+        };
         let signed = if objective.direction == "min" {
             normalized
         } else {
@@ -903,7 +926,12 @@ pub fn build_metrics(
         0.0
     };
 
-    let lift_values: Vec<f64> = state.lift_flow.iter().copied().filter(|v| *v > 0.0).collect();
+    let lift_values: Vec<f64> = state
+        .lift_flow
+        .iter()
+        .copied()
+        .filter(|v| *v > 0.0)
+        .collect();
     let lift_peak_ratio = if lift_values.len() > 1 {
         round(
             lift_values.iter().copied().fold(0.0f64, f64::max) / mean(&lift_values).max(1e-6),
@@ -931,8 +959,14 @@ pub fn build_metrics(
         .iter()
         .map(|spec| {
             let raw = objective.values.get(&spec.id).copied().unwrap_or(0.0);
-            let reference = spec.normalizer.unwrap_or_else(|| default_normalizer(&spec.id));
-            let ratio = if reference > 0.0 { raw / reference } else { raw };
+            let reference = spec
+                .normalizer
+                .unwrap_or_else(|| default_normalizer(&spec.id));
+            let ratio = if reference > 0.0 {
+                raw / reference
+            } else {
+                raw
+            };
             let normalized = if spec.direction == "min" {
                 1.0 - ratio.min(1.0)
             } else {
@@ -958,18 +992,30 @@ pub fn build_metrics(
             .get("space-utilization")
             .copied()
             .unwrap_or(0.0),
-        effective_utilization: round(
-            effective_used as f64 / effective.len().max(1) as f64,
-            6,
+        effective_utilization: round(effective_used as f64 / effective.len().max(1) as f64, 6),
+        expected_pick_seconds: round(
+            if flow_sum > 0.0 {
+                out_weighted / flow_sum
+            } else {
+                0.0
+            },
+            3,
         ),
-        expected_pick_seconds: round(if flow_sum > 0.0 { out_weighted / flow_sum } else { 0.0 }, 3),
-        expected_put_seconds: round(if flow_sum > 0.0 { in_weighted / flow_sum } else { 0.0 }, 3),
+        expected_put_seconds: round(
+            if flow_sum > 0.0 {
+                in_weighted / flow_sum
+            } else {
+                0.0
+            },
+            3,
+        ),
         affinity_coherence,
         aisle_load_gini: objective.values.get("load-balance").copied().unwrap_or(0.0),
         lift_peak_ratio,
         congestion_index: round(
-            (state.congestion_seconds(model) / (flow_sum * model.cost_config.aisle_service_seconds).max(1.0))
-                .min(1.0),
+            (state.congestion_seconds(model)
+                / (flow_sum * model.cost_config.aisle_service_seconds).max(1.0))
+            .min(1.0),
             4,
         ),
         relocation_count: state.relocation_count,
@@ -1023,7 +1069,8 @@ pub fn build_migrations(model: &mut SlottingModel, state: &SlottingState) -> Vec
             continue;
         }
         let seconds = relocation_seconds(model, current, target);
-        let within_budget = actions.len() < budget_moves && used_seconds + seconds <= budget_seconds;
+        let within_budget =
+            actions.len() < budget_moves && used_seconds + seconds <= budget_seconds;
         let from_cost = if current >= 0 {
             model.costs[current as usize].pick_seconds
         } else {
@@ -1067,7 +1114,11 @@ pub fn build_migrations(model: &mut SlottingModel, state: &SlottingState) -> Vec
 }
 
 /// 解释"为什么货物应该放在这些库位"（SRS §14 问题 1）——必须引用真实计算证据。
-pub fn explain(model: &SlottingModel, state: &SlottingState, infeasibility: Option<&str>) -> Vec<(String, String, Vec<(String, Json)>)> {
+pub fn explain(
+    model: &SlottingModel,
+    state: &SlottingState,
+    infeasibility: Option<&str>,
+) -> Vec<(String, String, Vec<(String, Json)>)> {
     let mut out: Vec<(String, String, Vec<(String, Json)>)> = Vec::new();
     let mut a_seconds = 0.0;
     let mut a_count = 0usize;
@@ -1159,8 +1210,14 @@ pub fn explain(model: &SlottingModel, state: &SlottingState, infeasibility: Opti
             "容量与不可行性".to_string(),
             reason.to_string(),
             vec![
-                ("locations".to_string(), Json::int(model.placeable.len() as i64)),
-                ("loadUnits".to_string(), Json::int(model.lu_sku.len() as i64)),
+                (
+                    "locations".to_string(),
+                    Json::int(model.placeable.len() as i64),
+                ),
+                (
+                    "loadUnits".to_string(),
+                    Json::int(model.lu_sku.len() as i64),
+                ),
             ],
         ));
     }
@@ -1201,7 +1258,7 @@ pub fn prove_infeasibility(model: &SlottingModel) -> Option<String> {
 }
 
 /// 求解选项（CLI / 实验室的共同入口）。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SlottingSolveOptions {
     pub algorithm: Option<String>,
     pub seed: Option<u64>,
@@ -1212,6 +1269,22 @@ pub struct SlottingSolveOptions {
     pub temperature: Option<f64>,
     pub tabu_tenure: Option<u64>,
     pub seeds: Vec<u64>,
+}
+
+/// 默认值：**核验默认开启**（"交付一个没人复核过的方案"不是默认行为）。
+impl Default for SlottingSolveOptions {
+    fn default() -> SlottingSolveOptions {
+        SlottingSolveOptions {
+            algorithm: None,
+            seed: None,
+            budget_ms: None,
+            max_iterations: None,
+            verify: true,
+            temperature: None,
+            tabu_tenure: None,
+            seeds: Vec::new(),
+        }
+    }
 }
 
 pub fn options_from_json(root: &Json) -> SlottingSolveOptions {
@@ -1251,6 +1324,9 @@ pub struct SlottingOutcome {
     pub comparison: Json,
     /// 供联合优化直接复用（避免重复建模型）。
     pub assignment_map: Vec<i64>,
+    /// SKU → 关联簇编号（-1 = 未成簇）。三维里的"关联簇叠加"直接读它，
+    /// 而不是让前端自己按订单再聚一次类（聚类口径必须只有一个来源）。
+    pub cluster_of_sku: Vec<(String, i64)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1274,7 +1350,13 @@ pub fn seed_random_assignment(model: &SlottingModel, seed: u64) -> Vec<i64> {
     let mut occupied = vec![false; model.locations.len()];
     let mut order: Vec<usize> = (0..model.lu_sku.len()).collect();
     // A 类优先取位（热门商品先入场，符合随机策略的真实语义）
-    order.sort_by_key(|lu| if model.skus[model.lu_sku[*lu]].abc == 'A' { 0 } else { 1 });
+    order.sort_by_key(|lu| {
+        if model.skus[model.lu_sku[*lu]].abc == 'A' {
+            0
+        } else {
+            1
+        }
+    });
     for lu in order {
         for _ in 0..12 {
             if model.placeable.is_empty() {
@@ -1360,7 +1442,11 @@ pub fn validate_problem(problem: &SlottingProblem, issues: &mut Issues) {
         );
     }
     if problem.objectives.is_empty() {
-        issues.error(codes::MISSING_FIELD, "problem.objectives", "至少需要一个优化目标");
+        issues.error(
+            codes::MISSING_FIELD,
+            "problem.objectives",
+            "至少需要一个优化目标",
+        );
     }
     for objective in &problem.objectives {
         if objective.weight < 0.0 {

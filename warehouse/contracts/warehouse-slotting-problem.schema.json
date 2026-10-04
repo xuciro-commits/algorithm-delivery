@@ -1,0 +1,1134 @@
+{
+  "$id": "warehouse-slotting-problem/1.0",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "expect": {
+      "type": "string"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "slotting",
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "problem": {
+      "properties": {
+        "algorithm": {
+          "type": "object"
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "costModel": {
+          "type": "object"
+        },
+        "currentAssignment": {
+          "items": {
+            "properties": {
+              "loadUnitId": {
+                "type": "string"
+              },
+              "locationId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "loadUnitId",
+              "locationId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "datasetVersion": {
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "properties": {
+              "at_s": {
+                "type": "number"
+              },
+              "capacity": {
+                "type": "integer"
+              },
+              "deadline_s": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "deviceIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "linkIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "locationIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "number"
+              },
+              "speedFactor": {
+                "type": "number"
+              },
+              "targetId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "taskIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "tasks": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "type": {
+                "type": "string"
+              },
+              "until_s": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hardConstraints": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inventory": {
+          "items": {
+            "properties": {
+              "batch": {
+                "type": "string"
+              },
+              "expires_at_s": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "inbound_at_s": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "locationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "skuId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "skuId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "objectives": {
+          "type": "array"
+        },
+        "orders": {
+          "items": {
+            "properties": {
+              "channel": {
+                "type": "string"
+              },
+              "due_s": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "lines": {
+                "items": {
+                  "properties": {
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "skuId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "skuId"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "priority": {
+                "type": "integer"
+              },
+              "release_s": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "lines"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "skus": {
+          "items": {
+            "properties": {
+              "abc": {
+                "type": "string"
+              },
+              "affinityCluster": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "allowedZones": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "batchPolicy": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "demandCv": {
+                "type": "number"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "meanDailyDemand": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "temperature": {
+                "type": "string"
+              },
+              "unitVolumeM3": {
+                "type": "number"
+              },
+              "unitWeightKg": {
+                "type": "number"
+              },
+              "xyz": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "topology": {
+          "properties": {
+            "aisles": {
+              "items": {
+                "properties": {
+                  "areaId": {
+                    "type": "string"
+                  },
+                  "axis": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "bidirectional": {
+                    "type": "boolean"
+                  },
+                  "endNodeIds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "length_m": {
+                    "type": "number"
+                  },
+                  "level": {
+                    "type": "integer"
+                  },
+                  "rackIds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "endNodeIds"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "areas": {
+              "items": {
+                "properties": {
+                  "center": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "height_m": {
+                    "type": "number"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "buffers": {
+              "items": {
+                "properties": {
+                  "areaId": {
+                    "type": "string"
+                  },
+                  "capacity": {
+                    "type": "integer"
+                  },
+                  "dwellLimit_s": {
+                    "type": "number"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "nodeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "nodeId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "devices": {
+              "items": {
+                "properties": {
+                  "capability": {
+                    "type": "object"
+                  },
+                  "coupling": {
+                    "type": "object"
+                  },
+                  "energy": {
+                    "type": "object"
+                  },
+                  "homeNodeId": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "motion": {
+                    "type": "object"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": [
+                      "string",
+                      "object"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "frozenLocations": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "links": {
+              "items": {
+                "properties": {
+                  "allowMeeting": {
+                    "type": "boolean"
+                  },
+                  "bidirectional": {
+                    "type": "boolean"
+                  },
+                  "capacity": {
+                    "type": "integer"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "length_m": {
+                    "type": "number"
+                  },
+                  "mode": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "from",
+                  "to"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            },
+            "nodes": {
+              "items": {
+                "properties": {
+                  "aisleId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "areaId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "type": "integer"
+                  },
+                  "position": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "position"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "racks": {
+              "items": {
+                "properties": {
+                  "aisleId": {
+                    "type": "string"
+                  },
+                  "areaId": {
+                    "type": "string"
+                  },
+                  "bayAxis": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "bays": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "depthAxis": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "depths": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "levels": {
+                    "items": {
+                      "properties": {
+                        "height_m": {
+                          "type": "number"
+                        },
+                        "level": {
+                          "type": "integer"
+                        },
+                        "y_m": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "y_m"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "locationSize": {
+                    "type": "object"
+                  },
+                  "maxVolume_m3": {
+                    "type": "number"
+                  },
+                  "maxWeight_kg": {
+                    "type": "number"
+                  },
+                  "origin": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "aisleId",
+                  "bays",
+                  "levels",
+                  "origin"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "reservedLocations": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "stations": {
+              "items": {
+                "properties": {
+                  "areaId": {
+                    "type": "string"
+                  },
+                  "bufferCapacity": {
+                    "type": "integer"
+                  },
+                  "direction": {
+                    "type": "string"
+                  },
+                  "handover_s": {
+                    "type": "number"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "nodeId": {
+                    "type": "string"
+                  },
+                  "servedBy": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "nodeId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "template": {
+              "type": "string"
+            },
+            "units": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "areas",
+            "aisles",
+            "racks",
+            "nodes",
+            "links",
+            "devices",
+            "stations",
+            "buffers"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "topology",
+        "skus",
+        "inventory",
+        "orders"
+      ],
+      "type": "object"
+    },
+    "scale": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scenarioId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "stats": {
+      "type": "object"
+    },
+    "topology": {
+      "properties": {
+        "aisles": {
+          "items": {
+            "properties": {
+              "areaId": {
+                "type": "string"
+              },
+              "axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "bidirectional": {
+                "type": "boolean"
+              },
+              "endNodeIds": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2,
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "length_m": {
+                "type": "number"
+              },
+              "level": {
+                "type": "integer"
+              },
+              "rackIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "endNodeIds"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "areas": {
+          "items": {
+            "properties": {
+              "center": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "height_m": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "size": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "buffers": {
+          "items": {
+            "properties": {
+              "areaId": {
+                "type": "string"
+              },
+              "capacity": {
+                "type": "integer"
+              },
+              "dwellLimit_s": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "nodeId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "devices": {
+          "items": {
+            "properties": {
+              "capability": {
+                "type": "object"
+              },
+              "coupling": {
+                "type": "object"
+              },
+              "energy": {
+                "type": "object"
+              },
+              "homeNodeId": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "motion": {
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "object"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "frozenLocations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "links": {
+          "items": {
+            "properties": {
+              "allowMeeting": {
+                "type": "boolean"
+              },
+              "bidirectional": {
+                "type": "boolean"
+              },
+              "capacity": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "length_m": {
+                "type": "number"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "from",
+              "to"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "properties": {
+              "aisleId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "areaId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "level": {
+                "type": "integer"
+              },
+              "position": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "position"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "racks": {
+          "items": {
+            "properties": {
+              "aisleId": {
+                "type": "string"
+              },
+              "areaId": {
+                "type": "string"
+              },
+              "bayAxis": {
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "type": "array"
+              },
+              "bays": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "depthAxis": {
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "type": "array"
+              },
+              "depths": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "levels": {
+                "items": {
+                  "properties": {
+                    "height_m": {
+                      "type": "number"
+                    },
+                    "level": {
+                      "type": "integer"
+                    },
+                    "y_m": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "level",
+                    "y_m"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "locationSize": {
+                "type": "object"
+              },
+              "maxVolume_m3": {
+                "type": "number"
+              },
+              "maxWeight_kg": {
+                "type": "number"
+              },
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "aisleId",
+              "bays",
+              "levels",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "reservedLocations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "stations": {
+          "items": {
+            "properties": {
+              "areaId": {
+                "type": "string"
+              },
+              "bufferCapacity": {
+                "type": "integer"
+              },
+              "direction": {
+                "type": "string"
+              },
+              "handover_s": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "servedBy": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "nodeId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "template": {
+          "type": "string"
+        },
+        "units": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "areas",
+        "aisles",
+        "racks",
+        "nodes",
+        "links",
+        "devices",
+        "stations",
+        "buffers"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "kind",
+    "problem"
+  ],
+  "title": "库位优化问题（Warehouse Slotting Problem）",
+  "type": "object"
+}

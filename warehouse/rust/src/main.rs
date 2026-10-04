@@ -3,15 +3,14 @@
 //! 退出码：
 //! * `0` 正常（包括"结论是否定"的情形，例如 INFEASIBLE_PROVEN —— 那也是有效结论）；
 //! * `2` 输入不合法 / 不支持；
-//! * `3` 未得到有效结论（NO_SOLUTION_FOUND / BUDGET_EXCEEDED / CANCELLED）；
+//! * `3` 未得到有效结论（NO_SOLUTION_FOUND / BUDGET_EXCEEDED / CANCELLED），
+//!   或 `acceptance` / `bench` 存在失败项；
 //! * `1` 用法或 IO 错误。
 
 use std::io::Write;
 use std::process::ExitCode;
 
-use warehouse_engine::{
-    acceptance, bench, capabilities, engine, scenario,
-};
+use warehouse_engine::{acceptance, bench, capabilities, engine, scenario};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -103,14 +102,22 @@ fn parse_options(args: &[String]) -> Options {
             "--ids" => {
                 options.ids = value
                     .as_deref()
-                    .map(|text| text.split(',').map(|item| item.trim().to_string()).collect())
+                    .map(|text| {
+                        text.split(',')
+                            .map(|item| item.trim().to_string())
+                            .collect()
+                    })
                     .unwrap_or_default()
             }
             "--limit" => options.limit = value.as_deref().and_then(|text| text.parse().ok()),
             "--case" => {
                 options.cases = value
                     .as_deref()
-                    .map(|text| text.split(',').map(|item| item.trim().to_string()).collect())
+                    .map(|text| {
+                        text.split(',')
+                            .map(|item| item.trim().to_string())
+                            .collect()
+                    })
                     .unwrap_or_default()
             }
             "--tier" => options.tier = value.clone(),
@@ -128,7 +135,9 @@ fn parse_options(args: &[String]) -> Options {
 
 fn read_input(options: &Options) -> Result<String, String> {
     match &options.input {
-        Some(path) => std::fs::read_to_string(path).map_err(|error| format!("读取 {path} 失败：{error}")),
+        Some(path) => {
+            std::fs::read_to_string(path).map_err(|error| format!("读取 {path} 失败：{error}"))
+        }
         None => {
             let mut text = String::new();
             std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
@@ -140,7 +149,9 @@ fn read_input(options: &Options) -> Result<String, String> {
 
 fn write_output(text: &str, out: Option<&str>) -> Result<(), String> {
     match out {
-        Some(path) => std::fs::write(path, text).map_err(|error| format!("写入 {path} 失败：{error}")),
+        Some(path) => {
+            std::fs::write(path, text).map_err(|error| format!("写入 {path} 失败：{error}"))
+        }
         None => {
             let mut stdout = std::io::stdout();
             stdout
@@ -208,8 +219,25 @@ fn cmd_verify(options: &Options) -> ExitCode {
 }
 
 fn cmd_generate(options: &Options) -> ExitCode {
-    let scenario_id = options.scenario.clone().unwrap_or_else(|| "S01".to_string());
+    let scenario_id = options
+        .scenario
+        .clone()
+        .unwrap_or_else(|| "S01".to_string());
     let mut issues = warehouse_engine::errors::Issues::new();
+    // 规模档位显式校验：`--scale sterss` 这种拼写错误必须当场报错，
+    // 不能悄悄回退到 small（那会让"实际规模"与用户以为的规模不一致）。
+    if let Some(scale) = options.scale.as_deref() {
+        if scenario::find_scale(scale).is_none() {
+            issues.error(
+                warehouse_engine::errors::codes::VALUE_RANGE,
+                "scale",
+                format!(
+                    "未知规模档位 {scale}（可用：{}）",
+                    scenario::scale_keys().join(" | ")
+                ),
+            );
+        }
+    }
     let document = scenario::build(
         &scenario_id,
         options.scale.as_deref(),
@@ -250,11 +278,8 @@ fn cmd_scenarios(options: &Options) -> ExitCode {
                     _ => None,
                 })
                 .unwrap_or_default();
-            aps_engine::json::Json::obj(vec![(
-                "families",
-                aps_engine::json::Json::Arr(filtered),
-            )])
-            .canonical()
+            aps_engine::json::Json::obj(vec![("families", aps_engine::json::Json::Arr(filtered))])
+                .canonical()
         }
         None => catalog.canonical(),
     };
@@ -266,11 +291,7 @@ fn cmd_scenarios(options: &Options) -> ExitCode {
 }
 
 fn cmd_acceptance(options: &Options) -> ExitCode {
-    let results = acceptance::run_selection(
-        options.family.as_deref(),
-        &options.ids,
-        options.limit,
-    );
+    let results = acceptance::run_selection(options.family.as_deref(), &options.ids, options.limit);
     let summary = acceptance::summary_json(&results);
     let text = summary.canonical();
     if let Err(error) = write_output(&text, options.out.as_deref()) {
@@ -325,7 +346,21 @@ fn cmd_bench(options: &Options) -> ExitCode {
             eprintln!("{}", row.row());
         }
     }
-    ExitCode::from(0)
+    // 硬门：报了有解却没核验通过（或出现 INTERNAL_ERROR / 未找到解）⇒ 与验收同口径退 3。
+    // 没有这道门，"基准"就只是打印几张表，CI 会把假绿当成通过。
+    let failed: Vec<&bench::BenchRow> =
+        rows.iter().filter(|row| !bench::row_is_pass(row)).collect();
+    if failed.is_empty() {
+        ExitCode::from(0)
+    } else {
+        for row in &failed {
+            eprintln!(
+                "基准未通过：{}（{} / {}）→ {}",
+                row.name, row.domain, row.status, row.note
+            );
+        }
+        ExitCode::from(3)
+    }
 }
 
 /// 诊断：逐库位给出可达性、出入库秒数、不可达原因（实验室"为什么这些库位用不了"面板直接读它）。
@@ -377,12 +412,27 @@ fn cmd_diagnose(options: &Options) -> ExitCode {
                 ("bay", Json::int(location.bay as i64)),
                 ("level", Json::int(location.level as i64)),
                 ("depth", Json::int(location.depth as i64)),
-                ("pickSeconds", Json::Float(warehouse_engine::util::round(cost.pick_seconds, 3))),
-                ("putSeconds", Json::Float(warehouse_engine::util::round(cost.put_seconds, 3))),
-                ("meters", Json::Float(warehouse_engine::util::round(cost.meters, 3))),
+                (
+                    "pickSeconds",
+                    Json::Float(warehouse_engine::util::round(cost.pick_seconds, 3)),
+                ),
+                (
+                    "putSeconds",
+                    Json::Float(warehouse_engine::util::round(cost.put_seconds, 3)),
+                ),
+                (
+                    "meters",
+                    Json::Float(warehouse_engine::util::round(cost.meters, 3)),
+                ),
                 ("usesLift", Json::Bool(cost.uses_lift)),
-                ("depthPenaltySeconds", Json::Float(warehouse_engine::util::round(cost.depth_penalty_s, 3))),
-                ("availability", Json::str(format!("{:?}", location.availability))),
+                (
+                    "depthPenaltySeconds",
+                    Json::Float(warehouse_engine::util::round(cost.depth_penalty_s, 3)),
+                ),
+                (
+                    "availability",
+                    Json::str(format!("{:?}", location.availability)),
+                ),
             ]));
         }
     }

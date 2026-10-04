@@ -9,9 +9,7 @@
 
 use aps_engine::json::Json;
 
-use crate::errors::{
-    codes, constraints, Severity, Status,
-};
+use crate::errors::{codes, constraints, Severity, Status};
 
 /// wasm 轻量层的规模上限（浏览器单线程 + 2GB 内存下的现实边界）。
 #[derive(Debug, Clone, Copy)]
@@ -132,6 +130,16 @@ pub fn capabilities_json() -> Json {
     Json::obj(vec![
         ("engine", Json::str(crate::ENGINE_NAME)),
         ("engineVersion", Json::str(crate::ENGINE_VERSION)),
+        // 档位：native 与 wasm-light 的规模上限不同，调用方（CLI / 实验室 / 业务系统）
+        // 必须在生成实例前用它做拦截，而不是等到超限才报错。
+        (
+            "profile",
+            Json::str(if cfg!(target_arch = "wasm32") {
+                "wasm-light"
+            } else {
+                "native"
+            }),
+        ),
         ("compilerVersion", Json::str(crate::COMPILER_VERSION)),
         ("rulesetVersion", Json::str(crate::RULESET_VERSION)),
         (

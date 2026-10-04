@@ -8,9 +8,7 @@ use std::collections::BTreeMap;
 
 use crate::contract::SlottingProblem;
 use crate::errors::Status;
-use crate::slotting::search::{
-    fast_scalar, weights_of, SearchStats, Weights,
-};
+use crate::slotting::search::{fast_scalar, weights_of, SearchStats, Weights};
 use crate::slotting::{SlottingModel, SlottingSolveOptions, SlottingState};
 use crate::util::{round, seed_from, Rng};
 
@@ -23,7 +21,12 @@ pub enum Axis {
     Relocation,
 }
 
-pub const AXES: &[Axis] = &[Axis::Time, Axis::Congestion, Axis::Balance, Axis::Relocation];
+pub const AXES: &[Axis] = &[
+    Axis::Time,
+    Axis::Congestion,
+    Axis::Balance,
+    Axis::Relocation,
+];
 
 impl Axis {
     pub fn id(self) -> &'static str {
@@ -100,7 +103,7 @@ pub fn nsga2(
     let started = crate::engine::now_ms();
     let deadline = started + budget_ms.max(50.0) * 0.97;
 
-        let mut population: Vec<Individual> = Vec::with_capacity(population_size);
+    let mut population: Vec<Individual> = Vec::with_capacity(population_size);
     let base: Vec<usize> = {
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by(|a, b| {
@@ -142,19 +145,19 @@ pub fn nsga2(
         let front0: Vec<usize> = (0..combined.len())
             .filter(|index| combined[*index].rank == 0)
             .collect();
-        best_front = front0.iter().map(|index| clone_individual(&combined[*index])).collect();
+        best_front = front0
+            .iter()
+            .map(|index| clone_individual(&combined[*index]))
+            .collect();
         // 环境选择：按 rank 升序 + 同 rank 内拥挤距离降序
         let mut order: Vec<usize> = (0..combined.len()).collect();
         order.sort_by(|a, b| {
-            combined[*a]
-                .rank
-                .cmp(&combined[*b].rank)
-                .then_with(|| {
-                    combined[*b]
-                        .crowding
-                        .partial_cmp(&combined[*a].crowding)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+            combined[*a].rank.cmp(&combined[*b].rank).then_with(|| {
+                combined[*b]
+                    .crowding
+                    .partial_cmp(&combined[*a].crowding)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
         population = order
             .into_iter()
@@ -195,9 +198,10 @@ pub fn nsga2(
             .partial_cmp(&scalar_of(&b.values, weights, model))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let chosen = best_front.first().map(clone_individual).unwrap_or_else(|| {
-        clone_individual(&evaluate_individual(model, base))
-    });
+    let chosen = best_front
+        .first()
+        .map(clone_individual)
+        .unwrap_or_else(|| clone_individual(&evaluate_individual(model, base)));
     let assignment = crate::slotting::search::decode_assignment(model, &chosen.genome);
     let state = SlottingState::rebuild(model, &assignment);
     stats.best_iteration = stats.iterations;
@@ -207,7 +211,12 @@ pub fn nsga2(
         .map(|individual| ParetoPoint {
             values: AXES
                 .iter()
-                .map(|axis| (axis.id().to_string(), round(individual.values[axis_index(*axis)], 4)))
+                .map(|axis| {
+                    (
+                        axis.id().to_string(),
+                        round(individual.values[axis_index(*axis)], 4),
+                    )
+                })
                 .collect(),
             objective: scalar_of(&individual.values, weights, model),
             digest: crate::engine::short_hash(
@@ -240,7 +249,9 @@ pub fn nsga2(
 }
 
 fn axis_index(axis: Axis) -> usize {
-    AXES.iter().position(|candidate| *candidate == axis).unwrap_or(0)
+    AXES.iter()
+        .position(|candidate| *candidate == axis)
+        .unwrap_or(0)
 }
 
 fn clone_individual(individual: &Individual) -> Individual {
@@ -395,8 +406,7 @@ fn crossover(a: &[usize], b: &[usize], rng: &mut Rng) -> Vec<usize> {
 
 /// 供面板显示的目标轴元数据。
 pub fn axis_catalog() -> Vec<(String, String)> {
-    AXES
-        .iter()
+    AXES.iter()
         .map(|axis| (axis.id().to_string(), axis.unit().to_string()))
         .collect()
 }

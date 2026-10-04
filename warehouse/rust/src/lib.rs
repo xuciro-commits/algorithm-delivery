@@ -33,13 +33,15 @@
 //! ## 最小用法
 //!
 //! ```no_run
-//! use warehouse_engine::{engine, json};
-//! let text = std::fs::read_to_string("mock/s01-small-random-vs-optimized.json").unwrap();
-//! let problem = json::parse(&text).unwrap();
-//! let opts = engine::SolveOptions::default();
-//! let cancel = engine::CancelToken::new();
-//! let outcome = engine::solve_json(&text, &opts, &cancel);
-//! println!("{}", outcome.solution_json);
+//! use warehouse_engine::engine;
+//!
+//! // 问题文档由 `warehouse generate --scenario S01 --scale small --out ...` 生成，
+//! // 或直接用仓库里的 `warehouse/mock/slotting-small.json`。
+//! let text = std::fs::read_to_string("../mock/slotting-small.json").unwrap();
+//! // 第二个参数是求解选项（JSON 文本）：None = 用默认值（默认内嵌独立核验）。
+//! let (solution_json, status) = engine::solve_slotting(&text, None);
+//! assert!(status.has_solution(), "求解未产出可用方案：{}", status.as_str());
+//! println!("{}（{} 字符）", status.as_str(), solution_json.len());
 //! ```
 
 pub mod acceptance;
@@ -52,9 +54,9 @@ pub mod errors;
 pub mod joint;
 pub mod scenario;
 pub mod slotting;
+pub mod util;
 pub mod verify;
 pub mod wasm_api;
-pub mod util;
 pub mod wh;
 
 /// 引擎标识（写入解的 `engine` 字段）。

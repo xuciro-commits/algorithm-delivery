@@ -88,8 +88,8 @@ fn size_family(profile: &str) -> Vec<[f64; 4]> {
 /// 电商仓典型的小时到达曲线（双峰：上午 10–12 点、晚间 19–21 点）。
 pub fn default_hourly_factor() -> Vec<f64> {
     vec![
-        0.25, 0.18, 0.14, 0.12, 0.12, 0.20, 0.40, 0.72, 1.00, 1.25, 1.45, 1.40, 1.05, 1.00, 1.05, 1.10,
-        1.20, 1.35, 1.50, 1.35, 1.00, 0.70, 0.45, 0.32,
+        0.25, 0.18, 0.14, 0.12, 0.12, 0.20, 0.40, 0.72, 1.00, 1.25, 1.45, 1.40, 1.05, 1.00, 1.05,
+        1.10, 1.20, 1.35, 1.50, 1.35, 1.00, 0.70, 0.45, 0.32,
     ]
 }
 
@@ -167,7 +167,8 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
         weights.push(w.max(0.01));
     }
     let weight_sum: f64 = weights.iter().sum();
-    let total_units = ((params.locations as f64) * params.target_occupancy.clamp(0.05, 0.995)).round() as usize;
+    let total_units =
+        ((params.locations as f64) * params.target_occupancy.clamp(0.05, 0.995)).round() as usize;
     let total_units = total_units.max(1);
 
     let mut skus: Vec<SkuSpec> = Vec::with_capacity(n);
@@ -269,7 +270,14 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
     let sku_unit_targets: Vec<usize> = skus
         .iter()
         .map(|sku| {
-            let share = (sku.mean_daily_demand * if sku.abc == 'A' { 1.4 } else if sku.abc == 'B' { 1.0 } else { 0.7 })
+            let share = (sku.mean_daily_demand
+                * if sku.abc == 'A' {
+                    1.4
+                } else if sku.abc == 'B' {
+                    1.0
+                } else {
+                    0.7
+                })
                 / pieces.max(1e-6);
             ((total_units as f64 * share * (0.8 + rng.next_f64() * 0.5)).round() as usize).max(1)
         })
@@ -297,7 +305,11 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
                 id: format!("LU-{unit_seq:07}"),
                 sku_id: sku.id.clone(),
                 quantity: ((20.0f64 + rng.next_f64() * 80.0).round()),
-                batch: format!("{}-{:02}", &sku.id[sku.id.len().saturating_sub(4)..], u % 3 + 1),
+                batch: format!(
+                    "{}-{:02}",
+                    &sku.id[sku.id.len().saturating_sub(4)..],
+                    u % 3 + 1
+                ),
                 inbound_at_s: round(-age_days * 86_400.0, 1),
                 expires_at_s: expires,
                 location_id: None,
@@ -335,12 +347,12 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
             _ => xyz[2] += 1,
         }
     }
-    let affinity_edges = ((params.affinity_clusters * params.affinity_cluster_size) as f64 * 1.5) as usize;
+    let affinity_edges =
+        ((params.affinity_clusters * params.affinity_cluster_size) as f64 * 1.5) as usize;
     let hot = inventory
         .iter()
         .filter(|unit| {
-            skus
-                .iter()
+            skus.iter()
                 .find(|s| s.id == unit.sku_id)
                 .map(|s| s.abc == 'A')
                 .unwrap_or(false)
@@ -354,8 +366,14 @@ pub fn generate_catalog(params: &CatalogParams) -> CatalogBundle {
         xyz,
         affinity_edges,
         hot_share: round(hot as f64 / inventory.len().max(1) as f64, 4),
-        avg_volume_m3: round(skus.iter().map(|s| s.unit_volume_m3).sum::<f64>() / skus.len().max(1) as f64, 4),
-        avg_weight_kg: round(skus.iter().map(|s| s.unit_weight_kg).sum::<f64>() / skus.len().max(1) as f64, 2),
+        avg_volume_m3: round(
+            skus.iter().map(|s| s.unit_volume_m3).sum::<f64>() / skus.len().max(1) as f64,
+            4,
+        ),
+        avg_weight_kg: round(
+            skus.iter().map(|s| s.unit_weight_kg).sum::<f64>() / skus.len().max(1) as f64,
+            2,
+        ),
         heaviest_kg: skus
             .iter()
             .map(|s| s.unit_weight_kg)
@@ -425,7 +443,11 @@ pub fn generate_orders(
     skus: &[SkuSpec],
     demand: &DemandProfile,
 ) -> OrderBundle {
-    let mut rng = Rng::new(seed_from(&["orders", &params.seed.to_string(), &params.orders.to_string()]));
+    let mut rng = Rng::new(seed_from(&[
+        "orders",
+        &params.seed.to_string(),
+        &params.orders.to_string(),
+    ]));
     let total_days = (params.history_days + params.future_days).max(1.0);
     let hourly = if demand.hourly_factor.is_empty() {
         default_hourly_factor()
@@ -467,9 +489,11 @@ pub fn generate_orders(
         .map(|i| {
             let key = skus[i].affinity_cluster.clone();
             match key {
-                Some(k) => cluster_members
-                    .iter()
-                    .position(|members| members.iter().any(|m| skus[*m].affinity_cluster.as_deref() == Some(k.as_str()))),
+                Some(k) => cluster_members.iter().position(|members| {
+                    members
+                        .iter()
+                        .any(|m| skus[*m].affinity_cluster.as_deref() == Some(k.as_str()))
+                }),
                 None => None,
             }
         })
@@ -496,13 +520,18 @@ pub fn generate_orders(
             .collect();
         let hour_sum: f64 = hour_weights.iter().sum::<f64>().max(1e-9);
         for hour in 0..24usize {
-            let count = ((day_total * hour_weights[hour]) / hour_sum).round().max(0.0) as usize;
+            let count = ((day_total * hour_weights[hour]) / hour_sum)
+                .round()
+                .max(0.0) as usize;
             peak_by_hour.push(count);
             for _ in 0..count {
                 seq += 1;
                 let express = rng.next_f64() < params.priority_share;
                 let release_s = round(
-                    params.start_s + day as f64 * 86_400.0 + hour as f64 * 3_600.0 + rng.next_f64() * 3_600.0,
+                    params.start_s
+                        + day as f64 * 86_400.0
+                        + hour as f64 * 3_600.0
+                        + rng.next_f64() * 3_600.0,
                     1,
                 );
                 let sla = if express {
@@ -523,9 +552,10 @@ pub fn generate_orders(
                         let sku = &skus[index];
                         lines.push(OrderLine {
                             sku_id: sku.id.clone(),
-                            quantity: (1.0f64 + rng.next_f64() * if sku.abc == 'A' { 6.0 } else { 3.0 })
-                                .round()
-                                .max(1.0),
+                            quantity: (1.0f64
+                                + rng.next_f64() * if sku.abc == 'A' { 6.0 } else { 3.0 })
+                            .round()
+                            .max(1.0),
                         });
                         // 关联性：同簇 SKU 有较大概率一起出库（关联库位优化的输入信号）
                         if let Some(cluster_index) = cluster_of[index] {
@@ -541,7 +571,9 @@ pub fn generate_orders(
                                         used.push(mate);
                                         lines.push(OrderLine {
                                             sku_id: skus[mate].id.clone(),
-                                            quantity: (1.0f64 + rng.next_f64() * 3.0).round().max(1.0),
+                                            quantity: (1.0f64 + rng.next_f64() * 3.0)
+                                                .round()
+                                                .max(1.0),
                                         });
                                     }
                                 }
@@ -553,7 +585,10 @@ pub fn generate_orders(
                     continue;
                 }
                 let appointment = if params.appointments && rng.next_f64() < 0.35 {
-                    Some([release_s + 3_600.0, release_s + 3_600.0 + (2.0 + rng.next_f64() * 3.0) * 3_600.0])
+                    Some([
+                        release_s + 3_600.0,
+                        release_s + 3_600.0 + (2.0 + rng.next_f64() * 3.0) * 3_600.0,
+                    ])
                 } else {
                     None
                 };

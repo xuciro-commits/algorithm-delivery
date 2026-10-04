@@ -52,7 +52,10 @@ impl Status {
     pub fn has_solution(self) -> bool {
         matches!(
             self,
-            Status::OptimalProven | Status::FeasibleWithBound | Status::Feasible | Status::Cancelled
+            Status::OptimalProven
+                | Status::FeasibleWithBound
+                | Status::Feasible
+                | Status::Cancelled
         )
     }
 
@@ -118,7 +121,11 @@ impl Issue {
         }
     }
 
-    pub fn warning(code: &'static str, path: impl Into<String>, message: impl Into<String>) -> Issue {
+    pub fn warning(
+        code: &'static str,
+        path: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Issue {
         Issue {
             code,
             severity: Severity::Warning,
@@ -148,16 +155,31 @@ impl Issues {
         Issues { items: Vec::new() }
     }
 
-    pub fn error(&mut self, code: &'static str, path: impl Into<String>, message: impl Into<String>) {
+    pub fn error(
+        &mut self,
+        code: &'static str,
+        path: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         self.items.push(Issue::error(code, path, message));
     }
 
     /// 说明性信息（不构成问题，但需要在报告里留痕，例如"下界是多少"）。
-    pub fn info(&mut self, code: &'static str, path: impl Into<String>, message: impl Into<String>) {
+    pub fn info(
+        &mut self,
+        code: &'static str,
+        path: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         self.items.push(Issue::info(code, path, message));
     }
 
-    pub fn warn(&mut self, code: &'static str, path: impl Into<String>, message: impl Into<String>) {
+    pub fn warn(
+        &mut self,
+        code: &'static str,
+        path: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         self.items.push(Issue::warning(code, path, message));
     }
 
@@ -166,11 +188,17 @@ impl Issues {
     }
 
     pub fn error_count(&self) -> usize {
-        self.items.iter().filter(|i| i.severity == Severity::Error).count()
+        self.items
+            .iter()
+            .filter(|i| i.severity == Severity::Error)
+            .count()
     }
 
     pub fn warning_count(&self) -> usize {
-        self.items.iter().filter(|i| i.severity == Severity::Warning).count()
+        self.items
+            .iter()
+            .filter(|i| i.severity == Severity::Warning)
+            .count()
     }
 
     pub fn extend(&mut self, other: Issues) {
@@ -315,7 +343,11 @@ impl Violation {
         self
     }
 
-    pub fn expected_actual(mut self, expected: impl Into<String>, actual: impl Into<String>) -> Violation {
+    pub fn expected_actual(
+        mut self,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> Violation {
         self.expected = Some(expected.into());
         self.actual = Some(actual.into());
         self
@@ -346,7 +378,11 @@ impl Violation {
         if let Some(p) = self.position {
             fields.push((
                 "position",
-                Json::Arr(vec![Json::Float(p[0]), Json::Float(p[1]), Json::Float(p[2])]),
+                Json::Arr(vec![
+                    Json::Float(p[0]),
+                    Json::Float(p[1]),
+                    Json::Float(p[2]),
+                ]),
             ));
         }
         if let Some(v) = &self.expected {
@@ -355,7 +391,12 @@ impl Violation {
         if let Some(v) = &self.actual {
             fields.push(("actual", Json::str(v.clone())));
         }
-        Json::Obj(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        Json::Obj(
+            fields
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
     }
 }
 
@@ -385,7 +426,12 @@ pub struct Check {
 }
 
 impl Check {
-    pub fn new(group: &'static str, name: impl Into<String>, ok: bool, detail: impl Into<String>) -> Check {
+    pub fn new(
+        group: &'static str,
+        name: impl Into<String>,
+        ok: bool,
+        detail: impl Into<String>,
+    ) -> Check {
         Check {
             group,
             name: name.into(),

@@ -14,5 +14,7 @@ pub mod catalog;
 pub mod routing;
 pub mod topology;
 
-pub use routing::{LocationCost, RouteModel, travel_time};
-pub use topology::{build_topology, derive_locations, LocationRecord, TopologyParams, TopologyTemplate};
+pub use routing::{travel_time, LocationCost, RouteModel};
+pub use topology::{
+    build_topology, derive_locations, LocationRecord, TopologyParams, TopologyTemplate,
+};

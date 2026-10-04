@@ -7,12 +7,12 @@
 
 use aps_engine::json::Json;
 
-use crate::contract::{
-    AsrsProblem, DemandProfile, DispatchConfig, InventoryUnit, SlottingProblem,
-};
+use crate::contract::{AsrsProblem, DemandProfile, DispatchConfig, InventoryUnit, SlottingProblem};
 use crate::errors::{codes, Issues};
 use crate::util::round;
-use crate::wh::catalog::{default_hourly_factor, generate_catalog, generate_orders, preset, CatalogParams, OrderParams};
+use crate::wh::catalog::{
+    default_hourly_factor, generate_catalog, generate_orders, preset, CatalogParams, OrderParams,
+};
 use crate::wh::topology::{build_topology, topology_to_json, TopologyParams, TopologyTemplate};
 
 /// 场景族（对应 SRS 的五个分组）。
@@ -99,100 +99,1042 @@ use TopologyTemplate as T;
 /// 86 个标准场景（S01–S24 / D01–D24 / E01–E14 / J01–J12 / X01–X12）。
 pub const SCENARIOS: &[ScenarioSpec] = &[
     // ---------------- S 系列：库位优化（24） ----------------
-    spec("S01", Family::Slotting, "随机储位 vs 优化储位（小规模）", "建立基线：同一问题下随机/固定/最近可用/ABC/周转率/COI 与 ALNS 的对比", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "FEASIBLE_WITH_BOUND + 验证通过 + 至少优于 random 与 fixed 基线", &["comparison", "explanation"]),
-    spec("S02", Family::Slotting, "ABC 分区与周转率排序对照", "验证经典做法在该仓型下的实际收益", T::AsrsSingleDeep, "abc-mixed", "abc-class", "small", "FEASIBLE 且给出与 turnover/coi 的差值", &["comparison"]),
-    spec("S03", Family::Slotting, "关联性储位（共同出库）", "关联簇必须被压到相邻库位，减少跨巷道往返", T::AsrsSingleDeep, "affinity-clusters", "alns", "medium", "关联一致性优于随机基线（affinityCoherence 更小）", &["explanation"]),
-    spec("S04", Family::Slotting, "尺寸与容积匹配", "大件/小件必须落到容积匹配的库位，禁止溢出", T::AsrsSingleDeep, "oversized-mix", "alns", "small", "无 LOCATION_VOLUME_LIMIT 违规", &[]),
-    spec("S05", Family::Slotting, "承载限制（重货不上高层）", "重货必须避开承重不足的库位", T::AsrsSingleDeep, "heavy-oversized", "alns", "small", "无 LOCATION_WEIGHT_LIMIT 违规", &[]),
-    spec("S06", Family::Slotting, "温控与危险品分区", "分区兼容约束必须生效（冷链/危化独立区）", T::AsrsHybridMultiArea, "chilled-mix", "alns", "small", "无 ZONE_COMPATIBILITY 违规", &[]),
-    spec("S07", Family::Slotting, "COI 立方体-周转率排序", "COI 作为经典规则的对照", T::AsrsSingleDeep, "abc-mixed", "coi", "small", "FEASIBLE 且给出 COI 与 ALNS 的差距", &["comparison"]),
-    spec("S08", Family::Slotting, "分区容量分级", "分区容量上限被突破时必须外溢而非报错", T::AsrsSingleDeep, "abc-mixed", "class-based", "small", "FEASIBLE 且外溢数量被如实报告", &[]),
-    spec("S09", Family::Slotting, "同 SKU 分散抗故障", "同一 SKU 不许全压在同一巷道", T::AsrsSingleDeep, "abc-mixed", "dispersion", "small", "分散度指标被报告", &[]),
-    spec("S10", Family::Slotting, "多深位前排优先", "A 类商品不许放深位（front-only 策略）", T::AsrsMultiDeep, "abc-mixed", "alns", "small", "front-only 下无 DEEP_LANE_BLOCKING", &[]),
-    spec("S11", Family::Slotting, "双深位倒垛代价敏感", "深位方案的搬迁代价必须包含倒垛", T::AsrsDoubleDeep, "abc-mixed", "alns", "medium", "relocationDeviceSeconds > 0 且被计入目标", &[]),
-    spec("S12", Family::Slotting, "动态需求（季节性）", "需求变化后库位方案被增量调整", T::AsrsSingleDeep, "seasonal-promo", "dynamic", "medium", "事件被留痕且搬迁在预算内", &["explanation"]),
-    spec("S13", Family::Slotting, "多目标 Pareto（时间 vs 搬迁）", "输出 Pareto 前沿而非单一解", T::AsrsSingleDeep, "abc-mixed", "nsga2", "small", "pareto 非空且每个点带证据", &["pareto"]),
-    spec("S14", Family::Slotting, "鲁棒优化（需求不确定）", "最坏情景与 CVaR 被显式优化", T::AsrsSingleDeep, "bimodal-peak", "robust", "medium", "robust 报告含 mean/worst/cvar", &["explanation"]),
-    spec("S15", Family::Slotting, "长尾需求", "长尾商品不应占据近端库位", T::AsrsSingleDeep, "oversized-mix", "alns", "medium", "长尾商品的库位代价高于头部", &[]),
-    spec("S16", Family::Slotting, "容量紧张（97% 占用）", "接近占满时仍给出可行解或明确的不可行证明", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "状态为 FEASIBLE/带界，或 INFEASIBLE_PROVEN 并给出容量证明", &[]),
-    spec("S17", Family::Slotting, "库存大于库位（不可行证明）", "容量下界证明必须能给出", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "INFEASIBLE_PROVEN 且给出\"库位<货\"的证明", &[]),
-    spec("S18", Family::Slotting, "库位冻结", "冻结库位不参与优化，且原货物被搬出", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "无 LOCATION_FROZEN 违规且冻结数被报告", &[]),
-    spec("S19", Family::Slotting, "预算耗尽但有解", "超时返回当前最好可行解，状态为 BUDGET_EXCEEDED", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "budgetExceeded=true 且解仍然可行", &[]),
-    spec("S20", Family::Slotting, "预算耗尽且无解", "无解 ≠ 不可行：必须区分 NO_SOLUTION_FOUND 与 INFEASIBLE_PROVEN", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "状态语义与 issue 说明一致", &[]),
-    spec("S21", Family::Slotting, "精确解可证明（小规模）", "小规模上线性分派的最优性被证明", T::AsrsSingleDeep, "uniform-small", "alns", "tiny", "OPTIMAL_PROVEN + 下界=目标值", &["bound"]),
-    spec("S22", Family::Slotting, "多随机种子稳定性", "不同种子结果波动被如实报告", T::AsrsSingleDeep, "abc-mixed", "alns", "small", "stability 与多种子目标被报告", &["stability"]),
-    spec("S23", Family::Slotting, "人工拣选区混合（无自动化）", "人工区容量与自动化区分别处理", T::ManualHybrid, "abc-mixed", "alns", "small", "无设备可用时仍能给出库位方案", &[]),
-    spec("S24", Family::Slotting, "搬迁预算受限", "搬迁件数/设备秒数不超预算", T::AsrsSingleDeep, "abc-mixed", "alns", "medium", "task 数 ≤ 预算，其余降级为 suggestion", &["migrationBudget"]),
-
+    spec(
+        "S01",
+        Family::Slotting,
+        "随机储位 vs 优化储位（小规模）",
+        "建立基线：同一问题下随机/固定/最近可用/ABC/周转率/COI 与 ALNS 的对比",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "FEASIBLE_WITH_BOUND + 验证通过 + 至少优于 random 与 fixed 基线",
+        &["comparison", "explanation"],
+    ),
+    spec(
+        "S02",
+        Family::Slotting,
+        "ABC 分区与周转率排序对照",
+        "验证经典做法在该仓型下的实际收益",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "abc-class",
+        "small",
+        "FEASIBLE 且给出与 turnover/coi 的差值",
+        &["comparison"],
+    ),
+    spec(
+        "S03",
+        Family::Slotting,
+        "关联性储位（共同出库）",
+        "关联簇必须被压到相邻库位，减少跨巷道往返",
+        T::AsrsSingleDeep,
+        "affinity-clusters",
+        "alns",
+        "medium",
+        "关联一致性优于随机基线（affinityCoherence 更小）",
+        &["explanation"],
+    ),
+    spec(
+        "S04",
+        Family::Slotting,
+        "尺寸与容积匹配",
+        "大件/小件必须落到容积匹配的库位，禁止溢出",
+        T::AsrsSingleDeep,
+        "oversized-mix",
+        "alns",
+        "small",
+        "无 LOCATION_VOLUME_LIMIT 违规",
+        &[],
+    ),
+    spec(
+        "S05",
+        Family::Slotting,
+        "承载限制（重货不上高层）",
+        "重货必须避开承重不足的库位",
+        T::AsrsSingleDeep,
+        "heavy-oversized",
+        "alns",
+        "small",
+        "无 LOCATION_WEIGHT_LIMIT 违规",
+        &[],
+    ),
+    spec(
+        "S06",
+        Family::Slotting,
+        "温控与危险品分区",
+        "分区兼容约束必须生效（冷链/危化独立区）",
+        T::AsrsHybridMultiArea,
+        "chilled-mix",
+        "alns",
+        "small",
+        "无 ZONE_COMPATIBILITY 违规",
+        &[],
+    ),
+    spec(
+        "S07",
+        Family::Slotting,
+        "COI 立方体-周转率排序",
+        "COI 作为经典规则的对照",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "coi",
+        "small",
+        "FEASIBLE 且给出 COI 与 ALNS 的差距",
+        &["comparison"],
+    ),
+    spec(
+        "S08",
+        Family::Slotting,
+        "分区容量分级",
+        "分区容量上限被突破时必须外溢而非报错",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "class-based",
+        "small",
+        "FEASIBLE 且外溢数量被如实报告",
+        &[],
+    ),
+    spec(
+        "S09",
+        Family::Slotting,
+        "同 SKU 分散抗故障",
+        "同一 SKU 不许全压在同一巷道",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "dispersion",
+        "small",
+        "分散度指标被报告",
+        &[],
+    ),
+    spec(
+        "S10",
+        Family::Slotting,
+        "多深位前排优先",
+        "A 类商品不许放深位（front-only 策略）",
+        T::AsrsMultiDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "front-only 下无 DEEP_LANE_BLOCKING",
+        &[],
+    ),
+    spec(
+        "S11",
+        Family::Slotting,
+        "双深位倒垛代价敏感",
+        "深位方案的搬迁代价必须包含倒垛",
+        T::AsrsDoubleDeep,
+        "abc-mixed",
+        "alns",
+        "medium",
+        "relocationDeviceSeconds > 0 且被计入目标",
+        &[],
+    ),
+    spec(
+        "S12",
+        Family::Slotting,
+        "动态需求（季节性）",
+        "需求变化后库位方案被增量调整",
+        T::AsrsSingleDeep,
+        "seasonal-promo",
+        "dynamic",
+        "medium",
+        "事件被留痕且搬迁在预算内",
+        &["explanation"],
+    ),
+    spec(
+        "S13",
+        Family::Slotting,
+        "多目标 Pareto（时间 vs 搬迁）",
+        "输出 Pareto 前沿而非单一解",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "nsga2",
+        "small",
+        "pareto 非空且每个点带证据",
+        &["pareto"],
+    ),
+    spec(
+        "S14",
+        Family::Slotting,
+        "鲁棒优化（需求不确定）",
+        "最坏情景与 CVaR 被显式优化",
+        T::AsrsSingleDeep,
+        "bimodal-peak",
+        "robust",
+        "medium",
+        "robust 报告含 mean/worst/cvar",
+        &["explanation"],
+    ),
+    spec(
+        "S15",
+        Family::Slotting,
+        "长尾需求",
+        "长尾商品不应占据近端库位",
+        T::AsrsSingleDeep,
+        "oversized-mix",
+        "alns",
+        "medium",
+        "长尾商品的库位代价高于头部",
+        &[],
+    ),
+    spec(
+        "S16",
+        Family::Slotting,
+        "容量紧张（97% 占用）",
+        "接近占满时仍给出可行解或明确的不可行证明",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "状态为 FEASIBLE/带界，或 INFEASIBLE_PROVEN 并给出容量证明",
+        &[],
+    ),
+    spec(
+        "S17",
+        Family::Slotting,
+        "库存大于库位（不可行证明）",
+        "容量下界证明必须能给出",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "INFEASIBLE_PROVEN 且给出\"库位<货\"的证明",
+        &[],
+    ),
+    spec(
+        "S18",
+        Family::Slotting,
+        "库位冻结",
+        "冻结库位不参与优化，且原货物被搬出",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "无 LOCATION_FROZEN 违规且冻结数被报告",
+        &[],
+    ),
+    spec(
+        "S19",
+        Family::Slotting,
+        "预算耗尽但有解",
+        "超时返回当前最好可行解，状态为 BUDGET_EXCEEDED",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "budgetExceeded=true 且解仍然可行",
+        &[],
+    ),
+    spec(
+        "S20",
+        Family::Slotting,
+        "预算耗尽且无解",
+        "无解 ≠ 不可行：必须区分 NO_SOLUTION_FOUND 与 INFEASIBLE_PROVEN",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "状态语义与 issue 说明一致",
+        &[],
+    ),
+    spec(
+        "S21",
+        Family::Slotting,
+        "精确解可证明（小规模）",
+        "小规模上线性分派的最优性被证明",
+        T::AsrsSingleDeep,
+        "uniform-small",
+        "alns",
+        "tiny",
+        "OPTIMAL_PROVEN + 下界=目标值",
+        &["bound"],
+    ),
+    spec(
+        "S22",
+        Family::Slotting,
+        "多随机种子稳定性",
+        "不同种子结果波动被如实报告",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "small",
+        "stability 与多种子目标被报告",
+        &["stability"],
+    ),
+    spec(
+        "S23",
+        Family::Slotting,
+        "人工拣选区混合（无自动化）",
+        "人工区容量与自动化区分别处理",
+        T::ManualHybrid,
+        "abc-mixed",
+        "alns",
+        "small",
+        "无设备可用时仍能给出库位方案",
+        &[],
+    ),
+    spec(
+        "S24",
+        Family::Slotting,
+        "搬迁预算受限",
+        "搬迁件数/设备秒数不超预算",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "medium",
+        "task 数 ≤ 预算，其余降级为 suggestion",
+        &["migrationBudget"],
+    ),
     // ---------------- D 系列：立库调度（24） ----------------
-    spec("D01", Family::Dispatch, "单巷道单层（基线）", "最小可运行调度：一条巷道一台车", T::AsrsSingleDeep, "abc-mixed", "fifo", "tiny", "全部任务完成 + 验证通过", &["timeline"]),
-    spec("D02", Family::Dispatch, "单巷道多层（提升机瓶颈）", "提升机成为瓶颈时的时间分布", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "提升机利用率被报告", &["deviceUtilization"]),
-    spec("D03", Family::Dispatch, "多巷道并行", "多巷道之间的负载均衡", T::AsrsSingleDeep, "abc-mixed", "nearest-device", "small", "巷道间负载差异被报告", &[]),
-    spec("D04", Family::Dispatch, "双深位倒垛", "目标深位被挡时先倒垛", T::AsrsDoubleDeep, "abc-mixed", "priority-edd", "small", "relocationTasks > 0 且时间线含 relocate 步骤", &["relocation"]),
-    spec("D05", Family::Dispatch, "多深位连续倒垛", "连续倒垛的连锁代价", T::AsrsMultiDeep, "abc-mixed", "priority-edd", "small", "blockedMoves > 0", &["relocation"]),
-    spec("D06", Family::Dispatch, "四向穿梭车网格", "横巷交叉口的单车道互斥", T::AsrsFourWay, "abc-mixed", "joint-alns", "small", "无 LANE_MUTUAL_EXCLUSION 违规", &[]),
-    spec("D07", Family::Dispatch, "双货架块共享提升机", "共享提升机不得互相穿越", T::AsrsTwoBlock, "abc-mixed", "priority-edd", "small", "无 LIFT_SHAFT_CAPACITY 违规", &[]),
-    spec("D08", Family::Dispatch, "单指令 vs 双指令", "双指令复合作业减少空驶", T::AsrsSingleDeep, "abc-mixed", "dual-command", "small", "dualCommandPairs > 0 且空驶距离下降", &["dualCommand"]),
-    spec("D09", Family::Dispatch, "任务优先级抢占", "高优先级任务先做", T::AsrsSingleDeep, "abc-mixed", "priority", "small", "高优先级任务完成时间早于低优先级", &[]),
-    spec("D10", Family::Dispatch, "交期约束（EDD）", "逾期任务数量被最小化", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "lateTasks 被报告", &[]),
-    spec("D11", Family::Dispatch, "交接站并发", "站台容量限制下的交接排队", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "stationPeak ≤ 容量", &[]),
-    spec("D12", Family::Dispatch, "缓冲位容量约束", "缓冲位满载时上游必须等待", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "无 BUFFER_CAPACITY 违规", &[]),
-    spec("D13", Family::Dispatch, "输送线拥塞", "输送段容量与排队时间", T::AsrsHybridMultiArea, "abc-mixed", "priority-edd", "small", "冲突次数被报告", &[]),
-    spec("D14", Family::Dispatch, "跨层转层（多提升机）", "多次跨层的时间叠加", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "每层跨层次数被报告", &[]),
-    spec("D15", Family::Dispatch, "设备能力差异（车型混编）", "不同车型可服务范围不同", T::AsrsFourWay, "abc-mixed", "nearest-device", "small", "无 DEVICE_CAPABILITY 违规", &[]),
-    spec("D16", Family::Dispatch, "大规模任务流（5000）", "规模下的调度时间与质量", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "large", "报告实际完成数、用时、利用率", &["scale"]),
-    spec("D17", Family::Dispatch, "超大规模任务流（20000）", "极端规模下诚实报告资源占用", T::AsrsFourWay, "abc-mixed", "priority-edd", "extreme", "报告实际完成数与内存占用；不得裁剪后声称全量", &["scale"]),
-    spec("D18", Family::Dispatch, "紧急插单", "运行中插入紧急任务的抢占效果", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "small", "紧急任务被提前完成", &["dynamic"]),
-    spec("D19", Family::Dispatch, "任务取消", "取消后的重排与资源释放", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "取消任务不出现在时间线", &["dynamic"]),
-    spec("D20", Family::Dispatch, "设备故障重排", "故障窗口内不得有动作", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "无 DEVICE_UNAVAILABLE 违规且故障留痕", &["dynamic"]),
-    spec("D21", Family::Dispatch, "巷道封闭", "封闭巷道任务改派或标记未服务", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "封闭巷道无动作", &["dynamic"]),
-    spec("D22", Family::Dispatch, "降速运行", "降速后完工时间上升但约束仍满足", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "完工时间 ≥ 正常情形", &["dynamic"]),
-    spec("D23", Family::Dispatch, "库位冻结与重排", "冻结库位的任务被改派", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "无 LOCATION_FROZEN 违规", &["dynamic"]),
-    spec("D24", Family::Dispatch, "空地混合（人工 + 自动化）", "人工区的任务不占用自动化设备", T::ManualHybrid, "abc-mixed", "priority-edd", "small", "人工任务不出现自动化设备步骤", &[]),
-
+    spec(
+        "D01",
+        Family::Dispatch,
+        "单巷道单层（基线）",
+        "最小可运行调度：一条巷道一台车",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "fifo",
+        "tiny",
+        "全部任务完成 + 验证通过",
+        &["timeline"],
+    ),
+    spec(
+        "D02",
+        Family::Dispatch,
+        "单巷道多层（提升机瓶颈）",
+        "提升机成为瓶颈时的时间分布",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "提升机利用率被报告",
+        &["deviceUtilization"],
+    ),
+    spec(
+        "D03",
+        Family::Dispatch,
+        "多巷道并行",
+        "多巷道之间的负载均衡",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "nearest-device",
+        "small",
+        "巷道间负载差异被报告",
+        &[],
+    ),
+    spec(
+        "D04",
+        Family::Dispatch,
+        "双深位倒垛",
+        "目标深位被挡时先倒垛",
+        T::AsrsDoubleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "relocationTasks > 0 且时间线含 relocate 步骤",
+        &["relocation"],
+    ),
+    spec(
+        "D05",
+        Family::Dispatch,
+        "多深位连续倒垛",
+        "连续倒垛的连锁代价",
+        T::AsrsMultiDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "blockedMoves > 0",
+        &["relocation"],
+    ),
+    spec(
+        "D06",
+        Family::Dispatch,
+        "四向穿梭车网格",
+        "横巷交叉口的单车道互斥",
+        T::AsrsFourWay,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "无 LANE_MUTUAL_EXCLUSION 违规",
+        &[],
+    ),
+    spec(
+        "D07",
+        Family::Dispatch,
+        "双货架块共享提升机",
+        "共享提升机不得互相穿越",
+        T::AsrsTwoBlock,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "无 LIFT_SHAFT_CAPACITY 违规",
+        &[],
+    ),
+    spec(
+        "D08",
+        Family::Dispatch,
+        "单指令 vs 双指令",
+        "双指令复合作业减少空驶",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "dual-command",
+        "small",
+        "dualCommandPairs > 0 且空驶距离下降",
+        &["dualCommand"],
+    ),
+    spec(
+        "D09",
+        Family::Dispatch,
+        "任务优先级抢占",
+        "高优先级任务先做",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority",
+        "small",
+        "高优先级任务完成时间早于低优先级",
+        &[],
+    ),
+    spec(
+        "D10",
+        Family::Dispatch,
+        "交期约束（EDD）",
+        "逾期任务数量被最小化",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "lateTasks 被报告",
+        &[],
+    ),
+    spec(
+        "D11",
+        Family::Dispatch,
+        "交接站并发",
+        "站台容量限制下的交接排队",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "stationPeak ≤ 容量",
+        &[],
+    ),
+    spec(
+        "D12",
+        Family::Dispatch,
+        "缓冲位容量约束",
+        "缓冲位满载时上游必须等待",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "无 BUFFER_CAPACITY 违规",
+        &[],
+    ),
+    spec(
+        "D13",
+        Family::Dispatch,
+        "输送线拥塞",
+        "输送段容量与排队时间",
+        T::AsrsHybridMultiArea,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "冲突次数被报告",
+        &[],
+    ),
+    spec(
+        "D14",
+        Family::Dispatch,
+        "跨层转层（多提升机）",
+        "多次跨层的时间叠加",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "每层跨层次数被报告",
+        &[],
+    ),
+    spec(
+        "D15",
+        Family::Dispatch,
+        "设备能力差异（车型混编）",
+        "不同车型可服务范围不同",
+        T::AsrsFourWay,
+        "abc-mixed",
+        "nearest-device",
+        "small",
+        "无 DEVICE_CAPABILITY 违规",
+        &[],
+    ),
+    spec(
+        "D16",
+        Family::Dispatch,
+        "大规模任务流（5000）",
+        "规模下的调度时间与质量",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "large",
+        "报告实际完成数、用时、利用率",
+        &["scale"],
+    ),
+    spec(
+        "D17",
+        Family::Dispatch,
+        "超大规模任务流（20000）",
+        "极端规模下诚实报告资源占用",
+        T::AsrsFourWay,
+        "abc-mixed",
+        "priority-edd",
+        "extreme",
+        "报告实际完成数与内存占用；不得裁剪后声称全量",
+        &["scale"],
+    ),
+    spec(
+        "D18",
+        Family::Dispatch,
+        "紧急插单",
+        "运行中插入紧急任务的抢占效果",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "紧急任务被提前完成",
+        &["dynamic"],
+    ),
+    spec(
+        "D19",
+        Family::Dispatch,
+        "任务取消",
+        "取消后的重排与资源释放",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "取消任务不出现在时间线",
+        &["dynamic"],
+    ),
+    spec(
+        "D20",
+        Family::Dispatch,
+        "设备故障重排",
+        "故障窗口内不得有动作",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "无 DEVICE_UNAVAILABLE 违规且故障留痕",
+        &["dynamic"],
+    ),
+    spec(
+        "D21",
+        Family::Dispatch,
+        "巷道封闭",
+        "封闭巷道任务改派或标记未服务",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "封闭巷道无动作",
+        &["dynamic"],
+    ),
+    spec(
+        "D22",
+        Family::Dispatch,
+        "降速运行",
+        "降速后完工时间上升但约束仍满足",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "完工时间 ≥ 正常情形",
+        &["dynamic"],
+    ),
+    spec(
+        "D23",
+        Family::Dispatch,
+        "库位冻结与重排",
+        "冻结库位的任务被改派",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "无 LOCATION_FROZEN 违规",
+        &["dynamic"],
+    ),
+    spec(
+        "D24",
+        Family::Dispatch,
+        "空地混合（人工 + 自动化）",
+        "人工区的任务不占用自动化设备",
+        T::ManualHybrid,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "人工任务不出现自动化设备步骤",
+        &[],
+    ),
     // ---------------- E 系列：事件与异常（14） ----------------
-    spec("E01", Family::Event, "高峰冲击", "需求峰值下的排队与延迟", T::AsrsSingleDeep, "bimodal-peak", "priority-edd", "small", "峰值时段等待被报告", &["dynamic"]),
-    spec("E02", Family::Event, "需求突变（+40%）", "需求突变后库位与调度同时承压", T::AsrsSingleDeep, "bimodal-peak", "dynamic", "medium", "突变被留痕且方案可行", &["dynamic"]),
-    spec("E03", Family::Event, "促销活动（关联簇热卖）", "促销簇的集中流量", T::AsrsSingleDeep, "affinity-clusters", "dynamic", "medium", "促销簇库位相邻性提升", &["dynamic"]),
-    spec("E04", Family::Event, "紧急插单抢占", "插单对已完成计划的扰动", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "small", "插单任务完成时间早于同优先级任务", &["dynamic"]),
-    spec("E05", Family::Event, "取消风暴", "大量取消后的资源释放", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "取消率被报告", &["dynamic"]),
-    spec("E06", Family::Event, "设备故障（提升机）", "提升机故障的替代路径", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "故障窗口内提升机无动作", &["dynamic"]),
-    spec("E07", Family::Event, "设备故障（穿梭车）", "穿梭车故障后的任务改派", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "small", "改派被留痕且无时间重叠", &["dynamic"]),
-    spec("E08", Family::Event, "恢复（故障恢复后回补）", "恢复后的补做与优先级", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "恢复后任务被继续服务", &["dynamic"]),
-    spec("E09", Family::Event, "巷道封闭 + 任务改派", "封闭巷道后任务改派或明确未服务", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "未服务任务被如实报告", &["dynamic"]),
-    spec("E10", Family::Event, "库位冻结（临时占用）", "临时冻结后退让", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "冻结库位无动作", &["dynamic"]),
-    spec("E11", Family::Event, "缓冲位丢失", "缓冲容量下降后的排队", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "无 BUFFER_CAPACITY 违规", &["dynamic"]),
-    spec("E12", Family::Event, "降速 70%", "降速下的吞吐折损被量化", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "small", "吞吐下降被报告", &["dynamic"]),
-    spec("E13", Family::Event, "订单取消 + 库存回收", "取消订单的库存回架", T::AsrsSingleDeep, "abc-mixed", "dynamic", "small", "库存台账守恒（INVENTORY_CONSERVATION）", &["dynamic"]),
-    spec("E14", Family::Event, "多重事件叠加", "多个事件同时发生时的稳定性", T::AsrsFourWay, "bimodal-peak", "joint-alns", "small", "所有事件被留痕且验证通过", &["dynamic"]),
-
+    spec(
+        "E01",
+        Family::Event,
+        "高峰冲击",
+        "需求峰值下的排队与延迟",
+        T::AsrsSingleDeep,
+        "bimodal-peak",
+        "priority-edd",
+        "small",
+        "峰值时段等待被报告",
+        &["dynamic"],
+    ),
+    spec(
+        "E02",
+        Family::Event,
+        "需求突变（+40%）",
+        "需求突变后库位与调度同时承压",
+        T::AsrsSingleDeep,
+        "bimodal-peak",
+        "dynamic",
+        "medium",
+        "突变被留痕且方案可行",
+        &["dynamic"],
+    ),
+    spec(
+        "E03",
+        Family::Event,
+        "促销活动（关联簇热卖）",
+        "促销簇的集中流量",
+        T::AsrsSingleDeep,
+        "affinity-clusters",
+        "dynamic",
+        "medium",
+        "促销簇库位相邻性提升",
+        &["dynamic"],
+    ),
+    spec(
+        "E04",
+        Family::Event,
+        "紧急插单抢占",
+        "插单对已完成计划的扰动",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "插单任务完成时间早于同优先级任务",
+        &["dynamic"],
+    ),
+    spec(
+        "E05",
+        Family::Event,
+        "取消风暴",
+        "大量取消后的资源释放",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "取消率被报告",
+        &["dynamic"],
+    ),
+    spec(
+        "E06",
+        Family::Event,
+        "设备故障（提升机）",
+        "提升机故障的替代路径",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "故障窗口内提升机无动作",
+        &["dynamic"],
+    ),
+    spec(
+        "E07",
+        Family::Event,
+        "设备故障（穿梭车）",
+        "穿梭车故障后的任务改派",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "改派被留痕且无时间重叠",
+        &["dynamic"],
+    ),
+    spec(
+        "E08",
+        Family::Event,
+        "恢复（故障恢复后回补）",
+        "恢复后的补做与优先级",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "恢复后任务被继续服务",
+        &["dynamic"],
+    ),
+    spec(
+        "E09",
+        Family::Event,
+        "巷道封闭 + 任务改派",
+        "封闭巷道后任务改派或明确未服务",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "未服务任务被如实报告",
+        &["dynamic"],
+    ),
+    spec(
+        "E10",
+        Family::Event,
+        "库位冻结（临时占用）",
+        "临时冻结后退让",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "冻结库位无动作",
+        &["dynamic"],
+    ),
+    spec(
+        "E11",
+        Family::Event,
+        "缓冲位丢失",
+        "缓冲容量下降后的排队",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "无 BUFFER_CAPACITY 违规",
+        &["dynamic"],
+    ),
+    spec(
+        "E12",
+        Family::Event,
+        "降速 70%",
+        "降速下的吞吐折损被量化",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "small",
+        "吞吐下降被报告",
+        &["dynamic"],
+    ),
+    spec(
+        "E13",
+        Family::Event,
+        "订单取消 + 库存回收",
+        "取消订单的库存回架",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "dynamic",
+        "small",
+        "库存台账守恒（INVENTORY_CONSERVATION）",
+        &["dynamic"],
+    ),
+    spec(
+        "E14",
+        Family::Event,
+        "多重事件叠加",
+        "多个事件同时发生时的稳定性",
+        T::AsrsFourWay,
+        "bimodal-peak",
+        "joint-alns",
+        "small",
+        "所有事件被留痕且验证通过",
+        &["dynamic"],
+    ),
     // ---------------- J 系列：联合优化（12） ----------------
-    spec("J01", Family::Joint, "联合优化基线", "库位 × 调度闭环的第一条证据", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "small", "comparison 三行齐备且验证通过", &["comparison"]),
-    spec("J02", Family::Joint, "热点集中 vs 分散", "把热点打散对拥塞的改善", T::AsrsSingleDeep, "zipf-hot", "joint-alns", "small", "冲突次数低于随机储位", &["comparison"]),
-    spec("J03", Family::Joint, "关联簇 × 双指令", "关联簇相邻 + 双指令的时间收益", T::AsrsSingleDeep, "affinity-clusters", "joint-alns", "small", "空驶距离下降", &["comparison"]),
-    spec("J04", Family::Joint, "多深位 × 倒垛代价", "深位方案的倒垛代价必须进入库位目标", T::AsrsMultiDeep, "abc-mixed", "joint-alns", "small", "relocationTasks 被计入联合目标", &["comparison"]),
-    spec("J05", Family::Joint, "提升机瓶颈 × 高层库位", "高层库位与提升机负载的耦合", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "medium", "提升机负载差异被报告", &["comparison"]),
-    spec("J06", Family::Joint, "抗拥堵库位方案", "拥堵惩罚下库位分布更均衡", T::AsrsFourWay, "zipf-hot", "joint-alns", "small", "aisleLoadGini 降低", &["comparison"]),
-    spec("J07", Family::Joint, "短期 vs 长期权衡", "搬迁代价 vs 长期收益", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "small", "rounds 记录每轮权衡", &["comparison"]),
-    spec("J08", Family::Joint, "鲁棒库位 × 故障调度", "鲁棒方案在故障情景下的表现", T::AsrsSingleDeep, "bimodal-peak", "joint-alns", "medium", "故障情景下仍可行", &["comparison"]),
-    spec("J09", Family::Joint, "多目标联合", "Pareto 前沿上的联合决策", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "small", "pareto 与 comparison 同时存在", &["pareto"]),
-    spec("J10", Family::Joint, "跨巷道协同", "跨巷道任务的指派协同", T::AsrsFourWay, "abc-mixed", "joint-alns", "small", "跨巷道任务有明确指派理由", &["comparison"]),
-    spec("J11", Family::Joint, "全流程仿真（收货→上架→拣选→出库）", "端到端流程的时间线", T::AsrsHybridMultiArea, "abc-mixed", "joint-alns", "medium", "时间线含各阶段步骤", &["timeline"]),
-    spec("J12", Family::Joint, "对比矩阵（随机/经典/联合）", "三种方案在同一调度口径下的对比", T::AsrsSingleDeep, "abc-mixed", "joint-alns", "medium", "comparison 三行数字完整", &["comparison"]),
-
+    spec(
+        "J01",
+        Family::Joint,
+        "联合优化基线",
+        "库位 × 调度闭环的第一条证据",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "comparison 三行齐备且验证通过",
+        &["comparison"],
+    ),
+    spec(
+        "J02",
+        Family::Joint,
+        "热点集中 vs 分散",
+        "把热点打散对拥塞的改善",
+        T::AsrsSingleDeep,
+        "zipf-hot",
+        "joint-alns",
+        "small",
+        "冲突次数低于随机储位",
+        &["comparison"],
+    ),
+    spec(
+        "J03",
+        Family::Joint,
+        "关联簇 × 双指令",
+        "关联簇相邻 + 双指令的时间收益",
+        T::AsrsSingleDeep,
+        "affinity-clusters",
+        "joint-alns",
+        "small",
+        "空驶距离下降",
+        &["comparison"],
+    ),
+    spec(
+        "J04",
+        Family::Joint,
+        "多深位 × 倒垛代价",
+        "深位方案的倒垛代价必须进入库位目标",
+        T::AsrsMultiDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "relocationTasks 被计入联合目标",
+        &["comparison"],
+    ),
+    spec(
+        "J05",
+        Family::Joint,
+        "提升机瓶颈 × 高层库位",
+        "高层库位与提升机负载的耦合",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "medium",
+        "提升机负载差异被报告",
+        &["comparison"],
+    ),
+    spec(
+        "J06",
+        Family::Joint,
+        "抗拥堵库位方案",
+        "拥堵惩罚下库位分布更均衡",
+        T::AsrsFourWay,
+        "zipf-hot",
+        "joint-alns",
+        "small",
+        "aisleLoadGini 降低",
+        &["comparison"],
+    ),
+    spec(
+        "J07",
+        Family::Joint,
+        "短期 vs 长期权衡",
+        "搬迁代价 vs 长期收益",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "rounds 记录每轮权衡",
+        &["comparison"],
+    ),
+    spec(
+        "J08",
+        Family::Joint,
+        "鲁棒库位 × 故障调度",
+        "鲁棒方案在故障情景下的表现",
+        T::AsrsSingleDeep,
+        "bimodal-peak",
+        "joint-alns",
+        "medium",
+        "故障情景下仍可行",
+        &["comparison"],
+    ),
+    spec(
+        "J09",
+        Family::Joint,
+        "多目标联合",
+        "Pareto 前沿上的联合决策",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "pareto 与 comparison 同时存在",
+        &["pareto"],
+    ),
+    spec(
+        "J10",
+        Family::Joint,
+        "跨巷道协同",
+        "跨巷道任务的指派协同",
+        T::AsrsFourWay,
+        "abc-mixed",
+        "joint-alns",
+        "small",
+        "跨巷道任务有明确指派理由",
+        &["comparison"],
+    ),
+    spec(
+        "J11",
+        Family::Joint,
+        "全流程仿真（收货→上架→拣选→出库）",
+        "端到端流程的时间线",
+        T::AsrsHybridMultiArea,
+        "abc-mixed",
+        "joint-alns",
+        "medium",
+        "时间线含各阶段步骤",
+        &["timeline"],
+    ),
+    spec(
+        "J12",
+        Family::Joint,
+        "对比矩阵（随机/经典/联合）",
+        "三种方案在同一调度口径下的对比",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "joint-alns",
+        "medium",
+        "comparison 三行数字完整",
+        &["comparison"],
+    ),
     // ---------------- X 系列：压力与边界（12） ----------------
-    spec("X01", Family::Stress, "超大 SKU 目录（150k）", "SKU 规模压力", T::AsrsSingleDeep, "zipf-hot", "alns", "extreme", "如实报告实际求解规模与用时", &["scale"]),
-    spec("X02", Family::Stress, "超大库位（2M）", "库位规模压力（只做拓扑与派生）", T::AsrsMultiDeep, "abc-mixed", "alns", "extreme", "报告派生库位数与内存占用", &["scale"]),
-    spec("X03", Family::Stress, "库存爆满", "占用率 99% 的可行性", T::AsrsSingleDeep, "abc-mixed", "alns", "large", "给出可行解或不可行证明", &["scale"]),
-    spec("X04", Family::Stress, "零库存", "空仓边界（不应崩溃）", T::AsrsSingleDeep, "abc-mixed", "alns", "tiny", "状态为 FEASIBLE 且解为空", &[]),
-    spec("X05", Family::Stress, "单库位单货", "最小实例", T::AsrsSingleDeep, "uniform-small", "alns", "tiny", "OPTIMAL_PROVEN", &["bound"]),
-    spec("X06", Family::Stress, "全库位冻结", "无可放置位置时的证明", T::AsrsSingleDeep, "abc-mixed", "alns", "tiny", "INFEASIBLE_PROVEN 且给出证明", &[]),
-    spec("X07", Family::Stress, "零设备", "没有可用设备时的调度降级", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "tiny", "任务全部未服务且被如实报告（不是崩溃）", &[]),
-    spec("X08", Family::Stress, "零任务", "空任务集", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "tiny", "完成数为 0，验证通过", &[]),
-    spec("X09", Family::Stress, "拓扑退化（1 巷道 1 层 1 列）", "退化拓扑不应产生非法动作", T::AsrsSingleDeep, "uniform-small", "priority-edd", "tiny", "无动作冲突", &[]),
-    spec("X10", Family::Stress, "重复 ID（契约错误）", "重复 ID 必须报 INVALID_INPUT 并定位", T::AsrsSingleDeep, "abc-mixed", "alns", "tiny", "INVALID_INPUT + 字段路径", &["issues"]),
-    spec("X11", Family::Stress, "非法参数（负预算/负权重）", "参数越界必须拒绝并定位", T::AsrsSingleDeep, "abc-mixed", "alns", "tiny", "INVALID_INPUT + 字段路径", &["issues"]),
-    spec("X12", Family::Stress, "验证器对抗（篡改方案）", "人为破坏方案后验证器必须报错", T::AsrsSingleDeep, "abc-mixed", "priority-edd", "tiny", "验证器报出具体违规（不是通过）", &["violation"]),
+    spec(
+        "X01",
+        Family::Stress,
+        "超大 SKU 目录（150k）",
+        "SKU 规模压力",
+        T::AsrsSingleDeep,
+        "zipf-hot",
+        "alns",
+        "stress",
+        "如实报告实际求解规模与用时（150k SKU 档）",
+        &["scale"],
+    ),
+    spec(
+        "X02",
+        Family::Stress,
+        "超大库位（1.9M）",
+        "库位规模压力（只做拓扑与派生）",
+        T::AsrsMultiDeep,
+        "abc-mixed",
+        "alns",
+        "stress",
+        "报告派生库位数与内存占用（1.9M 库位档，不裁剪）",
+        &["scale"],
+    ),
+    spec(
+        "X03",
+        Family::Stress,
+        "库存爆满",
+        "占用率 99% 的可行性",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "large",
+        "给出可行解或不可行证明",
+        &["scale"],
+    ),
+    spec(
+        "X04",
+        Family::Stress,
+        "零库存",
+        "空仓边界（不应崩溃）",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "tiny",
+        "状态为 FEASIBLE 且解为空",
+        &[],
+    ),
+    spec(
+        "X05",
+        Family::Stress,
+        "单库位单货",
+        "最小实例",
+        T::AsrsSingleDeep,
+        "uniform-small",
+        "alns",
+        "tiny",
+        "OPTIMAL_PROVEN",
+        &["bound"],
+    ),
+    spec(
+        "X06",
+        Family::Stress,
+        "全库位冻结",
+        "无可放置位置时的证明",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "tiny",
+        "INFEASIBLE_PROVEN 且给出证明",
+        &[],
+    ),
+    spec(
+        "X07",
+        Family::Stress,
+        "零设备",
+        "没有可用设备时的调度降级",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "tiny",
+        "任务全部未服务且被如实报告（不是崩溃）",
+        &[],
+    ),
+    spec(
+        "X08",
+        Family::Stress,
+        "零任务",
+        "空任务集",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "tiny",
+        "完成数为 0，验证通过",
+        &[],
+    ),
+    spec(
+        "X09",
+        Family::Stress,
+        "拓扑退化（1 巷道 1 层 1 列）",
+        "退化拓扑不应产生非法动作",
+        T::AsrsSingleDeep,
+        "uniform-small",
+        "priority-edd",
+        "tiny",
+        "无动作冲突",
+        &[],
+    ),
+    spec(
+        "X10",
+        Family::Stress,
+        "重复 ID（契约错误）",
+        "重复 ID 必须报 INVALID_INPUT 并定位",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "tiny",
+        "INVALID_INPUT + 字段路径",
+        &["issues"],
+    ),
+    spec(
+        "X11",
+        Family::Stress,
+        "非法参数（负预算/负权重）",
+        "参数越界必须拒绝并定位",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "alns",
+        "tiny",
+        "INVALID_INPUT + 字段路径",
+        &["issues"],
+    ),
+    spec(
+        "X12",
+        Family::Stress,
+        "验证器对抗（篡改方案）",
+        "人为破坏方案后验证器必须报错",
+        T::AsrsSingleDeep,
+        "abc-mixed",
+        "priority-edd",
+        "tiny",
+        "验证器报出具体违规（不是通过）",
+        &["violation"],
+    ),
 ];
 
 /// 规模档位（显式写清每档的规模，避免"声称的规模"与"实际规模"不一致）。
@@ -210,13 +1152,90 @@ pub struct ScaleSpec {
 }
 
 pub const SCALES: &[ScaleSpec] = &[
-    ScaleSpec { key: "tiny", skus: 8, aisles: 1, levels: 2, bays: 6, depths: 1, shuttles_per_aisle: 1, tasks: 12, orders: 60 },
-    ScaleSpec { key: "small", skus: 60, aisles: 2, levels: 3, bays: 14, depths: 1, shuttles_per_aisle: 1, tasks: 120, orders: 800 },
-    ScaleSpec { key: "medium", skus: 400, aisles: 6, levels: 5, bays: 40, depths: 2, shuttles_per_aisle: 1, tasks: 900, orders: 6_000 },
-    ScaleSpec { key: "large", skus: 8_000, aisles: 24, levels: 8, bays: 90, depths: 2, shuttles_per_aisle: 1, tasks: 6_000, orders: 60_000 },
-    ScaleSpec { key: "extreme", skus: 60_000, aisles: 60, levels: 10, bays: 220, depths: 3, shuttles_per_aisle: 1, tasks: 20_000, orders: 120_000 },
+    ScaleSpec {
+        key: "tiny",
+        skus: 8,
+        aisles: 1,
+        levels: 2,
+        bays: 6,
+        depths: 1,
+        shuttles_per_aisle: 1,
+        tasks: 12,
+        orders: 60,
+    },
+    ScaleSpec {
+        key: "small",
+        skus: 60,
+        aisles: 2,
+        levels: 3,
+        bays: 14,
+        depths: 1,
+        shuttles_per_aisle: 1,
+        tasks: 120,
+        orders: 800,
+    },
+    ScaleSpec {
+        key: "medium",
+        skus: 400,
+        aisles: 6,
+        levels: 5,
+        bays: 40,
+        depths: 2,
+        shuttles_per_aisle: 1,
+        tasks: 900,
+        orders: 6_000,
+    },
+    ScaleSpec {
+        key: "large",
+        skus: 8_000,
+        aisles: 24,
+        levels: 8,
+        bays: 90,
+        depths: 2,
+        shuttles_per_aisle: 1,
+        tasks: 6_000,
+        orders: 60_000,
+    },
+    ScaleSpec {
+        key: "extreme",
+        skus: 60_000,
+        aisles: 60,
+        levels: 10,
+        bays: 220,
+        depths: 3,
+        shuttles_per_aisle: 1,
+        tasks: 20_000,
+        orders: 120_000,
+    },
+    // 压力档：对齐 SRS 的"合成数据 150k–500k SKU / 500k–2M 库位"区间。
+    // 90 × 12 × 220 × 4 × 2 = 1_900_800 个库位（在 2M 以内，不四舍五入成"2M"）。
+    // 这一档刻意不进默认验收路径：它是给"规模压力"用例（X01/X02）与手动运行准备的。
+    ScaleSpec {
+        key: "stress",
+        skus: 150_000,
+        aisles: 90,
+        levels: 12,
+        bays: 220,
+        depths: 4,
+        shuttles_per_aisle: 1,
+        tasks: 20_000,
+        orders: 200_000,
+    },
 ];
 
+/// 全部规模档位键（CLI 校验与文档共用；顺序即从最小到最大）。
+pub fn scale_keys() -> Vec<&'static str> {
+    SCALES.iter().map(|scale| scale.key).collect()
+}
+
+/// 严格的档位查询：未知档位返回 `None`，由调用方报 `INVALID_INPUT`——
+/// 刻意不在这里回退到 small，否则 `--scale sterss` 这种拼写错误会**静默**变成小规模，
+/// 而"实际跑的规模"与用户以为的规模不一致正是本项目最不能出现的错误。
+pub fn find_scale(key: &str) -> Option<ScaleSpec> {
+    SCALES.iter().copied().find(|scale| scale.key == key)
+}
+
+/// 宽松查询（内部场景表用的档位一定存在；未知键回退 small 只作为最后兜底）。
 pub fn scale_of(key: &str) -> ScaleSpec {
     SCALES
         .iter()
@@ -237,37 +1256,46 @@ pub fn find(id: &str) -> Option<&'static ScenarioSpec> {
 
 /// 场景清单 → JSON（`scenarios` 子命令与实验室"场景选择"共用）。
 pub fn catalog_json() -> Json {
-    let families: Vec<Json> = [Family::Slotting, Family::Dispatch, Family::Event, Family::Joint, Family::Stress]
-        .iter()
-        .map(|family| {
-            Json::obj(vec![
-                ("family", Json::str(family.as_str())),
-                ("label", Json::str(family.label())),
-                (
-                    "scenarios",
-                    Json::Arr(
-                        SCENARIOS
-                            .iter()
-                            .filter(|scenario| scenario.family == *family)
-                            .map(|scenario| {
-                                Json::obj(vec![
-                                    ("id", Json::str(scenario.id)),
-                                    ("name", Json::str(scenario.name)),
-                                    ("goal", Json::str(scenario.goal)),
-                                    ("topology", Json::str(scenario.template.as_str())),
-                                    ("catalog", Json::str(scenario.catalog)),
-                                    ("algorithm", Json::str(scenario.algorithm)),
-                                    ("scale", Json::str(scenario.scale)),
-                                    ("expect", Json::str(scenario.expect)),
-                                    ("mustShow", Json::strings(scenario.must_show.iter().copied())),
-                                ])
-                            })
-                            .collect(),
-                    ),
+    let families: Vec<Json> = [
+        Family::Slotting,
+        Family::Dispatch,
+        Family::Event,
+        Family::Joint,
+        Family::Stress,
+    ]
+    .iter()
+    .map(|family| {
+        Json::obj(vec![
+            ("family", Json::str(family.as_str())),
+            ("label", Json::str(family.label())),
+            (
+                "scenarios",
+                Json::Arr(
+                    SCENARIOS
+                        .iter()
+                        .filter(|scenario| scenario.family == *family)
+                        .map(|scenario| {
+                            Json::obj(vec![
+                                ("id", Json::str(scenario.id)),
+                                ("name", Json::str(scenario.name)),
+                                ("goal", Json::str(scenario.goal)),
+                                ("topology", Json::str(scenario.template.as_str())),
+                                ("catalog", Json::str(scenario.catalog)),
+                                ("algorithm", Json::str(scenario.algorithm)),
+                                ("scale", Json::str(scenario.scale)),
+                                ("expect", Json::str(scenario.expect)),
+                                (
+                                    "mustShow",
+                                    Json::strings(scenario.must_show.iter().copied()),
+                                ),
+                            ])
+                        })
+                        .collect(),
                 ),
-            ])
-        })
-        .collect();
+            ),
+        ])
+    })
+    .collect();
     Json::obj(vec![
         ("count", Json::int(SCENARIOS.len() as i64)),
         (
@@ -295,7 +1323,12 @@ pub fn catalog_json() -> Json {
 }
 
 /// 生成场景对应的**完整问题文档**（库位优化 / 立库调度 / 联合）。
-pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>, issues: &mut Issues) -> Json {
+pub fn build(
+    id: &str,
+    scale_override: Option<&str>,
+    seed_override: Option<u64>,
+    issues: &mut Issues,
+) -> Json {
     let Some(scenario) = find(id) else {
         issues.error(
             codes::VALUE_RANGE,
@@ -353,6 +1386,10 @@ pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>,
         "X03" => 0.99,
         "X04" => 0.0,
         "S17" => 1.0,
+        // 压力档（150k SKU × 1.9M 库位）刻意用 55% 占用：库存单元数 = 库位数 × 占用率，
+        // 按 82% 生成会先撞内存墙（约 1.56M 库存单元），
+        // 而 X01/X02 要证明的是"规模与派生"，不是"塞满的库"。实际数量在 stats 里如实报告。
+        "X01" | "X02" => 0.55,
         _ => 0.82,
     };
     let mut catalog = generate_catalog(&catalog_params);
@@ -373,12 +1410,22 @@ pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>,
     let orders = generate_orders(&order_params, &catalog.skus, &catalog.demand);
 
     let objectives = default_objectives(scenario.family);
-    let tasks = build_tasks(&bundle.topology, &catalog.inventory, &orders.orders, scale.tasks, seed, id);
+    let tasks = build_tasks(
+        &bundle.topology,
+        &catalog.inventory,
+        &orders.orders,
+        scale.tasks,
+        seed,
+        id,
+    );
     let events = build_events(id, &tasks, seed);
     let slotting_problem = SlottingProblem {
         id: format!("{id}-SLOTTING"),
         scenario_id: Some(id.to_string()),
-        dataset_version: format!("{id}/scale={}/{}/seed={seed}", scale.key, catalog_params.skus),
+        dataset_version: format!(
+            "{id}/scale={}/{}/seed={seed}",
+            scale.key, catalog_params.skus
+        ),
         topology: bundle.topology.clone(),
         skus: catalog.skus.clone(),
         inventory: catalog.inventory.clone(),
@@ -399,6 +1446,9 @@ pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>,
                 "small" => 2_500.0,
                 "medium" => 8_000.0,
                 "large" => 25_000.0,
+                // 压力档不跟随兜底的 60 s：30 s 预算下如实给出"已解规模 + 界"，
+                // 而不是把 CI 的 86 场景验收拖成小时级。
+                "stress" => 30_000.0,
                 _ => 60_000.0,
             },
             ..crate::contract::SlottingAlgorithmConfig::default()
@@ -435,6 +1485,7 @@ pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>,
                 "small" => 3_000.0,
                 "medium" => 10_000.0,
                 "large" => 30_000.0,
+                "stress" => 30_000.0,
                 _ => 60_000.0,
             },
             dual_command: !matches!(id, "D08" | "D01"),
@@ -477,7 +1528,10 @@ pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>,
             "stats",
             Json::obj(vec![
                 ("locations", Json::int(bundle.stats.locations as i64)),
-                ("availableLocations", Json::int(bundle.stats.available_locations as i64)),
+                (
+                    "availableLocations",
+                    Json::int(bundle.stats.available_locations as i64),
+                ),
                 ("aisles", Json::int(bundle.stats.aisles as i64)),
                 ("devices", Json::int(bundle.stats.devices as i64)),
                 ("stations", Json::int(bundle.stats.stations as i64)),
@@ -485,7 +1539,10 @@ pub fn build(id: &str, scale_override: Option<&str>, seed_override: Option<u64>,
                 ("loadUnits", Json::int(catalog.stats.load_units as i64)),
                 ("orders", Json::int(orders.stats.orders as i64)),
                 ("tasks", Json::int(asrs_problem.tasks.len() as i64)),
-                ("footprintM2", Json::Float(round(bundle.stats.footprint_m2, 2))),
+                (
+                    "footprintM2",
+                    Json::Float(round(bundle.stats.footprint_m2, 2)),
+                ),
             ]),
         ),
     ]);
@@ -552,7 +1609,6 @@ fn default_objectives(family: Family) -> Vec<crate::contract::ObjectiveSpec> {
     objectives
 }
 
-
 /// 初始在库位置的确定性分配：**每列从最深位开始填**（真实密集立库的入位顺序），
 /// 因此"深层有货、前排也常有货"，遮挡与连锁倒垛是数据本身带来的，不是脚本安排的。
 fn assign_initial_locations(
@@ -583,7 +1639,11 @@ fn assign_initial_locations(
         column_list.push(column.clone());
     }
     column_list.sort_by_key(|column| column.first().copied().unwrap_or(0));
-    let max_len = column_list.iter().map(|column| column.len()).max().unwrap_or(0);
+    let max_len = column_list
+        .iter()
+        .map(|column| column.len())
+        .max()
+        .unwrap_or(0);
     let mut pool: Vec<usize> = Vec::new();
     for step in 0..max_len {
         for column in &column_list {
@@ -695,7 +1755,13 @@ fn build_tasks(
         let location = locations[location_index].clone();
         let unit = unit_of_location.get(location.id.as_str()).copied();
         let release = rng.next_f64() * 3_600.0 * (1.0 + (index % 24) as f64 * 0.05);
-        let priority = if rng.next_f64() < 0.12 { 3 } else if rng.next_f64() < 0.4 { 2 } else { 1 };
+        let priority = if rng.next_f64() < 0.12 {
+            3
+        } else if rng.next_f64() < 0.4 {
+            2
+        } else {
+            1
+        };
         let deadline = if rng.next_f64() < 0.7 {
             Some(release + 900.0 + rng.next_f64() * 3_600.0)
         } else {
@@ -740,7 +1806,11 @@ fn build_tasks(
     }
     // 多深位场景：把一部分任务指向深位，强制触发倒垛
     if topology.racks.iter().any(|rack| rack.depths > 1) {
-        let deep: Vec<_> = locations.iter().filter(|record| record.depth > 1).cloned().collect();
+        let deep: Vec<_> = locations
+            .iter()
+            .filter(|record| record.depth > 1)
+            .cloned()
+            .collect();
         if !deep.is_empty() {
             for (index, task) in tasks.iter_mut().enumerate() {
                 if index % 5 == 0 {
@@ -757,11 +1827,20 @@ fn build_tasks(
     tasks
 }
 
-fn build_events(id: &str, tasks: &[crate::contract::WarehouseTask], _seed: u64) -> Vec<crate::contract::DynamicEvent> {
+fn build_events(
+    id: &str,
+    tasks: &[crate::contract::WarehouseTask],
+    _seed: u64,
+) -> Vec<crate::contract::DynamicEvent> {
     use crate::contract::DynamicEvent;
     let mut events: Vec<DynamicEvent> = Vec::new();
     let blank = Json::Null;
-    let make = |kind: &str, at_s: f64, value: f64, device_ids: Vec<String>, task_ids: Vec<String>, location_ids: Vec<String>| DynamicEvent {
+    let make = |kind: &str,
+                at_s: f64,
+                value: f64,
+                device_ids: Vec<String>,
+                task_ids: Vec<String>,
+                location_ids: Vec<String>| DynamicEvent {
         kind: kind.to_string(),
         at_s,
         payload: blank.clone(),
@@ -772,11 +1851,11 @@ fn build_events(id: &str, tasks: &[crate::contract::WarehouseTask], _seed: u64) 
         tasks: Vec::new(),
         value,
     };
-    let device = |index: usize| -> Vec<String> {
-        vec![format!("DEV-{index}")]
-    };
+    let device = |index: usize| -> Vec<String> { vec![format!("DEV-{index}")] };
     match id {
-        "S12" | "E02" | "E03" => events.push(make("demand-shift", 0.0, 1.4, vec![], vec![], vec![])),
+        "S12" | "E02" | "E03" => {
+            events.push(make("demand-shift", 0.0, 1.4, vec![], vec![], vec![]))
+        }
         "D18" | "E04" => {
             if let Some(task) = tasks.first() {
                 let mut inserted = task.clone();
@@ -792,11 +1871,39 @@ fn build_events(id: &str, tasks: &[crate::contract::WarehouseTask], _seed: u64) 
             let cancelled: Vec<String> = tasks.iter().take(5).map(|task| task.id.clone()).collect();
             events.push(make("task-cancel", 900.0, 0.0, vec![], cancelled, vec![]));
         }
-        "D20" | "E06" => events.push(make("device-breakdown", 1_200.0, 900.0, device(0), vec![], vec![])),
-        "E07" => events.push(make("device-breakdown", 1_800.0, 1_200.0, device(1), vec![], vec![])),
+        "D20" | "E06" => events.push(make(
+            "device-breakdown",
+            1_200.0,
+            900.0,
+            device(0),
+            vec![],
+            vec![],
+        )),
+        "E07" => events.push(make(
+            "device-breakdown",
+            1_800.0,
+            1_200.0,
+            device(1),
+            vec![],
+            vec![],
+        )),
         "E08" => {
-            events.push(make("device-breakdown", 1_200.0, 900.0, device(0), vec![], vec![]));
-            events.push(make("device-recovered", 2_100.0, 0.0, device(0), vec![], vec![]));
+            events.push(make(
+                "device-breakdown",
+                1_200.0,
+                900.0,
+                device(0),
+                vec![],
+                vec![],
+            ));
+            events.push(make(
+                "device-recovered",
+                2_100.0,
+                0.0,
+                device(0),
+                vec![],
+                vec![],
+            ));
         }
         "D21" | "E09" => {
             let mut event = make("aisle-closure", 1_500.0, 0.0, vec![], vec![], vec![]);
@@ -807,7 +1914,11 @@ fn build_events(id: &str, tasks: &[crate::contract::WarehouseTask], _seed: u64) 
             let frozen: Vec<String> = tasks
                 .iter()
                 .take(3)
-                .filter_map(|task| task.from_location_id.clone().or_else(|| task.to_location_id.clone()))
+                .filter_map(|task| {
+                    task.from_location_id
+                        .clone()
+                        .or_else(|| task.to_location_id.clone())
+                })
                 .collect();
             events.push(make("location-freeze", 600.0, 0.0, vec![], vec![], frozen));
         }
@@ -816,15 +1927,43 @@ fn build_events(id: &str, tasks: &[crate::contract::WarehouseTask], _seed: u64) 
             event.link_ids = vec!["BUF-1".to_string()];
             events.push(event);
         }
-        "D22" | "E12" => events.push(make("speed-degradation", 300.0, 0.3, device(0), vec![], vec![])),
+        "D22" | "E12" => events.push(make(
+            "speed-degradation",
+            300.0,
+            0.3,
+            device(0),
+            vec![],
+            vec![],
+        )),
         "E13" => {
             let cancelled: Vec<String> = tasks.iter().take(4).map(|task| task.id.clone()).collect();
-            events.push(make("order-cancel", 1_200.0, 0.0, vec![], cancelled, vec![]));
+            events.push(make(
+                "order-cancel",
+                1_200.0,
+                0.0,
+                vec![],
+                cancelled,
+                vec![],
+            ));
         }
         "E14" => {
             events.push(make("demand-shift", 0.0, 1.3, vec![], vec![], vec![]));
-            events.push(make("device-breakdown", 1_200.0, 600.0, device(0), vec![], vec![]));
-            events.push(make("speed-degradation", 1_800.0, 0.4, device(1), vec![], vec![]));
+            events.push(make(
+                "device-breakdown",
+                1_200.0,
+                600.0,
+                device(0),
+                vec![],
+                vec![],
+            ));
+            events.push(make(
+                "speed-degradation",
+                1_800.0,
+                0.4,
+                device(1),
+                vec![],
+                vec![],
+            ));
             let cancelled: Vec<String> = tasks.iter().take(3).map(|task| task.id.clone()).collect();
             events.push(make("task-cancel", 2_400.0, 0.0, vec![], cancelled, vec![]));
         }
@@ -867,7 +2006,10 @@ fn slotting_problem_to_json(
                             ("allowedZones", Json::strings(sku.allowed_zones.clone())),
                             ("temperature", Json::str(sku.temperature.clone())),
                             ("batchPolicy", Json::str(sku.batch_policy.clone())),
-                            ("affinityCluster", Json::opt_str(sku.affinity_cluster.clone())),
+                            (
+                                "affinityCluster",
+                                Json::opt_str(sku.affinity_cluster.clone()),
+                            ),
                         ])
                     })
                     .collect(),
@@ -875,13 +2017,7 @@ fn slotting_problem_to_json(
         ),
         (
             "inventory",
-            Json::Arr(
-                problem
-                    .inventory
-                    .iter()
-                    .map(inventory_unit_json)
-                    .collect(),
-            ),
+            Json::Arr(problem.inventory.iter().map(inventory_unit_json).collect()),
         ),
         (
             "orders",
@@ -984,8 +2120,14 @@ fn slotting_problem_to_json(
                     "maxAisleSharePerSku",
                     Json::Float(problem.constraints.max_aisle_share_per_sku),
                 ),
-                ("deepLanePolicy", Json::str(problem.constraints.deep_lane_policy.clone())),
-                ("batchPolicy", Json::str(problem.constraints.batch_policy.clone())),
+                (
+                    "deepLanePolicy",
+                    Json::str(problem.constraints.deep_lane_policy.clone()),
+                ),
+                (
+                    "batchPolicy",
+                    Json::str(problem.constraints.batch_policy.clone()),
+                ),
                 (
                     "maxUnassignedShare",
                     Json::Float(problem.constraints.max_unassigned_share),
@@ -998,36 +2140,72 @@ fn slotting_problem_to_json(
                 ("algorithm", Json::str(problem.algorithm.algorithm.clone())),
                 ("seed", Json::int(problem.algorithm.seed as i64)),
                 ("budget_ms", Json::Float(problem.algorithm.budget_ms)),
-                ("maxIterations", Json::int(problem.algorithm.max_iterations as i64)),
+                (
+                    "maxIterations",
+                    Json::int(problem.algorithm.max_iterations as i64),
+                ),
                 ("temperature", Json::Float(problem.algorithm.temperature)),
-                ("seeds", Json::strings(problem.algorithm.seeds.iter().map(|s| s.to_string()))),
+                (
+                    "seeds",
+                    Json::strings(problem.algorithm.seeds.iter().map(|s| s.to_string())),
+                ),
                 (
                     "migrationBudget",
                     Json::obj(vec![
-                        ("maxMoves", Json::int(problem.algorithm.migration_max_moves as i64)),
-                        ("maxDeviceSeconds", Json::Float(problem.algorithm.migration_max_seconds)),
+                        (
+                            "maxMoves",
+                            Json::int(problem.algorithm.migration_max_moves as i64),
+                        ),
+                        (
+                            "maxDeviceSeconds",
+                            Json::Float(problem.algorithm.migration_max_seconds),
+                        ),
                     ]),
                 ),
                 (
                     "pareto",
                     Json::obj(vec![
-                        ("populationSize", Json::int(problem.algorithm.pareto_population as i64)),
-                        ("generations", Json::int(problem.algorithm.pareto_generations as i64)),
+                        (
+                            "populationSize",
+                            Json::int(problem.algorithm.pareto_population as i64),
+                        ),
+                        (
+                            "generations",
+                            Json::int(problem.algorithm.pareto_generations as i64),
+                        ),
                     ]),
                 ),
                 (
                     "robust",
                     Json::obj(vec![
-                        ("scenarios", Json::int(problem.algorithm.robust_scenarios as i64)),
-                        ("measure", Json::str(problem.algorithm.robust_measure.clone())),
-                        ("cvarAlpha", Json::Float(problem.algorithm.robust_cvar_alpha)),
+                        (
+                            "scenarios",
+                            Json::int(problem.algorithm.robust_scenarios as i64),
+                        ),
+                        (
+                            "measure",
+                            Json::str(problem.algorithm.robust_measure.clone()),
+                        ),
+                        (
+                            "cvarAlpha",
+                            Json::Float(problem.algorithm.robust_cvar_alpha),
+                        ),
                     ]),
                 ),
-                ("exactWhenSmall", Json::Bool(problem.algorithm.exact_when_small)),
-                ("exactMaxUnits", Json::int(problem.algorithm.exact_max_units as i64)),
+                (
+                    "exactWhenSmall",
+                    Json::Bool(problem.algorithm.exact_when_small),
+                ),
+                (
+                    "exactMaxUnits",
+                    Json::int(problem.algorithm.exact_max_units as i64),
+                ),
             ]),
         ),
-        ("hardConstraints", Json::strings(problem.hard_constraints.clone())),
+        (
+            "hardConstraints",
+            Json::strings(problem.hard_constraints.clone()),
+        ),
         (
             "events",
             Json::Arr(
@@ -1098,7 +2276,10 @@ fn asrs_problem_to_json(
                                     None => Json::Null,
                                 },
                             ),
-                            ("fromLocationId", Json::opt_str(task.from_location_id.clone())),
+                            (
+                                "fromLocationId",
+                                Json::opt_str(task.from_location_id.clone()),
+                            ),
                             ("fromNodeId", Json::opt_str(task.from_node_id.clone())),
                             ("toLocationId", Json::opt_str(task.to_location_id.clone())),
                             ("toNodeId", Json::opt_str(task.to_node_id.clone())),
@@ -1106,7 +2287,10 @@ fn asrs_problem_to_json(
                             ("skuId", Json::str(task.sku_id.clone())),
                             ("dependsOn", Json::strings(task.depends_on.clone())),
                             ("orderId", Json::opt_str(task.order_id.clone())),
-                            ("dualCommandEligible", Json::Bool(task.dual_command_eligible)),
+                            (
+                                "dualCommandEligible",
+                                Json::Bool(task.dual_command_eligible),
+                            ),
                             ("cancellable", Json::Bool(task.cancellable)),
                         ])
                     })
@@ -1123,13 +2307,22 @@ fn asrs_problem_to_json(
                 ("algorithm", Json::str(problem.dispatch.algorithm.clone())),
                 ("seed", Json::int(problem.dispatch.seed as i64)),
                 ("budget_ms", Json::Float(problem.dispatch.budget_ms)),
-                ("rollingHorizon_s", Json::Float(problem.dispatch.rolling_horizon_s)),
+                (
+                    "rollingHorizon_s",
+                    Json::Float(problem.dispatch.rolling_horizon_s),
+                ),
                 ("dualCommand", Json::Bool(problem.dispatch.dual_command)),
-                ("conflictPolicy", Json::str(problem.dispatch.conflict_policy.clone())),
+                (
+                    "conflictPolicy",
+                    Json::str(problem.dispatch.conflict_policy.clone()),
+                ),
                 ("allowYield", Json::Bool(problem.dispatch.allow_yield)),
             ]),
         ),
-        ("hardConstraints", Json::strings(problem.hard_constraints.clone())),
+        (
+            "hardConstraints",
+            Json::strings(problem.hard_constraints.clone()),
+        ),
     ]);
     // 事件按契约序列化（payload 直接展开为顶层字段，便于宿主与验证器解析）
     let mut event_list: Vec<Json> = events
@@ -1155,7 +2348,10 @@ fn asrs_problem_to_json(
                                     ("kind", Json::str(task.kind.clone())),
                                     ("priority", Json::int(task.priority)),
                                     ("release_s", Json::Float(task.release_s)),
-                                    ("fromLocationId", Json::opt_str(task.from_location_id.clone())),
+                                    (
+                                        "fromLocationId",
+                                        Json::opt_str(task.from_location_id.clone()),
+                                    ),
                                     ("toLocationId", Json::opt_str(task.to_location_id.clone())),
                                     ("loadUnitId", Json::str(task.load_unit_id.clone())),
                                     ("skuId", Json::str(task.sku_id.clone())),
@@ -1188,7 +2384,10 @@ pub fn expectations_json() -> Json {
                 Json::obj(vec![
                     ("id", Json::str(scenario.id)),
                     ("expect", Json::str(scenario.expect)),
-                    ("mustShow", Json::strings(scenario.must_show.iter().copied())),
+                    (
+                        "mustShow",
+                        Json::strings(scenario.must_show.iter().copied()),
+                    ),
                 ])
             })
             .collect(),

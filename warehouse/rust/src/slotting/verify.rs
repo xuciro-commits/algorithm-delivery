@@ -36,7 +36,11 @@ impl Default for SlottingVerification {
 }
 
 /// 独立复核一份库位方案。
-pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool) -> SlottingVerification {
+pub fn verify_slotting(
+    problem: &SlottingProblem,
+    solution: &Json,
+    strict: bool,
+) -> SlottingVerification {
     let mut violations: Vec<Violation> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
     let cost_config = cost_config_of(problem);
@@ -192,7 +196,10 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
                 )
                 .location(location_id.clone())
                 .soft()
-                .expected_actual("front-only 策略要求 A 类放前排", format!("depth={}", record.depth)),
+                .expected_actual(
+                    "front-only 策略要求 A 类放前排",
+                    format!("depth={}", record.depth),
+                ),
             );
         }
     }
@@ -225,8 +232,8 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
             .subjects(missing.iter().take(20).cloned().collect::<Vec<String>>()),
         );
     }
-    let max_unassigned = (problem.inventory.len() as f64 * problem.constraints.max_unassigned_share)
-        .ceil() as usize;
+    let max_unassigned =
+        (problem.inventory.len() as f64 * problem.constraints.max_unassigned_share).ceil() as usize;
     if declared_unassigned.len() > max_unassigned {
         violations.push(Violation::new(
             constraints::UNASSIGNED_INVENTORY,
@@ -242,7 +249,11 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
     // ---- 3) 同 SKU 分散度约束（min/max 库位数）----
     let mut locations_per_sku: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
     for (location_id, unit_id) in &location_of {
-        if let Some(unit_index) = problem.inventory.iter().position(|unit| &unit.id == unit_id) {
+        if let Some(unit_index) = problem
+            .inventory
+            .iter()
+            .position(|unit| &unit.id == unit_id)
+        {
             locations_per_sku
                 .entry(model.lu_sku[unit_index])
                 .or_default()
@@ -274,7 +285,11 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
     let mut state = SlottingState::new(&model);
     let mut assignment_rebuilt = vec![-1i64; model.lu_sku.len()];
     for (location_id, unit_id) in &location_of {
-        let Some(unit_index) = problem.inventory.iter().position(|unit| &unit.id == unit_id) else {
+        let Some(unit_index) = problem
+            .inventory
+            .iter()
+            .position(|unit| &unit.id == unit_id)
+        else {
             continue;
         };
         let Some(location_index) = model.loc_index.get(location_id).copied() else {
@@ -334,14 +349,21 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
         ];
         let independent = Json::obj(vec![
             ("relocationCount", Json::int(relocation_count as i64)),
-            ("relocationDeviceSeconds", Json::Float(round(relocation_seconds, 3))),
-            ("travelSecondsPerDay", Json::Float(round(recomputed_travel, 3))),
+            (
+                "relocationDeviceSeconds",
+                Json::Float(round(relocation_seconds, 3)),
+            ),
+            (
+                "travelSecondsPerDay",
+                Json::Float(round(recomputed_travel, 3)),
+            ),
         ]);
         crate::verify::cross_check_metrics(&reported, &independent, &keys, &mut cross, &mut sink);
         violations.extend(cross);
     } else {
         notes.push(
-            "方案没有带 reportedMetrics：无法做优化器/验证器数字比对（建议在交付里携带）".to_string(),
+            "方案没有带 reportedMetrics：无法做优化器/验证器数字比对（建议在交付里携带）"
+                .to_string(),
         );
     }
 
@@ -372,9 +394,18 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
         violations,
         recomputed: Json::obj(vec![
             ("assignedUnits", Json::int(location_of.len() as i64)),
-            ("unassignedUnits", Json::int(declared_unassigned.len() as i64)),
-            ("travelSecondsPerDay", Json::Float(round(recomputed_travel, 3))),
-            ("travelMetersPerDay", Json::Float(round(recomputed_meters, 3))),
+            (
+                "unassignedUnits",
+                Json::int(declared_unassigned.len() as i64),
+            ),
+            (
+                "travelSecondsPerDay",
+                Json::Float(round(recomputed_travel, 3)),
+            ),
+            (
+                "travelMetersPerDay",
+                Json::Float(round(recomputed_meters, 3)),
+            ),
             ("relocationCount", Json::int(relocation_count as i64)),
             (
                 "relocationDeviceSeconds",
@@ -392,17 +423,11 @@ pub fn verify_slotting(problem: &SlottingProblem, solution: &Json, strict: bool)
                         .enumerate()
                         .map(|(index, flow)| {
                             Json::obj(vec![
-                                (
-                                    "aisleId",
-                                    Json::str(model.aisle_ids[index].clone()),
-                                ),
+                                ("aisleId", Json::str(model.aisle_ids[index].clone())),
                                 ("flowPerDay", Json::Float(round(*flow, 3))),
                                 (
                                     "capacitySecondsPerDay",
-                                    Json::Float(round(
-                                        model.aisle_capacity[index],
-                                        3,
-                                    )),
+                                    Json::Float(round(model.aisle_capacity[index], 3)),
                                 ),
                             ])
                         })

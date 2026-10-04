@@ -3,7 +3,7 @@
 //! 约定：
 //! * 所有导出函数都不 panic 穿越边界（catch_unwind 不适用于 wasm，改为内部 Result 化）；
 //! * 结果放在全局缓冲里，宿主先取 `wh_result_ptr` / `wh_result_len`，用完调 `wh_free_result`；
-//! * 时间来自宿主导入的 `wh_now_ms()`（wasm32-unknown-unknown 无 std::time）；
+//! * 时间来自宿主导入的 `env.aps_now_ms()`（aps-engine 的时钟抽象；wasm32-unknown-unknown 无 std::time）；
 //! * `wh_solve` 按文档 `kind` 字段分派到库位 / 调度 / 联合三个引擎。
 //!
 //! 线程安全：浏览器里 Worker 是单线程 + 每次求解独占，全局 `Mutex` 仅为与宿主契约一致。
@@ -133,15 +133,11 @@ pub extern "C" fn wh_generate(input_ptr: *const u8, input_len: usize) -> i32 {
             return Status::InvalidInput.code();
         }
     };
-    let scenario_id = crate::contract::opt_str(&value, "scenarioId").unwrap_or_else(|| "S01".to_string());
+    let scenario_id =
+        crate::contract::opt_str(&value, "scenarioId").unwrap_or_else(|| "S01".to_string());
     let scale = crate::contract::opt_str(&value, "scale");
     let seed = crate::contract::opt_i64(&value, "seed").map(|value| value.max(0) as u64);
-    let document = crate::scenario::build(
-        &scenario_id,
-        scale.as_deref(),
-        seed,
-        &mut issues,
-    );
+    let document = crate::scenario::build(&scenario_id, scale.as_deref(), seed, &mut issues);
     if issues.has_errors() {
         store_result(issues.to_json().canonical());
         return Status::InvalidInput.code();
@@ -152,7 +148,10 @@ pub extern "C" fn wh_generate(input_ptr: *const u8, input_len: usize) -> i32 {
 
 /// 求解：按文档 `kind` 分派（slotting / asrs / joint）。
 ///
-/// 返回状态码（`Status::code()`）；`0` 表示成功。结果 JSON 从 `wh_result_*` 取。
+/// 返回**状态码**（`Status::code()`，1–10；与 `agv_solve` / `wh_verify` 同一约定）：
+/// 有解时是 1–3，无解/输入错误时是 4–10。`0` 只表示参数或 ABI 层面的错误
+/// （宿主按"0 = 不该发生的错误"处理，绝不要把 0 当成成功）。
+/// 结果 JSON 从 `wh_result_*` 取。
 #[no_mangle]
 pub extern "C" fn wh_solve(input_ptr: *const u8, input_len: usize) -> i32 {
     let text = match read_input(input_ptr, input_len) {
@@ -164,14 +163,14 @@ pub extern "C" fn wh_solve(input_ptr: *const u8, input_len: usize) -> i32 {
         .ok()
         .and_then(|value| crate::contract::opt_str(&value, "kind"))
         .unwrap_or_else(|| "slotting".to_string());
-    let (result, _status) = match kind.as_str() {
+    let (result, status) = match kind.as_str() {
         "asrs" | "dense-asrs" => crate::engine::solve_asrs(&text, None),
         "joint" => crate::engine::solve_joint(&text, None),
         _ => crate::engine::solve_slotting(&text, None),
     };
     aps_engine::alloc::reset_peak();
     store_result(result);
-    0
+    status.code()
 }
 
 /// 带选项求解（选项 JSON 形如 `{"algorithm":"alns","seed":7,"budgetMs":3000}`）。
@@ -199,13 +198,13 @@ pub extern "C" fn wh_solve_with_options(
         .ok()
         .and_then(|value| crate::contract::opt_str(&value, "kind"))
         .unwrap_or_else(|| "slotting".to_string());
-    let (result, _status) = match kind.as_str() {
+    let (result, status) = match kind.as_str() {
         "asrs" | "dense-asrs" => crate::engine::solve_asrs(&text, options.as_deref()),
         "joint" => crate::engine::solve_joint(&text, options.as_deref()),
         _ => crate::engine::solve_slotting(&text, options.as_deref()),
     };
     store_result(result);
-    0
+    status.code()
 }
 
 /// 独立验证：输入是"问题 + 方案"，输出验证报告。
@@ -250,7 +249,7 @@ pub extern "C" fn wh_solve_summary(input_ptr: *const u8, input_len: usize) -> i3
         ));
     }
     store_result(root.canonical());
-    0
+    status.code()
 }
 
 /// 读取输入缓冲（不复制整个缓冲区两遍：wasm 内直接 UTF-8 校验）。
