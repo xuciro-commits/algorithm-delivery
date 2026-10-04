@@ -500,10 +500,7 @@ fn independent_metrics_block(report: &Json) -> Json {
         Some(Json::Arr(items)) => items,
         _ => return Json::Null,
     };
-    let horizon = match crate::contract::opt_f64(checked, "replayedHorizon_s") {
-        Some(value) => value,
-        None => 0.0,
-    };
+    let horizon = crate::contract::opt_f64(checked, "replayedHorizon_s").unwrap_or(0.0);
     let mut busy_cards: Vec<Json> = Vec::new();
     let mut share_cards: Vec<Json> = Vec::new();
     for entry in entries {
@@ -511,10 +508,7 @@ fn independent_metrics_block(report: &Json) -> Json {
             Some(id) => id,
             None => continue,
         };
-        let seconds = match crate::contract::opt_f64(entry, "busySeconds") {
-            Some(value) => value,
-            None => 0.0,
-        };
+        let seconds = crate::contract::opt_f64(entry, "busySeconds").unwrap_or(0.0);
         let share = if horizon > 0.0 {
             seconds / horizon
         } else {
