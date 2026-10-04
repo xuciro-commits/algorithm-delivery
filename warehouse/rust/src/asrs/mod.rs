@@ -418,7 +418,7 @@ fn solution_json(
                 ),
                 (
                     "reasons",
-                    Json::strings(order_notes.iter().take(6).cloned().collect()),
+                    Json::strings(order_notes.iter().take(6).cloned()),
                 ),
                 (
                     "note",

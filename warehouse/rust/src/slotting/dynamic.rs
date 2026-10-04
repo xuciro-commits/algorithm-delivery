@@ -148,7 +148,7 @@ pub fn dynamic(
     model: &mut SlottingModel,
     problem: &SlottingProblem,
     events: &[DynamicEvent],
-    options: &SlottingSolveOptions,
+    _options: &SlottingSolveOptions,
     weights: &Weights,
     seed: u64,
     budget_ms: f64,
@@ -181,7 +181,6 @@ pub fn dynamic(
             continue;
         }
         let snapshot = state.clone_state();
-        let relocation_before = state.relocation_count as f64;
         search::apply_move_public(model, &mut state, candidate_move);
         if state.relocation_count as f64 > keep_ratio
             && state.relocation_count > snapshot.relocation_count

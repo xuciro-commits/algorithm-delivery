@@ -1295,7 +1295,7 @@ fn run_task(
     device_ids.push(shuttle_id.clone());
 
     // 起点（设备当前位置）
-    let mut cursor = state
+    let cursor = state
         .device_pos
         .get(&shuttle_id)
         .cloned()

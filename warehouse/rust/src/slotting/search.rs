@@ -1510,7 +1510,7 @@ fn tabu(
     let mut rng = Rng::new(seed_from(&["tabu", &seed.to_string()]));
     let initial = greedy_seed(model, seed);
     let mut state = SlottingState::rebuild(model, &initial);
-    let mut current = fast_scalar(model, &state, weights);
+    let current = fast_scalar(model, &state, weights);
     let mut best_state = state.clone_state();
     let mut best_scalar = current;
     let mut tabu_until: BTreeMap<(usize, i64), u64> = BTreeMap::new();
@@ -1570,7 +1570,6 @@ fn tabu(
         let key = move_key(&state, chosen);
         tabu_until.insert(key, iteration + tenure);
         // 反向移动同样禁忌（近似对称禁忌），避免立刻换回来
-        current = value;
         stats
             .operators
             .entry("邻域移动（交换/再定位）".to_string())

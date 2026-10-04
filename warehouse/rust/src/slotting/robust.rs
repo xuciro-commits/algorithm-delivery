@@ -261,7 +261,7 @@ fn cvar(values: &[f64], alpha: f64) -> f64 {
 pub fn robust(
     model: &mut SlottingModel,
     problem: &crate::contract::SlottingProblem,
-    options: &SlottingSolveOptions,
+    _options: &SlottingSolveOptions,
     weights: &Weights,
     seed: u64,
     budget_ms: f64,
@@ -355,7 +355,7 @@ pub fn robust(
 }
 
 /// 动态事件对库位方案的影响（供 `dynamic` 模块与面板共用）。
-pub fn event_impact(model: &SlottingModel, events: &[DynamicEvent]) -> Vec<(String, String, f64)> {
+pub fn event_impact(_model: &SlottingModel, events: &[DynamicEvent]) -> Vec<(String, String, f64)> {
     events
         .iter()
         .map(|event| {

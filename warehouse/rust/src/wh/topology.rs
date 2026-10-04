@@ -441,15 +441,15 @@ pub fn build_topology(params: &TopologyParams) -> TopologyBundle {
     let node_positions: BTreeMap<String, [f64; 3]> = BTreeMap::new();
     let mut positions = node_positions;
 
-    let mut add_link = |links: &mut Vec<LinkSpec>,
-                        positions: &BTreeMap<String, [f64; 3]>,
-                        id: String,
-                        from: String,
-                        to: String,
-                        bidirectional: bool,
-                        mode: LinkMode,
-                        capacity: i32,
-                        allow_meeting: bool| {
+    let add_link = |links: &mut Vec<LinkSpec>,
+                    positions: &BTreeMap<String, [f64; 3]>,
+                    id: String,
+                    from: String,
+                    to: String,
+                    bidirectional: bool,
+                    mode: LinkMode,
+                    capacity: i32,
+                    allow_meeting: bool| {
         let length = match (positions.get(&from), positions.get(&to)) {
             (Some(a), Some(b)) => {
                 ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt()

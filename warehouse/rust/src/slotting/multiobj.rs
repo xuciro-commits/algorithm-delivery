@@ -91,7 +91,7 @@ pub struct ParetoPoint {
 pub fn nsga2(
     model: &mut SlottingModel,
     problem: &SlottingProblem,
-    options: &SlottingSolveOptions,
+    _options: &SlottingSolveOptions,
     weights: &Weights,
     seed: u64,
     budget_ms: f64,

@@ -215,7 +215,6 @@ pub fn abc_class(model: &SlottingModel) -> Vec<i64> {
                     if !occupied[*index] && can_place(model, *lu, *index).is_ok() {
                         assignment[*lu] = *index as i64;
                         occupied[*index] = true;
-                        placed = true;
                         break;
                     }
                 }

@@ -52,7 +52,7 @@ pub fn verify_schedule(
     timeline: &Timeline,
     options: &AsrsOptions,
 ) -> AsrsVerification {
-    let mut network = RunNetwork::build(&problem.topology);
+    let network = RunNetwork::build(&problem.topology);
     let mut result = AsrsVerification::default();
     let mut facts = CheckedFacts::default();
 

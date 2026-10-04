@@ -155,10 +155,12 @@ impl Envelope {
 /// 为什么由引擎给、不让前端算：聚类口径（并查集阈值、目标簇数）是算法的一部分，
 /// 前端再算一次就会出现"解释说的是 7 个簇、画布上画的是 9 个簇"这种对不上的情况。
 pub fn slotting_clusters_json(outcome: &SlottingOutcome) -> Json {
-    let mut by_sku = std::collections::BTreeMap::new();
+    // 保持 `cluster_of_sku` 的原始顺序（引擎侧已按 SKU 稳定排序），
+    // 这样同一份结果每次序列化出来的字节完全一致（指纹与回归对比都靠这个）。
+    let mut by_sku: Vec<(String, Json)> = Vec::with_capacity(outcome.cluster_of_sku.len());
     let mut clusters: i64 = 0;
     for (sku, cluster) in &outcome.cluster_of_sku {
-        by_sku.insert(sku.clone(), Json::int(*cluster));
+        by_sku.push((sku.clone(), Json::int(*cluster)));
         clusters = clusters.max(*cluster + 1);
     }
     Json::obj(vec![
